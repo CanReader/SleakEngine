@@ -1,47 +1,56 @@
-# Prerequisites
-*.d
+# Build output
+build/
+bin/
 
-# Compiled Object files
-*.slo
-*.suo
-*.lo
+# IDE and editor files
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.cache/
+
+# Compiled objects
 *.o
 *.obj
-*.recipe
-*.ilk
-*.log
+*.d
 *.pdb
-*.tlog
-*.idb
+*.ilk
+*.exp
 
-# Precompiled Headers
-*.gch
-*.pch
-*.ipch
-
-# Compiled Dynamic libraries
+# Libraries
+*.lib
+*.a
 *.so
 *.dylib
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
+*.dll
 
 # Executables
 *.exe
 *.out
 *.app
 
-# Folders
-.vscode
-.vs
-Client/Intermediate
-Engine/Intermediate
-Intermediate
-Client/Bin
-Engine/Bin
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+
+# Runtime artifacts
+Engine.log
+imgui.ini
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Miscellaneous
+.prettierrc
+log.txt
+nul
