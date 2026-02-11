@@ -1,0 +1,10 @@
+# Folders
+.vs
+.vscode
+.cache
+build/
+bin/
+
+# Files
+log.txt
+.prettierrc
