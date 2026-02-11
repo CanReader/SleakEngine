@@ -79,11 +79,16 @@ All dependencies are vendored &mdash; no package manager needed.
 ### Clone & Build
 
 ```bash
-git clone https://github.com/CanReader/SleakEngine.git
+git clone --recursive https://github.com/CanReader/SleakEngine.git
 cd SleakEngine
 cmake --preset debug
 cmake --build --preset debug
 ```
+
+> **Already cloned without `--recursive`?** Run this to fetch all vendor submodules:
+> ```bash
+> git submodule update --init --recursive
+> ```
 
 That's it. CMake handles all vendor compilation (SDL3, yaml-cpp, etc.), asset copying, and shared library deployment automatically via [CMake Presets](https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html).
 

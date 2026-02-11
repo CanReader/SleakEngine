@@ -28,6 +28,9 @@ bin/
 *.dylib
 *.dll
 
+# Exception: vendored Vulkan SDK libraries needed for build
+!Engine/vendors/VulkanSdk/Lib/vulkan-1.lib
+
 # Executables
 *.exe
 *.out

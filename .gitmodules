@@ -13,3 +13,23 @@
 [submodule "Engine/vendors/glm"]
 	path = Engine/vendors/glm
 	url = https://github.com/g-truc/glm
+
+[submodule "Engine/vendors/SDL3"]
+	path = Engine/vendors/SDL3
+	url = https://github.com/libsdl-org/SDL
+
+[submodule "Engine/vendors/fmt"]
+	path = Engine/vendors/fmt
+	url = https://github.com/fmtlib/fmt
+
+[submodule "Engine/vendors/freeglut"]
+	path = Engine/vendors/freeglut
+	url = https://github.com/freeglut/freeglut
+
+[submodule "Engine/vendors/json"]
+	path = Engine/vendors/json
+	url = https://github.com/nlohmann/json
+
+[submodule "Engine/vendors/yaml-cpp"]
+	path = Engine/vendors/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
