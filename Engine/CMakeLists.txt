@@ -45,17 +45,28 @@ file(GLOB_RECURSE ENGINE_SOURCES
     "src/*.cpp"
 )
 
+# --- Exclude DirectX sources on non-Windows platforms ---
+if(NOT WIN32 AND NOT USE_MINGW)
+    list(FILTER ENGINE_SOURCES EXCLUDE REGEX ".*DirectX.*\\.cpp$")
+endif()
+
 file(GLOB_RECURSE IMGUI_SOURCES
     ${VENDOR_DIR}/imgui/imgui.cpp
     ${VENDOR_DIR}/imgui/imgui_draw.cpp
     ${VENDOR_DIR}/imgui/imgui_tables.cpp
     ${VENDOR_DIR}/imgui/imgui_widgets.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_sdl3.cpp
-    ${VENDOR_DIR}/imgui/backends/imgui_impl_dx11.cpp
-    ${VENDOR_DIR}/imgui/backends/imgui_impl_dx12.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_vulkan.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_opengl3.cpp
 )
+
+# --- DirectX ImGui backends (Windows only) ---
+if(WIN32 OR USE_MINGW)
+    list(APPEND IMGUI_SOURCES
+        ${VENDOR_DIR}/imgui/backends/imgui_impl_dx11.cpp
+        ${VENDOR_DIR}/imgui/backends/imgui_impl_dx12.cpp
+    )
+endif()
 
 # --- Create Engine shared library ---
 add_library(Engine SHARED ${ENGINE_SOURCES} ${IMGUI_SOURCES})
