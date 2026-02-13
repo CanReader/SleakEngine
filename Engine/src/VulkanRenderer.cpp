@@ -83,6 +83,12 @@ bool VulkanRenderer::Initialize() {
     if (!AllocateDescriptorSets())
         SLEAK_RETURN_ERR("Failed to allocate descriptor sets!");
 
+    if (!CreateCommandPool())
+        SLEAK_RETURN_ERR("Failed to create command pool for renderer!");
+
+    if (!CreateCommandBuffer())
+        SLEAK_RETURN_ERR("Failed to create command buffers for renderer!");
+
     if (!CreateDefaultTexture())
         SLEAK_WARN("Failed to create default white texture for Vulkan");
 
@@ -91,12 +97,6 @@ bool VulkanRenderer::Initialize() {
 
     if (!CreateFrameBuffer())
         SLEAK_RETURN_ERR("Failed to create framebuffer of renderer!");
-
-    if (!CreateCommandPool())
-        SLEAK_RETURN_ERR("Failed to create command pool for renderer!");
-
-    if (!CreateCommandBuffer())
-        SLEAK_RETURN_ERR("Failed to create command buffers for renderer!");
 
     if (!CreateSyncObjects())
         SLEAK_RETURN_ERR("Failed to synchronization objects of renderer!");
