@@ -1,3 +1,8 @@
+
+<p align="center">
+  <img src="logo.png" alt="SleakEngine" width="200">
+</p>
+
 <h1 align="center">SleakEngine</h1>
 
 <p align="center">
