@@ -141,14 +141,18 @@ private:
         void* pUserData);
 
     bool bRender = true;
+    bool bFrameStarted = false;
 
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+    uint32_t currentFrame = 0;
     uint32_t CurrentFrameIndex = 0;
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkCommandBuffer command = VK_NULL_HANDLE;
+    std::vector<VkCommandBuffer> commandBuffers;
+    VkCommandBuffer command = VK_NULL_HANDLE;  // alias for commandBuffers[currentFrame]
     std::vector<VkFramebuffer> swapChainFramebuffers;
     std::vector<VkImage> swapChainImages;
     std::vector<VkImageView> swapChainImageViews;
@@ -159,9 +163,9 @@ private:
     std::vector<VkPhysicalDevice> GPUs;
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLay = VK_NULL_HANDLE;
-    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
-    VkFence inFlightFence = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
     VulkanShader* simpleShader = nullptr;
     VkClearValue clearColor;
 
