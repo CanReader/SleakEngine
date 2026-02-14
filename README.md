@@ -1,11 +1,7 @@
-<p align="center">
-  <img src="logo.png" alt="SleakEngine" width="200">
-</p>
-
 <h1 align="center">SleakEngine</h1>
 
 <p align="center">
-  <strong>Open-source 3D game engine built with C++23</strong>
+  <strong>Open-source 3D game engine library built with C++23</strong>
   <br />
   Multi-backend rendering &bull; Component-based ECS &bull; Cross-platform
 </p>
@@ -24,21 +20,13 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square" alt="Platform">
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> &bull;
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
-  <a href="#building-your-game">Building Your Game</a> &bull;
-  <a href="docs/SCENE_SYSTEM_GUIDE.md">Docs</a>
-</p>
-
 ---
 
-## Why SleakEngine?
+## About
 
-SleakEngine gives you a clean, modular foundation for 3D applications without the bloat. The engine separates concerns into independent shared libraries &mdash; swap the renderer, replace the game layer, or extend the core without touching unrelated code.
+SleakEngine is the **core engine library** for building 3D applications. This repository contains only the engine itself &mdash; rendering, ECS, input, math, scene management, and all vendored dependencies.
 
-Pick your graphics API at startup. Write your game logic once. Ship on any platform.
+To create a game project, use the **[SleakEngine-Empty](https://github.com/CanReader/SleakEngine-Empty)** starter template, which pulls this repo in as a git submodule.
 
 ## Features
 
@@ -65,143 +53,57 @@ Pick your graphics API at startup. Write your game logic once. Ship on any platf
 - ImGui debug overlay with camera controls, performance metrics, and scene inspection
 - Custom smart pointers (`RefPtr<T>`, `ObjectPtr<T>`, `WeakPtr<T>`) and containers (`List<T>`, `HashTable<K,V>`, `Queue<T>`, `Graph<T>`)
 
-## Quick Start
+## Templates
 
-### Prerequisites
+Get started quickly with a project template:
 
-| Requirement | Minimum |
-|---|---|
-| **CMake** | 3.31+ |
-| **C++ Compiler** | C++23 (MSVC, GCC, or Clang) |
+| Template | Description | Status |
+|---|---|---|
+| [Empty Template](https://github.com/CanReader/SleakEngine-Empty) | Minimal starter with a blank scene | Available |
+| First Person Template | First-person camera and movement | Coming soon |
+| Third Person Template | Third-person camera and character controller | Coming soon |
+| Top Down Template | Top-down camera and controls | Coming soon |
 
-All dependencies are vendored &mdash; no package manager needed.
+## Using SleakEngine in Your Project
 
-### Clone & Build
+The recommended way is to add this repo as a git submodule:
+
+```bash
+git submodule add https://github.com/CanReader/SleakEngine.git Engine
+git submodule update --init --recursive
+```
+
+Then in your root `CMakeLists.txt`:
+
+```cmake
+add_subdirectory(Engine)
+```
+
+Link against the `Engine` target from your game library.
+
+Or use the **[SleakEngine-Empty](https://github.com/CanReader/SleakEngine-Empty)** template which has this all set up.
+
+## Building Standalone
+
+To build the engine library on its own:
 
 ```bash
 git clone --recursive https://github.com/CanReader/SleakEngine.git
 cd SleakEngine
-cmake --preset debug
-cmake --build --preset debug
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
-> **Already cloned without `--recursive`?** Run this to fetch all vendor submodules:
-> ```bash
-> git submodule update --init --recursive
-> ```
-
-That's it. CMake handles all vendor compilation (SDL3, yaml-cpp, etc.), asset copying, and shared library deployment automatically via [CMake Presets](https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html).
-
-For an optimized build, use the `release` preset:
-
-```bash
-cmake --preset release
-cmake --build --preset release
-```
-
-Output goes to `bin/` with all assets and runtime libraries in place, ready to run.
-
-### Launch
-
-```bash
-./bin/SleakEngine -w 1280 -h 720 -t My_Game
-```
-
-| Flag | Description |
-|---|---|
-| `-w` | Window width |
-| `-h` | Window height |
-| `-t` | Window title (use `_` for spaces) |
-
-## Architecture
-
-SleakEngine is split into three independent build targets:
-
-| Target | Role |
-|---|---|
-| **Engine** | Core shared library &mdash; rendering, ECS, input, math, scene management |
-| **Game** | Game logic shared library &mdash; inherits from `Sleak::GameBase` |
-| **Client** | Thin executable entry point &mdash; instantiates the game and runs the application |
-
-```
-Engine (core)           Game (your code)           Client (entry point)
-┌──────────────┐       ┌──────────────┐           ┌──────────────┐
-│ Renderer     │       │ GameBase     │           │ main()       │
-│ ECS          │◄──────│ Scenes       │◄──────────│ Creates Game │
-│ SceneManager │       │ GameObjects  │           │ Runs App     │
-│ Input        │       │ Components   │           └──────────────┘
-│ Math / Utils │       └──────────────┘
-└──────────────┘
-```
-
-### Main Loop
-
-```
-Application::Run(GameBase*)
- │
- ├─ Game::Initialize()         // Create scenes, objects, components
- ├─ Game::Begin()              // Post-initialization setup
- │
- └─ Per Frame:
-     ├─ Window::Update()       // Poll input, handle events
-     ├─ Renderer::BeginRender()
-     ├─ FixedUpdate()          // 60 Hz physics tick (accumulator-based)
-     ├─ Update(deltaTime)      // Per-frame game logic
-     ├─ LateUpdate(deltaTime)  // Post-update (camera follow, UI, etc.)
-     └─ Renderer::EndRender()  // Flush render command queue
-```
-
-### Project Layout
+## Repository Structure
 
 ```
 SleakEngine/
-├── CMakePresets.json      Build presets (debug / release)
-├── Engine/
-│   ├── include/           Public & private headers
-│   ├── src/               Implementation
-│   ├── assets/shaders/    Default shaders
-│   └── vendors/           All third-party dependencies
-├── Game/
-│   ├── include/           Game headers
-│   ├── src/               Game implementation
-│   └── assets/            Textures, models, etc.
-├── Client/
-│   └── src/               main.cpp
-└── docs/                  Documentation
+└── Engine/
+    ├── include/           Public & private headers
+    ├── src/               Implementation
+    ├── assets/shaders/    Default shaders
+    └── vendors/           All third-party dependencies
 ```
-
-## Building Your Game
-
-Implement three methods in `Game/src/Game.cpp`:
-
-```cpp
-#include "Game.hpp"
-
-void Game::Initialize() {
-    auto* scene = CreateScene("MainScene");
-
-    auto* player = scene->CreateObject("Player");
-    player->AddComponent<Transform>();
-    player->AddComponent<Mesh>();
-    player->AddComponent<Material>();
-
-    auto* camera = scene->CreateObject("Camera");
-    camera->AddComponent<Transform>();
-    camera->AddComponent<Camera>();
-
-    SetActiveScene(scene);
-}
-
-void Game::Begin() {
-    // Runs once after initialization
-}
-
-void Game::Loop(float DeltaTime) {
-    // Runs every frame
-}
-```
-
-See the **[Scene System Guide](docs/SCENE_SYSTEM_GUIDE.md)** for the complete API reference.
 
 ## Vendored Dependencies
 
@@ -215,19 +117,9 @@ See the **[Scene System Guide](docs/SCENE_SYSTEM_GUIDE.md)** for the complete AP
 | [yaml-cpp](https://github.com/jbeder/yaml-cpp) | YAML configuration |
 | [glad](https://glad.dav1d.de/) | OpenGL loading |
 
-No external downloads required &mdash; everything lives under `Engine/vendors/`.
-
 ## Contributing
 
 Contributions are welcome. Fork the repository, create a feature branch, and open a pull request.
-
-## Screenshots
-
-<p align="center">
-  <img src="Minimal-Scene.png" alt="SleakEngine — Minimal Scene" width="720">
-  <br />
-  <em>Minimal scene &mdash; debug camera, ImGui overlays, and real-time performance metrics</em>
-</p>
 
 ## License
 

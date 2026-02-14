@@ -27,7 +27,4 @@ if(USE_MINGW)
     set(CMAKE_SYSTEM_NAME Windows)
 endif()
 
-# Actual projects
 add_subdirectory(Engine)
-add_subdirectory(Game)
-add_subdirectory(Client)
