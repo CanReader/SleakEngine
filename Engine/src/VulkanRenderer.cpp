@@ -1,6 +1,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
 
 #include <SDL3/SDL_vulkan.h>
 #include <Window.hpp>
@@ -42,6 +43,10 @@ VulkanRenderer::VulkanRenderer(Window* window)
         this, &VulkanRenderer::CreateShader);
     ResourceManager::RegisterCreateTexture(
         this, &VulkanRenderer::CreateTexture);
+    ResourceManager::RegisterCreateCubemapTexture(
+        this, &VulkanRenderer::CreateCubemapTexture);
+    ResourceManager::RegisterCreateCubemapTextureFromPanorama(
+        this, &VulkanRenderer::CreateCubemapTextureFromPanorama);
 }
 
 VulkanRenderer::~VulkanRenderer() {
@@ -423,6 +428,129 @@ Texture* VulkanRenderer::CreateTextureFromData(uint32_t width,
     return nullptr;
 }
 
+Texture* VulkanRenderer::CreateCubemapTexture(
+    const std::array<std::string, 6>& facePaths) {
+    auto* texture = new VulkanCubemapTexture(device, physicalDevice,
+                                              commands, graphicsQueue);
+    if (texture->LoadCubemap(facePaths)) {
+        // Create skybox pipeline if not already created
+        if (skyboxPipeline == VK_NULL_HANDLE) {
+            if (!CreateSkyboxPipeline()) {
+                SLEAK_ERROR("VulkanRenderer: Failed to create skybox pipeline");
+                delete texture;
+                return nullptr;
+            }
+        }
+
+        // Write cubemap to skybox descriptor sets
+        for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout =
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
+
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType =
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = skyboxDescriptorSets[i];
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0,
+                                   nullptr);
+        }
+        m_skyboxDescriptorsWritten = true;
+
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+Texture* VulkanRenderer::CreateCubemapTextureFromPanorama(
+    const std::string& panoramaPath) {
+    auto* texture = new VulkanCubemapTexture(device, physicalDevice,
+                                              commands, graphicsQueue);
+    if (texture->LoadEquirectangular(panoramaPath)) {
+        // Create skybox pipeline if not already created
+        if (skyboxPipeline == VK_NULL_HANDLE) {
+            if (!CreateSkyboxPipeline()) {
+                SLEAK_ERROR("VulkanRenderer: Failed to create skybox pipeline");
+                delete texture;
+                return nullptr;
+            }
+        }
+
+        // Write cubemap to skybox descriptor sets
+        for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout =
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
+
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType =
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = skyboxDescriptorSets[i];
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0,
+                                   nullptr);
+        }
+        m_skyboxDescriptorsWritten = true;
+
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
+                                  uint32_t slot) {
+    // For cubemap textures during skybox pass, descriptor sets are
+    // already bound via BeginSkyboxPass
+    (void)texture;
+    (void)slot;
+}
+
+void VulkanRenderer::BeginSkyboxPass() {
+    if (skyboxPipeline == VK_NULL_HANDLE || !m_skyboxDescriptorsWritten)
+        return;
+
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      skyboxPipeline);
+
+    if (CurrentFrameIndex < skyboxDescriptorSets.size()) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
+            &skyboxDescriptorSets[CurrentFrameIndex], 0, nullptr);
+    }
+}
+
+void VulkanRenderer::EndSkyboxPass() {
+    // Restore main pipeline
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+    // Rebind main texture descriptor sets
+    if (m_textureDescriptorsWritten &&
+        CurrentFrameIndex < descriptorSets.size()) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
+            &descriptorSets[CurrentFrameIndex], 0, nullptr);
+    }
+}
+
 // -----------------------------------------------------------------------
 // Command Buffer
 // -----------------------------------------------------------------------
@@ -475,6 +603,19 @@ void VulkanRenderer::Cleanup() {
         descriptorPool = VK_NULL_HANDLE;
     }
     descriptorSets.clear();
+
+    // Destroy skybox resources
+    if (skyboxPipeline) {
+        vkDestroyPipeline(device, skyboxPipeline, nullptr);
+        skyboxPipeline = VK_NULL_HANDLE;
+    }
+    if (skyboxDescriptorPool) {
+        vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
+        skyboxDescriptorPool = VK_NULL_HANDLE;
+    }
+    skyboxDescriptorSets.clear();
+    delete skyboxShader;
+    skyboxShader = nullptr;
 
     // Destroy descriptor set layout
     if (descriptorSetLayout) {
@@ -1802,6 +1943,194 @@ bool VulkanRenderer::CreateImGUI() {
         return false;
 
     bImInitialized = true;
+    return true;
+}
+
+// -----------------------------------------------------------------------
+// Skybox Pipeline
+// -----------------------------------------------------------------------
+
+bool VulkanRenderer::CreateSkyboxPipeline() {
+    // 1. Compile skybox shaders
+    skyboxShader = new VulkanShader(device);
+    if (!skyboxShader->compile("assets/shaders/skybox")) {
+        SLEAK_ERROR("VulkanRenderer: Failed to compile skybox shaders");
+        delete skyboxShader;
+        skyboxShader = nullptr;
+        return false;
+    }
+
+    // 2. Create skybox descriptor pool and sets (same layout as main)
+    uint32_t imageCount =
+        static_cast<uint32_t>(swapChainImages.size());
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = imageCount;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = imageCount;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr,
+                                &skyboxDescriptorPool) != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create skybox descriptor pool");
+        return false;
+    }
+
+    std::vector<VkDescriptorSetLayout> layouts(imageCount,
+                                                descriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = skyboxDescriptorPool;
+    allocInfo.descriptorSetCount = imageCount;
+    allocInfo.pSetLayouts = layouts.data();
+
+    skyboxDescriptorSets.resize(imageCount);
+    if (vkAllocateDescriptorSets(device, &allocInfo,
+                                  skyboxDescriptorSets.data()) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to allocate skybox descriptor sets");
+        return false;
+    }
+
+    // 3. Create skybox pipeline (same as main but with skybox shaders
+    //    and depth write disabled)
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        skyboxShader->GetVertexInfo(), skyboxShader->GetFragInfo()};
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount =
+        static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Same vertex layout as main pipeline
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
+    attributeDescs[0].binding = 0;
+    attributeDescs[0].location = 0;
+    attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[0].offset = offsetof(Vertex, px);
+
+    attributeDescs[1].binding = 0;
+    attributeDescs[1].location = 1;
+    attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[1].offset = offsetof(Vertex, nx);
+
+    attributeDescs[2].binding = 0;
+    attributeDescs[2].location = 2;
+    attributeDescs[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[2].offset = offsetof(Vertex, tx);
+
+    attributeDescs[3].binding = 0;
+    attributeDescs[3].location = 3;
+    attributeDescs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[3].offset = offsetof(Vertex, r);
+
+    attributeDescs[4].binding = 0;
+    attributeDescs[4].location = 4;
+    attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[4].offset = offsetof(Vertex, u);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    inputAssemblyInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportInfo{};
+    viewportInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportInfo.viewportCount = 1;
+    viewportInfo.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Skybox: depth test enabled (LEQUAL), depth write DISABLED
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments = &colorBlendAttachment;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;  // Reuse same pipeline layout
+    pipelineInfo.subpass = 0;
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &skyboxPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create skybox pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Skybox pipeline created successfully");
     return true;
 }
 

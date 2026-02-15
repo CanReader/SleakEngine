@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <vector>
 #include <set>
+#include <array>
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -90,7 +91,16 @@ public:
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
+
+    virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+    virtual void BeginSkyboxPass() override;
+    virtual void EndSkyboxPass() override;
+
 private:
+    bool CreateSkyboxPipeline();
+    void UpdateSkyboxDescriptorSets();
     bool InitVulkan();
     bool CreateSurface();
     bool CreateDevice();
@@ -195,6 +205,13 @@ private:
     // Texture binding
     bool m_textureDescriptorsWritten = false;
     VulkanTexture* m_defaultTexture = nullptr;
+
+    // Skybox pipeline
+    VkPipeline skyboxPipeline = VK_NULL_HANDLE;
+    VulkanShader* skyboxShader = nullptr;
+    VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> skyboxDescriptorSets;
+    bool m_skyboxDescriptorsWritten = false;
 
     // ImGUI
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
