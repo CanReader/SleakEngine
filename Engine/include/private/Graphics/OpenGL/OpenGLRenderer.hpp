@@ -7,6 +7,7 @@
 #include "../../Window.hpp"
 #include <SDL3/SDL.h>
 #include <glad/glad.h>
+#include <array>
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
 
@@ -48,6 +49,11 @@ public:
     virtual void ClearDepthStencil(bool clearDepth, bool clearStencil,
                                    float depth, uint8_t stencil) override;
 
+    virtual void SetDepthWrite(bool enabled) override;
+    virtual void SetDepthCompare(DepthCompare compare) override;
+    virtual void SetCullEnabled(bool enabled) override;
+    virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+
     virtual void BindVertexBuffer(RefPtr<BufferBase> buffer,
                                   uint32_t slot = 0) override;
     virtual void BindIndexBuffer(RefPtr<BufferBase> buffer,
@@ -61,6 +67,9 @@ public:
     virtual Texture* CreateTexture(const std::string& TexturePath) override;
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
+
+    Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
 private:
     Window* m_Window;

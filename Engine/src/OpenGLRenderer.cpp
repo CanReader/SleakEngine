@@ -2,6 +2,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
 #include "Graphics/Vertex.hpp"
 #include "Graphics/ResourceManager.hpp"
 #include <vector>
@@ -19,6 +20,10 @@ OpenGLRenderer::OpenGLRenderer(Window* window)
         this, &OpenGLRenderer::CreateShader);
     ResourceManager::RegisterCreateTexture(
         this, &OpenGLRenderer::CreateTexture);
+    ResourceManager::RegisterCreateCubemapTexture(
+        this, &OpenGLRenderer::CreateCubemapTexture);
+    ResourceManager::RegisterCreateCubemapTextureFromPanorama(
+        this, &OpenGLRenderer::CreateCubemapTextureFromPanorama);
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -181,6 +186,37 @@ void OpenGLRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
     if (mask) glClear(mask);
 }
 
+void OpenGLRenderer::SetDepthWrite(bool enabled) {
+    glDepthMask(enabled ? GL_TRUE : GL_FALSE);
+}
+
+void OpenGLRenderer::SetDepthCompare(DepthCompare compare) {
+    GLenum glFunc = GL_LESS;
+    switch (compare) {
+        case DepthCompare::Less:         glFunc = GL_LESS; break;
+        case DepthCompare::LessEqual:    glFunc = GL_LEQUAL; break;
+        case DepthCompare::Greater:      glFunc = GL_GREATER; break;
+        case DepthCompare::GreaterEqual: glFunc = GL_GEQUAL; break;
+        case DepthCompare::Equal:        glFunc = GL_EQUAL; break;
+        case DepthCompare::NotEqual:     glFunc = GL_NOTEQUAL; break;
+        case DepthCompare::Always:       glFunc = GL_ALWAYS; break;
+        case DepthCompare::Never:        glFunc = GL_NEVER; break;
+    }
+    glDepthFunc(glFunc);
+}
+
+void OpenGLRenderer::SetCullEnabled(bool enabled) {
+    if (enabled)
+        glEnable(GL_CULL_FACE);
+    else
+        glDisable(GL_CULL_FACE);
+}
+
+void OpenGLRenderer::BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot) {
+    if (texture.IsValid())
+        texture->Bind(slot);
+}
+
 void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
     auto* glBuf = dynamic_cast<OpenGLBuffer*>(buffer.get());
@@ -301,6 +337,24 @@ void OpenGLRenderer::ConfigureRenderFace() {
             glDisable(GL_CULL_FACE);
             break;
     }
+}
+
+Texture* OpenGLRenderer::CreateCubemapTexture(const std::array<std::string, 6>& facePaths) {
+    auto* texture = new OpenGLCubemapTexture();
+    if (texture->LoadCubemap(facePaths)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+Texture* OpenGLRenderer::CreateCubemapTextureFromPanorama(const std::string& panoramaPath) {
+    auto* texture = new OpenGLCubemapTexture();
+    if (texture->LoadEquirectangular(panoramaPath)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
 }
 
 bool OpenGLRenderer::CreateImGUI() {
