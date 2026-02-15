@@ -7,6 +7,7 @@
 #include <Graphics/DirectX/DirectX11Buffer.hpp>
 #include <Graphics/DirectX/DirectX11Shader.hpp>
 #include "Graphics/DirectX/DirectX11Texture.hpp"
+#include "Graphics/DirectX/DirectX11CubemapTexture.hpp"
 #include "Graphics/Vertex.hpp"
 #include <Graphics/ConstantBuffer.hpp>
 #include <imgui_internal.h>
@@ -28,7 +29,9 @@ DirectX11Renderer::DirectX11Renderer(Window* window)
         ResourceManager::RegisterCreateBuffer(this,&DirectX11Renderer::CreateBuffer);
         ResourceManager::RegisterCreateShader(this,&DirectX11Renderer::CreateShader);
         ResourceManager::RegisterCreateTexture(this,&DirectX11Renderer::CreateTexture);
-        
+        ResourceManager::RegisterCreateCubemapTexture(this,&DirectX11Renderer::CreateCubemapTexture);
+        ResourceManager::RegisterCreateCubemapTextureFromPanorama(this,&DirectX11Renderer::CreateCubemapTextureFromPanorama);
+
       }
 
 DirectX11Renderer::~DirectX11Renderer() {
@@ -579,6 +582,111 @@ Texture* DirectX11Renderer::CreateTexture(const std::string& TexturePath) {
         return texture;
     }
     return nullptr;
+}
+
+Texture* DirectX11Renderer::CreateCubemapTexture(
+    const std::array<std::string, 6>& facePaths) {
+    auto* texture = new DirectX11CubemapTexture(device);
+    if (texture->LoadCubemap(facePaths)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+Texture* DirectX11Renderer::CreateCubemapTextureFromPanorama(
+    const std::string& panoramaPath) {
+    auto* texture = new DirectX11CubemapTexture(device);
+    if (texture->LoadEquirectangular(panoramaPath)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+void DirectX11Renderer::SetDepthWrite(bool enabled) {
+    m_depthWriteEnabled = enabled;
+
+    D3D11_DEPTH_STENCIL_DESC desc = {};
+    desc.DepthEnable = TRUE;
+    desc.DepthWriteMask = enabled ? D3D11_DEPTH_WRITE_MASK_ALL
+                                  : D3D11_DEPTH_WRITE_MASK_ZERO;
+    desc.DepthFunc = m_depthFunc;
+    desc.StencilEnable = FALSE;
+
+    ID3D11DepthStencilState* state = nullptr;
+    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
+        deviceContext->OMSetDepthStencilState(state, 1);
+        state->Release();
+    }
+}
+
+void DirectX11Renderer::SetDepthCompare(DepthCompare compare) {
+    switch (compare) {
+        case DepthCompare::Less:         m_depthFunc = D3D11_COMPARISON_LESS; break;
+        case DepthCompare::LessEqual:    m_depthFunc = D3D11_COMPARISON_LESS_EQUAL; break;
+        case DepthCompare::Greater:      m_depthFunc = D3D11_COMPARISON_GREATER; break;
+        case DepthCompare::GreaterEqual: m_depthFunc = D3D11_COMPARISON_GREATER_EQUAL; break;
+        case DepthCompare::Equal:        m_depthFunc = D3D11_COMPARISON_EQUAL; break;
+        case DepthCompare::NotEqual:     m_depthFunc = D3D11_COMPARISON_NOT_EQUAL; break;
+        case DepthCompare::Always:       m_depthFunc = D3D11_COMPARISON_ALWAYS; break;
+        case DepthCompare::Never:        m_depthFunc = D3D11_COMPARISON_NEVER; break;
+    }
+
+    D3D11_DEPTH_STENCIL_DESC desc = {};
+    desc.DepthEnable = TRUE;
+    desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
+                                               : D3D11_DEPTH_WRITE_MASK_ZERO;
+    desc.DepthFunc = m_depthFunc;
+    desc.StencilEnable = FALSE;
+
+    ID3D11DepthStencilState* state = nullptr;
+    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
+        deviceContext->OMSetDepthStencilState(state, 1);
+        state->Release();
+    }
+}
+
+void DirectX11Renderer::SetCullEnabled(bool enabled) {
+    if (enabled) {
+        cull = D3D11_CULL_FRONT;
+    } else {
+        cull = D3D11_CULL_NONE;
+    }
+    SetRasterState();
+}
+
+void DirectX11Renderer::BindTexture(RefPtr<Sleak::Texture> texture,
+                                     uint32_t slot) {
+    if (texture.IsValid()) {
+        texture->Bind(slot);
+    }
+}
+
+void DirectX11Renderer::BeginSkyboxPass() {
+    // Save current state
+    m_savedCullMode = cull;
+    m_savedDepthStencilState = depthStencilState;
+    if (m_savedDepthStencilState) {
+        m_savedDepthStencilState->AddRef();
+    }
+}
+
+void DirectX11Renderer::EndSkyboxPass() {
+    // Restore depth stencil state
+    if (m_savedDepthStencilState) {
+        deviceContext->OMSetDepthStencilState(m_savedDepthStencilState, 1);
+        m_savedDepthStencilState->Release();
+        m_savedDepthStencilState = nullptr;
+    }
+
+    // Restore cull mode
+    cull = m_savedCullMode;
+    SetRasterState();
+
+    // Reset depth tracking
+    m_depthWriteEnabled = true;
+    m_depthFunc = D3D11_COMPARISON_LESS;
 }
 
 BufferBase* DirectX11Renderer::CreateBuffer(BufferType Type, uint32_t size, void* data) {

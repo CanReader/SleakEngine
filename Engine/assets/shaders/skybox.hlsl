@@ -1,37 +1,31 @@
 TextureCube skyboxTexture : register(t0);
 SamplerState samplerState : register(s0);
 
-
-cbuffer CameraBuffer : register(b0) {
-    matrix viewMatrix;
-    matrix projectionMatrix;
-}
-
-struct VSInput {
-    float3 position : POSITION;
+cbuffer SkyboxCB : register(b0) {
+    row_major float4x4 ViewProjection;
 };
 
-struct PSInput {
-    float3 texCoord : TEXCOORD;
+struct VS_INPUT {
+    float3 Position : POSITION;
+    float3 Normal   : NORMAL;
+    float4 Tangent  : TANGENT;
+    float4 Color    : COLOR;
+    float2 TexCoord : TEXCOORD;
 };
 
-PSInput main(VSInput input) {
-    PSInput output;
+struct VS_OUTPUT {
+    float4 Position : SV_POSITION;
+    float3 TexCoord : TEXCOORD0;
+};
 
-    // Transform the vertex position into view space
-    float4 viewPos = mul(float4(input.position, 1.0), viewMatrix);
-
-    // Pass the position as the texture coordinate for cubemap sampling
-    output.texCoord = viewPos.xyz;
-
+VS_OUTPUT VS_Main(VS_INPUT input) {
+    VS_OUTPUT output;
+    output.Position = mul(float4(input.Position, 1.0), ViewProjection);
+    output.Position = output.Position.xyww;
+    output.TexCoord = input.Position;
     return output;
 }
 
-struct PSInput {
-    float3 texCoord : TEXCOORD;
-};
-
-float4 main(PSInput input) : SV_TARGET {
-    // Sample the cubemap using the direction vector
-    return skyboxTexture.Sample(samplerState, input.texCoord);
+float4 PS_Main(VS_OUTPUT input) : SV_Target {
+    return skyboxTexture.Sample(samplerState, input.TexCoord);
 }

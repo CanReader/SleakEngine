@@ -61,7 +61,18 @@ public:
     virtual Texture* CreateTexture(const std::string& TexturePath) override;
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
-    
+
+    Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
+
+    // Skybox state management
+    virtual void SetDepthWrite(bool enabled) override;
+    virtual void SetDepthCompare(DepthCompare compare) override;
+    virtual void SetCullEnabled(bool enabled) override;
+    virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+    virtual void BeginSkyboxPass() override;
+    virtual void EndSkyboxPass() override;
+
     virtual bool CreateImGUI();
 
     virtual RenderContext* GetContext() override { return this; }
@@ -112,6 +123,12 @@ public:
     D3D11_FILL_MODE fillMode;
     D3D11_CULL_MODE cull;
     Window* window;
+
+    // Skybox state
+    ID3D11DepthStencilState* m_savedDepthStencilState = nullptr;
+    D3D11_CULL_MODE m_savedCullMode = D3D11_CULL_FRONT;
+    bool m_depthWriteEnabled = true;
+    D3D11_COMPARISON_FUNC m_depthFunc = D3D11_COMPARISON_LESS;
 
     ImGuiContext* ImCon;
     Timer FrameTimer;
