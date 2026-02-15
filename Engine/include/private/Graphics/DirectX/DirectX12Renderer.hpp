@@ -72,6 +72,14 @@ public:
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
+
+    // Skybox state management
+    virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+    virtual void BeginSkyboxPass() override;
+    virtual void EndSkyboxPass() override;
+
 private:
     bool CreateDevice();
     bool CreateCommandQueue();
@@ -134,6 +142,10 @@ private:
 
     // Default 1x1 white texture (fallback when no texture is bound)
     DirectX12Texture* m_defaultTexture = nullptr;
+
+    // Skybox PSO (depth write off, LEQUAL, no cull)
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_skyboxPipelineState;
+    bool CreateSkyboxPipelineState();
 
     // ImGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiSrvHeap;

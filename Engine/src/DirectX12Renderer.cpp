@@ -4,6 +4,7 @@
 #include <Window.hpp>
 #include <SDL3/SDL_system.h>
 #include <Graphics/Vertex.hpp>
+#include <Graphics/DirectX/DirectX12CubemapTexture.hpp>
 #include <Logger.hpp>
 #include <stdexcept>
 #include <string>
@@ -31,6 +32,10 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
         this, &DirectX12Renderer::CreateShader);
     ResourceManager::RegisterCreateTexture(
         this, &DirectX12Renderer::CreateTexture);
+    ResourceManager::RegisterCreateCubemapTexture(
+        this, &DirectX12Renderer::CreateCubemapTexture);
+    ResourceManager::RegisterCreateCubemapTextureFromPanorama(
+        this, &DirectX12Renderer::CreateCubemapTextureFromPanorama);
 }
 
 DirectX12Renderer::~DirectX12Renderer() {
@@ -596,6 +601,7 @@ void DirectX12Renderer::Cleanup() {
     }
     imguiSrvHeap.Reset();
 
+    m_skyboxPipelineState.Reset();
     pipelineState.Reset();
     rootSignature.Reset();
     depthStencilBuffer.Reset();
@@ -839,6 +845,182 @@ Texture* DirectX12Renderer::CreateTextureFromData(uint32_t width,
         return nullptr;
     }
     return texture;
+}
+
+Texture* DirectX12Renderer::CreateCubemapTexture(
+    const std::array<std::string, 6>& facePaths) {
+    auto* texture = new DirectX12CubemapTexture(device.Get(),
+                                                 commandQueue.Get());
+    if (texture->LoadCubemap(facePaths)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+Texture* DirectX12Renderer::CreateCubemapTextureFromPanorama(
+    const std::string& panoramaPath) {
+    auto* texture = new DirectX12CubemapTexture(device.Get(),
+                                                 commandQueue.Get());
+    if (texture->LoadEquirectangular(panoramaPath)) {
+        return texture;
+    }
+    delete texture;
+    return nullptr;
+}
+
+void DirectX12Renderer::BindTexture(RefPtr<Sleak::Texture> texture,
+                                     uint32_t slot) {
+    if (!texture.IsValid() || !commandList) return;
+
+    // Try DX12 cubemap texture first
+    auto* cubemap =
+        dynamic_cast<DirectX12CubemapTexture*>(texture.get());
+    if (cubemap) {
+        cubemap->BindToCommandList(commandList.Get(), 1);
+        return;
+    }
+
+    // Try regular DX12 texture
+    auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture.get());
+    if (dx12Tex) {
+        dx12Tex->BindToCommandList(commandList.Get(), 1);
+    }
+}
+
+bool DirectX12Renderer::CreateSkyboxPipelineState() {
+    if (m_skyboxPipelineState) return true;
+    if (!pipelineState) return false;
+
+    // Get the main PSO's description by compiling the skybox shader
+    // We need the same VS/PS blobs used for the main PSO
+    // Compile the skybox shader directly
+    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob, psBlob, errorBlob;
+
+    HRESULT hr = D3DCompileFromFile(
+        L"assets/shaders/skybox_dx12.hlsl", nullptr, nullptr,
+        "VS_Main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            SLEAK_ERROR("Skybox VS compile error: {}",
+                        (char*)errorBlob->GetBufferPointer());
+        }
+        SLEAK_WARN("Failed to compile skybox VS, using main PSO blobs");
+    }
+
+    hr = D3DCompileFromFile(
+        L"assets/shaders/skybox_dx12.hlsl", nullptr, nullptr,
+        "PS_Main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            SLEAK_ERROR("Skybox PS compile error: {}",
+                        (char*)errorBlob->GetBufferPointer());
+        }
+        SLEAK_WARN("Failed to compile skybox PS");
+    }
+
+    if (!vsBlob || !psBlob) return false;
+
+    // Input layout matching Sleak::Vertex
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = {inputLayout, _countof(inputLayout)};
+    psoDesc.pRootSignature = rootSignature.Get();
+    psoDesc.VS = {vsBlob->GetBufferPointer(), vsBlob->GetBufferSize()};
+    psoDesc.PS = {psBlob->GetBufferPointer(), psBlob->GetBufferSize()};
+
+    // Rasterizer: no culling for skybox
+    D3D12_RASTERIZER_DESC rasterDesc = {};
+    rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+    rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.DepthBias = 0;
+    rasterDesc.DepthBiasClamp = 0.0f;
+    rasterDesc.SlopeScaledDepthBias = 0.0f;
+    rasterDesc.DepthClipEnable = TRUE;
+    rasterDesc.MultisampleEnable = FALSE;
+    rasterDesc.AntialiasedLineEnable = FALSE;
+    rasterDesc.ForcedSampleCount = 0;
+    rasterDesc.ConservativeRaster =
+        D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+    psoDesc.RasterizerState = rasterDesc;
+
+    // Blend state (same as main)
+    D3D12_BLEND_DESC blendDesc = {};
+    blendDesc.AlphaToCoverageEnable = FALSE;
+    blendDesc.IndependentBlendEnable = FALSE;
+    D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
+    rtBlendDesc.BlendEnable = TRUE;
+    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    rtBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+        blendDesc.RenderTarget[i] = rtBlendDesc;
+    psoDesc.BlendState = blendDesc;
+
+    // Depth stencil: depth write OFF, LESS_EQUAL compare
+    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+    depthStencilDesc.DepthEnable = TRUE;
+    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    depthStencilDesc.StencilEnable = FALSE;
+    psoDesc.DepthStencilState = depthStencilDesc;
+
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType =
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count = 1;
+
+    hr = device->CreateGraphicsPipelineState(
+        &psoDesc, IID_PPV_ARGS(&m_skyboxPipelineState));
+    if (FAILED(hr)) {
+        SLEAK_ERROR(
+            "Failed to create skybox pipeline state! HRESULT: 0x{:08X}",
+            static_cast<unsigned int>(hr));
+        return false;
+    }
+
+    SLEAK_INFO("DirectX 12 skybox pipeline state created successfully");
+    return true;
+}
+
+void DirectX12Renderer::BeginSkyboxPass() {
+    if (!CreateSkyboxPipelineState()) {
+        SLEAK_WARN("BeginSkyboxPass: failed to create skybox PSO");
+        return;
+    }
+    commandList->SetPipelineState(m_skyboxPipelineState.Get());
+}
+
+void DirectX12Renderer::EndSkyboxPass() {
+    if (pipelineState) {
+        commandList->SetPipelineState(pipelineState.Get());
+    }
 }
 
 // -----------------------------------------------------------------------
