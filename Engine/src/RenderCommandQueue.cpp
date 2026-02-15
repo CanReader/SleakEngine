@@ -66,6 +66,7 @@ namespace Sleak {
             // Sorting is also important for minimizing state changes.
             // TODO: Implement this method
 
+            Queue<RefPtr<RenderCommandBase>> customQueue;
             Queue<RefPtr<RenderCommandBase>> type3Queue;
             Queue<RefPtr<RenderCommandBase>> type4Queue;
             Queue<RefPtr<RenderCommandBase>> type1Queue;
@@ -73,22 +74,22 @@ namespace Sleak {
             // Step 1: Categorize the commands
             while (!commands.isEmpty()) {
                 auto command = commands.pop();
-                if(command->GetType() == CommandType::SetFace)
-                    std::cout << "sa";
                 switch (command->GetType()) {
                     case CommandType::DrawIndexed: type1Queue.push(command); break;
                     case CommandType::UpdateConstantBuffer: type3Queue.push(command); break;
                     case CommandType::BindConstantBuffer: type4Queue.push(command); break;
+                    case CommandType::CustomCommand: customQueue.push(command); break;
                     default: break;
                 }
             }
 
-            // Step 2: Push back in the required 3-4-1 order
+            // Step 2: Execute regular commands in 3-4-1 order, then custom commands last
             while (!type3Queue.isEmpty() || !type4Queue.isEmpty() || !type1Queue.isEmpty()) {
                 if (!type3Queue.isEmpty()) commands.push(type3Queue.pop());
                 if (!type4Queue.isEmpty()) commands.push(type4Queue.pop());
                 if (!type1Queue.isEmpty()) commands.push(type1Queue.pop());
             }
+            while (!customQueue.isEmpty()) commands.push(customQueue.pop());
         }
 
         void RenderCommandQueue::OptimizeBatching() {

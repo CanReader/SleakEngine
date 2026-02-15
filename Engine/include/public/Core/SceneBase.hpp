@@ -21,6 +21,7 @@ namespace Sleak {
     class Camera;
     class Light;
     class LightManager;
+    class Skybox;
 
     class ENGINE_API SceneBase {
     public:
@@ -82,6 +83,9 @@ namespace Sleak {
             return m_lightManager;
         }
 
+        void SetSkybox(Skybox* skybox);
+        Skybox* GetSkybox() const { return m_skybox; }
+
     protected:
         std::string name;
         SceneState state;
@@ -94,6 +98,7 @@ namespace Sleak {
         ObjectPtr<Camera> DebugCamera;
 
         LightManager* m_lightManager = nullptr;
+        Skybox* m_skybox = nullptr;
 
         void ProcessPendingDestroy();
         void DestroyAllObjects();

@@ -5,6 +5,7 @@
 #include <ECS/Components/FreeLookCameraController.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
+#include <Runtime/Skybox.hpp>
 
 namespace Sleak {
 
@@ -14,6 +15,8 @@ SceneBase::~SceneBase() {
     DestroyAllObjects();
     delete m_lightManager;
     m_lightManager = nullptr;
+    delete m_skybox;
+    m_skybox = nullptr;
 }
 
 // --- State transitions ---
@@ -82,6 +85,10 @@ bool SceneBase::Initialize() {
 
     InitializeDebugCamera();
 
+    if (m_skybox && !m_skybox->IsInitialized()) {
+        m_skybox->Initialize();
+    }
+
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
         if (Objects[i]) Objects[i]->Initialize();
     }
@@ -111,6 +118,10 @@ void SceneBase::Update(float deltaTime) {
             Objects[i]->Update(deltaTime);
         }
     }
+
+    // Render skybox after scene objects (depth testing ensures it appears behind)
+    if (m_skybox)
+        m_skybox->Render();
 
     if (DebugCamera)
         DebugCamera->Update(deltaTime);
@@ -253,6 +264,16 @@ void SceneBase::DestroyAllObjects() {
         delete Objects[i];
     }
     Objects.clear();
+}
+
+void SceneBase::SetSkybox(Skybox* skybox) {
+    if (m_skybox) {
+        delete m_skybox;
+    }
+    m_skybox = skybox;
+    if (m_skybox && bInitialized && !m_skybox->IsInitialized()) {
+        m_skybox->Initialize();
+    }
 }
 
 void SceneBase::InitializeDebugCamera() {

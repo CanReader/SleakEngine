@@ -52,11 +52,49 @@ namespace Sleak {
                         return texture;
                     }
                 } catch (const std::exception& e) {
-                    SLEAK_ERROR("Failed to cast object to Shader object: {}",
+                    SLEAK_ERROR("Failed to cast object to Texture object: {}",
                                 e.what());
                 }
             } else {
-                SLEAK_ERROR("No shader creation function registered!");
+                SLEAK_ERROR("No texture creation function registered!");
+            }
+            return nullptr;
+        }
+
+        Sleak::Texture* ResourceManager::CreateCubemapTexture(const std::array<std::string, 6>& FacePaths) {
+            std::lock_guard<std::mutex> lock(threadManager);
+            if (CubemapTextureCreateFunc) {
+                std::any result = CubemapTextureCreateFunc(FacePaths);
+                try {
+                    if (result.has_value()) {
+                        Texture* texture = std::any_cast<Texture*>(result);
+                        return texture;
+                    }
+                } catch (const std::exception& e) {
+                    SLEAK_ERROR("Failed to cast object to CubemapTexture object: {}",
+                                e.what());
+                }
+            } else {
+                SLEAK_ERROR("No cubemap texture creation function registered!");
+            }
+            return nullptr;
+        }
+
+        Sleak::Texture* ResourceManager::CreateCubemapTextureFromPanorama(const std::string& PanoramaPath) {
+            std::lock_guard<std::mutex> lock(threadManager);
+            if (CubemapPanoramaCreateFunc) {
+                std::any result = CubemapPanoramaCreateFunc(PanoramaPath);
+                try {
+                    if (result.has_value()) {
+                        Texture* texture = std::any_cast<Texture*>(result);
+                        return texture;
+                    }
+                } catch (const std::exception& e) {
+                    SLEAK_ERROR("Failed to cast object to CubemapTexture (panorama) object: {}",
+                                e.what());
+                }
+            } else {
+                SLEAK_ERROR("No cubemap panorama creation function registered!");
             }
             return nullptr;
         }

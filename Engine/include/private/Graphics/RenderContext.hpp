@@ -24,6 +24,17 @@ enum class RenderFace {
     Front
 };
 
+enum class DepthCompare {
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+    NotEqual,
+    Always,
+    Never
+};
+
         /**
             * @class RenderContext
             * @brief Abstract interface for high-level graphics command execution and resource management.
@@ -50,6 +61,16 @@ enum class RenderFace {
             virtual void SetViewport(float x, float y, float width, float height, float minDepth = 0.0f, float maxDepth = 1.0f) = 0;
             virtual void ClearRenderTarget(float r, float g, float b, float a) = 0;
             virtual void ClearDepthStencil(bool clearDepth, bool clearStencil, float depth, uint8_t stencil) = 0;
+
+            // Depth/cull state (for skybox and other special rendering)
+            virtual void SetDepthWrite(bool enabled) { (void)enabled; }
+            virtual void SetDepthCompare(DepthCompare compare) { (void)compare; }
+            virtual void SetCullEnabled(bool enabled) { (void)enabled; }
+            virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) { (void)texture; (void)slot; }
+
+            // Skybox pipeline support (Vulkan needs separate pipeline for cubemap)
+            virtual void BeginSkyboxPass() {}
+            virtual void EndSkyboxPass() {}
 
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
