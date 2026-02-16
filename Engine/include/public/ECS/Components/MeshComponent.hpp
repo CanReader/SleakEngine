@@ -40,8 +40,8 @@ namespace Sleak {
         RefPtr<RenderEngine::BufferBase> IndexBuffer{};
         List<RefPtr<RenderEngine::BufferBase>> ConstantBuffers{};
 
-       uint16_t VertexCount;
-       uint16_t IndexCount;
+       uint32_t VertexCount;
+       uint32_t IndexCount;
 
     };
 }

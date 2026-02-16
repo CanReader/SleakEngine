@@ -18,6 +18,11 @@ namespace Sleak {
         class RenderContext;
         class Shader;
         class Texture;
+    } // close RenderEngine temporarily
+
+    class Material;
+
+    namespace RenderEngine {
 
         enum class CommandType {
             Draw = 0,
@@ -35,7 +40,8 @@ namespace Sleak {
             SetBlendStae = 12,
             SetDepthStencilState = 13,
             SetRasterizerState = 14,
-            CustomCommand = 15
+            CustomCommand = 15,
+            BindMaterial = 16
         };
 
         class RenderCommandBase {
@@ -93,11 +99,12 @@ namespace Sleak {
         class UpdateConstantBufferCommand : public RenderCommandBase {
             public:
                 UpdateConstantBufferCommand(RefPtr<BufferBase> buffer, void* Data, uint16_t Size);
+                ~UpdateConstantBufferCommand() override { free(Data); }
 
                 RENDER_COMMAND(UpdateConstantBuffer)
 
-                void* GetData() const 
-                { 
+                void* GetData() const
+                {
                     return Data;
                 }
 
@@ -156,6 +163,17 @@ namespace Sleak {
 
             private:
                 RenderFace face;
+        };
+
+        class BindMaterialCommand : public RenderCommandBase {
+            public:
+                BindMaterialCommand(::Sleak::Material* material);
+
+                void Execute(RenderContext* context) override;
+                CommandType GetType() const override { return CommandType::BindMaterial; }
+
+            private:
+                ::Sleak::Material* m_material;
         };
 
         class CustomCommand : public RenderCommandBase {

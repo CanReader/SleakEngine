@@ -5,6 +5,7 @@
 #include "../../include/private/Graphics/ConstantBuffer.hpp"
 #include "../../include/private/Graphics/Shader.hpp"
 #include "../../include/public/Runtime/Texture.hpp"
+#include <Runtime/Material.hpp>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -110,6 +111,26 @@ SetRenderFaceCommand::SetRenderFaceCommand(RenderFace face) : face(face) {}
 
 void SetRenderFaceCommand::Execute(RenderContext* context) {
     context->SetRenderFace(face);
+}
+
+//------------------------------------------------------------------------------
+// Bind Material
+//------------------------------------------------------------------------------
+
+BindMaterialCommand::BindMaterialCommand(::Sleak::Material* material)
+    : m_material(material) {}
+
+void BindMaterialCommand::Execute(RenderContext* context) {
+    if (m_material) {
+        m_material->Bind();
+
+        // Bind diffuse texture through RenderContext (needed for Vulkan
+        // descriptor set switching — OpenGL already binds via Texture::Bind())
+        auto* diffuse = m_material->GetDiffuseTexture();
+        if (diffuse) {
+            context->BindTextureRaw(diffuse, 0);
+        }
+    }
 }
 
 //------------------------------------------------------------------------------

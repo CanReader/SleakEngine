@@ -37,6 +37,8 @@ namespace Sleak {
             uint16_t Size
         );
 
+        void SubmitBindMaterial(::Sleak::Material* material);
+
         void SubmitSetRenderMode(RenderMode mode);
 
         void SubmitSetRenderFace(RenderFace face);

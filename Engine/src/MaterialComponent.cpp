@@ -1,4 +1,5 @@
 #include <ECS/Components/MaterialComponent.hpp>
+#include <Graphics/RenderCommandQueue.hpp>
 
 namespace Sleak {
 
@@ -48,7 +49,7 @@ namespace Sleak {
         if (!m_enabled || !m_material)
             return;
 
-        m_material->Bind();
+        RenderEngine::RenderCommandQueue::GetInstance()->SubmitBindMaterial(m_material.get());
     }
 
     void MaterialComponent::OnEnable() { m_enabled = true; }

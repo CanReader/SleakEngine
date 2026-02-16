@@ -31,6 +31,13 @@ DirectX11Renderer::DirectX11Renderer(Window* window)
         ResourceManager::RegisterCreateTexture(this,&DirectX11Renderer::CreateTexture);
         ResourceManager::RegisterCreateCubemapTexture(this,&DirectX11Renderer::CreateCubemapTexture);
         ResourceManager::RegisterCreateCubemapTextureFromPanorama(this,&DirectX11Renderer::CreateCubemapTextureFromPanorama);
+        ResourceManager::RegisterCreateTextureFromMemory(
+            [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+                auto* tex = new DirectX11Texture(device);
+                if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
+                delete tex;
+                return nullptr;
+            });
 
       }
 
@@ -433,7 +440,7 @@ void DirectX11Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
         auto d3d11Buffer =
             dynamic_cast<DirectX11Buffer*>(buffer.get())->GetD3DBuffer();
 
-        deviceContext->IASetIndexBuffer(d3d11Buffer, DXGI_FORMAT_R16_UINT, 0);
+        deviceContext->IASetIndexBuffer(d3d11Buffer, DXGI_FORMAT_R32_UINT, 0);
 
     } catch (std::exception& e) {
         SLEAK_ERROR("Failed to cast Index Buffer! {}", e.what());

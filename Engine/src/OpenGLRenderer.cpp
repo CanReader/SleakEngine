@@ -24,6 +24,13 @@ OpenGLRenderer::OpenGLRenderer(Window* window)
         this, &OpenGLRenderer::CreateCubemapTexture);
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &OpenGLRenderer::CreateCubemapTextureFromPanorama);
+    ResourceManager::RegisterCreateTextureFromMemory(
+        [](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+            auto* tex = new OpenGLTexture();
+            if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
+            delete tex;
+            return nullptr;
+        });
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -132,7 +139,7 @@ void OpenGLRenderer::Draw(uint32_t vertexCount) {
 }
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
-    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, 0);
+    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
 
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
@@ -144,7 +151,7 @@ void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
 void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
     glDrawElementsInstanced(GL_TRIANGLES, indexPerInstance,
-                            GL_UNSIGNED_SHORT, 0, instanceCount);
+                            GL_UNSIGNED_INT, 0, instanceCount);
 }
 
 void OpenGLRenderer::SetRenderFace(RenderFace face) {

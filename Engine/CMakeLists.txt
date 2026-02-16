@@ -25,6 +25,7 @@ add_subdirectory(vendors/yaml-cpp)
 
 # --- Find system packages ---
 find_package(OpenGL REQUIRED)
+find_package(assimp REQUIRED)
 
 # --- Vulkan SDK (vendored) ---
 set(VULKAN_SDK "${VENDOR_DIR}/VulkanSdk")
@@ -95,6 +96,7 @@ target_link_libraries(Engine PRIVATE
     ${OPENGL_LIBRARIES}
     freeglut
     yaml-cpp::yaml-cpp
+    assimp::assimp
 )
 
 # --- DirectX SDK (Windows only) ---

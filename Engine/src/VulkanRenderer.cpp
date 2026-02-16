@@ -47,6 +47,17 @@ VulkanRenderer::VulkanRenderer(Window* window)
         this, &VulkanRenderer::CreateCubemapTexture);
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &VulkanRenderer::CreateCubemapTextureFromPanorama);
+
+    ResourceManager::RegisterCreateTextureFromMemory(
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+            auto* tex = new VulkanTexture(device, physicalDevice, commands, graphicsQueue);
+            if (tex->LoadFromMemory(data, w, h, fmt)) {
+                WriteTextureDescriptors(tex);
+                return tex;
+            }
+            delete tex;
+            return nullptr;
+        });
 }
 
 VulkanRenderer::~VulkanRenderer() {
@@ -341,7 +352,7 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
     auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
     vkCmdBindIndexBuffer(command, vkBuf->GetVkBuffer(), 0,
-                         VK_INDEX_TYPE_UINT16);
+                         VK_INDEX_TYPE_UINT32);
 }
 
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
@@ -381,35 +392,7 @@ Texture* VulkanRenderer::CreateTexture(const std::string& TexturePath) {
     auto* texture = new VulkanTexture(device, physicalDevice, commands,
                                        graphicsQueue);
     if (texture->LoadFromFile(TexturePath)) {
-        // Only write descriptor sets for the FIRST texture (diffuse).
-        // The Vulkan renderer currently supports a single combined image
-        // sampler at set 0 binding 0; subsequent textures (normal, etc.)
-        // are created but not bound to the descriptor set.
-        if (m_textureDescriptorsWritten)
-            return texture;
-
-        for (size_t i = 0; i < descriptorSets.size(); i++) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout =
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = texture->GetImageView();
-            imageInfo.sampler = texture->GetSampler();
-
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType =
-                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = descriptorSets[i];
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType =
-                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo = &imageInfo;
-
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0,
-                                   nullptr);
-        }
-        m_textureDescriptorsWritten = true;
+        WriteTextureDescriptors(texture);
         return texture;
     }
     delete texture;
@@ -518,10 +501,36 @@ Texture* VulkanRenderer::CreateCubemapTextureFromPanorama(
 
 void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
                                   uint32_t slot) {
-    // For cubemap textures during skybox pass, descriptor sets are
-    // already bound via BeginSkyboxPass
-    (void)texture;
-    (void)slot;
+    if (!texture.IsValid() || slot != 0)
+        return;
+
+    // Cast to VulkanTexture to access its per-texture descriptor sets
+    auto* vkTex = dynamic_cast<VulkanTexture*>(texture.get());
+    if (!vkTex || !vkTex->HasDescriptorSets())
+        return;
+
+    const auto& sets = vkTex->GetDescriptorSets();
+    if (CurrentFrameIndex < sets.size()) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
+            &sets[CurrentFrameIndex], 0, nullptr);
+    }
+}
+
+void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
+    if (!texture || slot != 0)
+        return;
+
+    auto* vkTex = dynamic_cast<VulkanTexture*>(texture);
+    if (!vkTex || !vkTex->HasDescriptorSets())
+        return;
+
+    const auto& sets = vkTex->GetDescriptorSets();
+    if (CurrentFrameIndex < sets.size()) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
+            &sets[CurrentFrameIndex], 0, nullptr);
+    }
 }
 
 void VulkanRenderer::BeginSkyboxPass() {
@@ -1349,15 +1358,19 @@ bool VulkanRenderer::CreateDescriptorPool() {
     uint32_t imageCount =
         static_cast<uint32_t>(swapChainImages.size());
 
+    // Allow up to 128 textures, each needing imageCount descriptor sets
+    static constexpr uint32_t MAX_TEXTURES = 128;
+    uint32_t totalSets = imageCount * MAX_TEXTURES;
+
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = imageCount;
+    poolSize.descriptorCount = totalSets;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = imageCount;
+    poolInfo.maxSets = totalSets;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr,
                                 &descriptorPool) != VK_SUCCESS)
@@ -1400,7 +1413,11 @@ bool VulkanRenderer::CreateDefaultTexture() {
         return false;
     }
 
-    // Write the default texture to all descriptor sets
+    // Allocate per-texture descriptor sets for the default texture
+    WriteTextureDescriptors(m_defaultTexture);
+
+    // Also write the default texture to the global descriptor sets
+    // (used as initial binding in BeginRender)
     for (size_t i = 0; i < descriptorSets.size(); i++) {
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1422,6 +1439,50 @@ bool VulkanRenderer::CreateDefaultTexture() {
     m_textureDescriptorsWritten = true;
 
     return true;
+}
+
+void VulkanRenderer::WriteTextureDescriptors(VulkanTexture* texture) {
+    if (!texture || texture->GetImageView() == VK_NULL_HANDLE ||
+        texture->GetSampler() == VK_NULL_HANDLE)
+        return;
+
+    uint32_t imageCount = static_cast<uint32_t>(swapChainImages.size());
+
+    // Allocate per-texture descriptor sets (one per swapchain image)
+    std::vector<VkDescriptorSetLayout> layouts(imageCount, descriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.descriptorSetCount = imageCount;
+    allocInfo.pSetLayouts = layouts.data();
+
+    std::vector<VkDescriptorSet> sets(imageCount);
+    if (vkAllocateDescriptorSets(device, &allocInfo, sets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to allocate descriptor sets for texture");
+        return;
+    }
+
+    // Write the texture's imageView/sampler to each descriptor set
+    for (size_t i = 0; i < sets.size(); i++) {
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = texture->GetImageView();
+        imageInfo.sampler = texture->GetSampler();
+
+        VkWriteDescriptorSet descriptorWrite{};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = sets[i];
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pImageInfo = &imageInfo;
+
+        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+    }
+
+    texture->SetDescriptorSets(std::move(sets));
 }
 
 // -----------------------------------------------------------------------

@@ -36,6 +36,13 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
         this, &DirectX12Renderer::CreateCubemapTexture);
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &DirectX12Renderer::CreateCubemapTextureFromPanorama);
+    ResourceManager::RegisterCreateTextureFromMemory(
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+            auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(), commandList.Get());
+            if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
+            delete tex;
+            return nullptr;
+        });
 }
 
 DirectX12Renderer::~DirectX12Renderer() {
@@ -770,7 +777,7 @@ void DirectX12Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
     D3D12_INDEX_BUFFER_VIEW ibView = {};
     ibView.BufferLocation =
         dx12Buf->GetD3DBuffer()->GetGPUVirtualAddress();
-    ibView.Format = DXGI_FORMAT_R16_UINT;  // IndexType is uint16_t
+    ibView.Format = DXGI_FORMAT_R32_UINT;  // IndexType is uint32_t
     ibView.SizeInBytes = static_cast<UINT>(dx12Buf->GetSize());
 
     commandList->IASetIndexBuffer(&ibView);

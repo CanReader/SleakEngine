@@ -32,6 +32,11 @@ public:
     VkImageView GetImageView() const { return m_imageView; }
     VkSampler GetSampler() const { return m_sampler; }
 
+    // Per-texture descriptor sets (one per swapchain image)
+    void SetDescriptorSets(std::vector<VkDescriptorSet> sets) { m_descriptorSets = std::move(sets); }
+    const std::vector<VkDescriptorSet>& GetDescriptorSets() const { return m_descriptorSets; }
+    bool HasDescriptorSets() const { return !m_descriptorSets.empty(); }
+
 private:
     void Cleanup();
 
@@ -53,6 +58,8 @@ private:
     VkDeviceMemory m_imageMemory = VK_NULL_HANDLE;
     VkImageView m_imageView = VK_NULL_HANDLE;
     VkSampler m_sampler = VK_NULL_HANDLE;
+
+    std::vector<VkDescriptorSet> m_descriptorSets;
 
     uint32_t m_width = 0;
     uint32_t m_height = 0;

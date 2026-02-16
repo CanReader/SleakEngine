@@ -36,6 +36,11 @@ namespace Sleak {
             commands.push(std::move(command));
         }
 
+        void RenderCommandQueue::SubmitBindMaterial(::Sleak::Material* material) {
+            auto command = RefPtr<RenderCommandBase>(new BindMaterialCommand(material));
+            commands.push(std::move(command));
+        }
+
         void RenderCommandQueue::SubmitSetRenderMode(RenderMode mode) {
             auto command = RefPtr<RenderCommandBase>(new SetRenderModeCommand(mode));
             commands.push(command);
@@ -64,30 +69,38 @@ namespace Sleak {
 
         void RenderCommandQueue::SortCommands() {
             // Sorting is also important for minimizing state changes.
-            // TODO: Implement this method
 
             Queue<RefPtr<RenderCommandBase>> customQueue;
-            Queue<RefPtr<RenderCommandBase>> type3Queue;
-            Queue<RefPtr<RenderCommandBase>> type4Queue;
-            Queue<RefPtr<RenderCommandBase>> type1Queue;
+            Queue<RefPtr<RenderCommandBase>> updateCBQueue;    // UpdateConstantBuffer
+            Queue<RefPtr<RenderCommandBase>> bindCBQueue;      // BindConstantBuffer
+            Queue<RefPtr<RenderCommandBase>> materialQueue;    // BindMaterial
+            Queue<RefPtr<RenderCommandBase>> drawQueue;        // DrawIndexed + Draw
 
             // Step 1: Categorize the commands
             while (!commands.isEmpty()) {
                 auto command = commands.pop();
                 switch (command->GetType()) {
-                    case CommandType::DrawIndexed: type1Queue.push(command); break;
-                    case CommandType::UpdateConstantBuffer: type3Queue.push(command); break;
-                    case CommandType::BindConstantBuffer: type4Queue.push(command); break;
-                    case CommandType::CustomCommand: customQueue.push(command); break;
+                    case CommandType::Draw:
+                    case CommandType::DrawIndexed:        drawQueue.push(command); break;
+                    case CommandType::UpdateConstantBuffer: updateCBQueue.push(command); break;
+                    case CommandType::BindConstantBuffer: bindCBQueue.push(command); break;
+                    case CommandType::BindMaterial:       materialQueue.push(command); break;
+                    case CommandType::CustomCommand:      customQueue.push(command); break;
+                    // State commands: keep in draw queue to preserve order
+                    case CommandType::SetMode:
+                    case CommandType::SetFace:            drawQueue.push(command); break;
                     default: break;
                 }
             }
 
-            // Step 2: Execute regular commands in 3-4-1 order, then custom commands last
-            while (!type3Queue.isEmpty() || !type4Queue.isEmpty() || !type1Queue.isEmpty()) {
-                if (!type3Queue.isEmpty()) commands.push(type3Queue.pop());
-                if (!type4Queue.isEmpty()) commands.push(type4Queue.pop());
-                if (!type1Queue.isEmpty()) commands.push(type1Queue.pop());
+            // Step 2: Interleave per-object: UpdateCB → BindCB → BindMaterial → Draw
+            // Then custom commands last (e.g. skybox)
+            while (!updateCBQueue.isEmpty() || !bindCBQueue.isEmpty() ||
+                   !materialQueue.isEmpty() || !drawQueue.isEmpty()) {
+                if (!updateCBQueue.isEmpty()) commands.push(updateCBQueue.pop());
+                if (!bindCBQueue.isEmpty())   commands.push(bindCBQueue.pop());
+                if (!materialQueue.isEmpty()) commands.push(materialQueue.pop());
+                if (!drawQueue.isEmpty())     commands.push(drawQueue.pop());
             }
             while (!customQueue.isEmpty()) commands.push(customQueue.pop());
         }

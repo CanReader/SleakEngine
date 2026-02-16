@@ -61,6 +61,25 @@ namespace Sleak {
             return nullptr;
         }
 
+        Sleak::Texture* ResourceManager::CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format) {
+            std::lock_guard<std::mutex> lock(threadManager);
+            if (TextureFromMemoryCreateFunc) {
+                std::any result = TextureFromMemoryCreateFunc(data, width, height, format);
+                try {
+                    if (result.has_value()) {
+                        Texture* texture = std::any_cast<Texture*>(result);
+                        return texture;
+                    }
+                } catch (const std::exception& e) {
+                    SLEAK_ERROR("Failed to cast object to Texture (from memory) object: {}",
+                                e.what());
+                }
+            } else {
+                SLEAK_ERROR("No texture-from-memory creation function registered!");
+            }
+            return nullptr;
+        }
+
         Sleak::Texture* ResourceManager::CreateCubemapTexture(const std::array<std::string, 6>& FacePaths) {
             std::lock_guard<std::mutex> lock(threadManager);
             if (CubemapTextureCreateFunc) {

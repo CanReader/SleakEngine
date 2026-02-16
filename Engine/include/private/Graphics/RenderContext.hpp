@@ -67,6 +67,7 @@ enum class DepthCompare {
             virtual void SetDepthCompare(DepthCompare compare) { (void)compare; }
             virtual void SetCullEnabled(bool enabled) { (void)enabled; }
             virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) { (void)texture; (void)slot; }
+            virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) { (void)texture; (void)slot; }
 
             // Skybox pipeline support (Vulkan needs separate pipeline for cubemap)
             virtual void BeginSkyboxPass() {}

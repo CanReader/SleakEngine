@@ -10,7 +10,7 @@
 
 namespace Sleak {
 
-    using IndexType = uint16_t;
+    using IndexType = uint32_t;
     using IndexGroup = List<IndexType>;
 
     struct Vertex {
