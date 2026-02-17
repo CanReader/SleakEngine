@@ -626,7 +626,22 @@ void VulkanRenderer::Cleanup() {
     delete skyboxShader;
     skyboxShader = nullptr;
 
-    // Destroy descriptor set layout
+    // Destroy skinned pipeline resources
+    if (skinnedPipeline) {
+        vkDestroyPipeline(device, skinnedPipeline, nullptr);
+        skinnedPipeline = VK_NULL_HANDLE;
+    }
+    delete skinnedShader;
+    skinnedShader = nullptr;
+
+    // Destroy bone UBO resources
+    CleanupBoneUBOResources();
+
+    // Destroy descriptor set layouts
+    if (boneDescriptorSetLayout) {
+        vkDestroyDescriptorSetLayout(device, boneDescriptorSetLayout, nullptr);
+        boneDescriptorSetLayout = VK_NULL_HANDLE;
+    }
     if (descriptorSetLayout) {
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
         descriptorSetLayout = VK_NULL_HANDLE;
@@ -1333,6 +1348,7 @@ uint32_t VulkanRenderer::FindMemoryType(
 // -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateDescriptorSetLayout() {
+    // Set 0: texture sampler
     VkDescriptorSetLayoutBinding samplerBinding{};
     samplerBinding.binding = 0;
     samplerBinding.descriptorType =
@@ -1350,6 +1366,24 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
     if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
                                      &descriptorSetLayout) != VK_SUCCESS)
         SLEAK_RETURN_ERR("Failed to create descriptor set layout!");
+
+    // Set 1: bone UBO (for skeletal animation)
+    VkDescriptorSetLayoutBinding boneUBOBinding{};
+    boneUBOBinding.binding = 0;
+    boneUBOBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    boneUBOBinding.descriptorCount = 1;
+    boneUBOBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    boneUBOBinding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo boneLayoutInfo{};
+    boneLayoutInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    boneLayoutInfo.bindingCount = 1;
+    boneLayoutInfo.pBindings = &boneUBOBinding;
+
+    if (vkCreateDescriptorSetLayout(device, &boneLayoutInfo, nullptr,
+                                     &boneDescriptorSetLayout) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to create bone descriptor set layout!");
 
     return true;
 }
@@ -1519,7 +1553,7 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
 
     // Position: float3 at offset 0
     attributeDescs[0].binding = 0;
@@ -1550,6 +1584,18 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     attributeDescs[4].location = 4;
     attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescs[4].offset = offsetof(Vertex, u);
+
+    // BoneIDs: int4
+    attributeDescs[5].binding = 0;
+    attributeDescs[5].location = 5;
+    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SINT;
+    attributeDescs[5].offset = offsetof(Vertex, boneIDs);
+
+    // BoneWeights: float4
+    attributeDescs[6].binding = 0;
+    attributeDescs[6].location = 6;
+    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[6].offset = offsetof(Vertex, boneWeights);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
@@ -1631,10 +1677,15 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     pushConstantRange.offset = 0;
     pushConstantRange.size = 128;  // sizeof(mat4) * 2 = 128 bytes (WVP + World)
 
+    // Two descriptor set layouts: set 0 = texture sampler, set 1 = bone UBO
+    std::array<VkDescriptorSetLayout, 2> setLayouts = {
+        descriptorSetLayout, boneDescriptorSetLayout
+    };
+
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &descriptorSetLayout;
+    layoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    layoutInfo.pSetLayouts = setLayouts.data();
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -2079,7 +2130,7 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -2104,6 +2155,16 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     attributeDescs[4].location = 4;
     attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescs[4].offset = offsetof(Vertex, u);
+
+    attributeDescs[5].binding = 0;
+    attributeDescs[5].location = 5;
+    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SINT;
+    attributeDescs[5].offset = offsetof(Vertex, boneIDs);
+
+    attributeDescs[6].binding = 0;
+    attributeDescs[6].location = 6;
+    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[6].offset = offsetof(Vertex, boneWeights);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
@@ -2193,6 +2254,350 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
 
     SLEAK_INFO("VulkanRenderer: Skybox pipeline created successfully");
     return true;
+}
+
+// -----------------------------------------------------------------------
+// Bone UBO Resources (for skeletal animation)
+// -----------------------------------------------------------------------
+
+bool VulkanRenderer::CreateBoneUBOResources() {
+    if (m_boneUBOCreated) return true;
+
+    static constexpr uint32_t MAX_BONES = 256;
+    static constexpr VkDeviceSize boneUBOSize = MAX_BONES * 64; // 256 mat4 = 16384 bytes
+
+    // Create per-frame UBO buffers (host-visible, coherent for fast CPU writes)
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = boneUBOSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &boneUBOBuffers[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("Failed to create bone UBO buffer!");
+            return false;
+        }
+
+        VkMemoryRequirements memReqs;
+        vkGetBufferMemoryRequirements(device, boneUBOBuffers[i], &memReqs);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memReqs.size;
+        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &boneUBOMemory[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("Failed to allocate bone UBO memory!");
+            return false;
+        }
+
+        vkBindBufferMemory(device, boneUBOBuffers[i], boneUBOMemory[i], 0);
+        vkMapMemory(device, boneUBOMemory[i], 0, boneUBOSize, 0, &boneUBOMapped[i]);
+
+        // Initialize with identity matrices
+        auto* matrices = static_cast<float*>(boneUBOMapped[i]);
+        for (uint32_t b = 0; b < MAX_BONES; ++b) {
+            // Identity matrix in column-major order
+            for (int c = 0; c < 16; ++c)
+                matrices[b * 16 + c] = (c % 5 == 0) ? 1.0f : 0.0f;
+        }
+    }
+
+    // Create descriptor pool for bone UBO
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &boneDescriptorPool) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create bone descriptor pool!");
+        return false;
+    }
+
+    // Allocate descriptor sets
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+    layouts.fill(boneDescriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool = boneDescriptorPool;
+    dsAllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    dsAllocInfo.pSetLayouts = layouts.data();
+
+    if (vkAllocateDescriptorSets(device, &dsAllocInfo, boneDescriptorSets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate bone descriptor sets!");
+        return false;
+    }
+
+    // Write descriptor sets pointing to UBO buffers
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorBufferInfo bufInfo{};
+        bufInfo.buffer = boneUBOBuffers[i];
+        bufInfo.offset = 0;
+        bufInfo.range = boneUBOSize;
+
+        VkWriteDescriptorSet descriptorWrite{};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = boneDescriptorSets[i];
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pBufferInfo = &bufInfo;
+
+        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+    }
+
+    m_boneUBOCreated = true;
+    SLEAK_INFO("VulkanRenderer: Bone UBO resources created ({} bytes per frame)", boneUBOSize);
+    return true;
+}
+
+void VulkanRenderer::CleanupBoneUBOResources() {
+    if (!m_boneUBOCreated) return;
+
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (boneUBOMapped[i]) {
+            vkUnmapMemory(device, boneUBOMemory[i]);
+            boneUBOMapped[i] = nullptr;
+        }
+        if (boneUBOBuffers[i]) {
+            vkDestroyBuffer(device, boneUBOBuffers[i], nullptr);
+            boneUBOBuffers[i] = VK_NULL_HANDLE;
+        }
+        if (boneUBOMemory[i]) {
+            vkFreeMemory(device, boneUBOMemory[i], nullptr);
+            boneUBOMemory[i] = VK_NULL_HANDLE;
+        }
+    }
+    if (boneDescriptorPool) {
+        vkDestroyDescriptorPool(device, boneDescriptorPool, nullptr);
+        boneDescriptorPool = VK_NULL_HANDLE;
+    }
+    m_boneUBOCreated = false;
+}
+
+// -----------------------------------------------------------------------
+// Skinned Pipeline (for skeletal animation)
+// -----------------------------------------------------------------------
+
+bool VulkanRenderer::CreateSkinnedPipeline() {
+    // 1. Compile skinned shaders
+    skinnedShader = new VulkanShader(device);
+    if (!skinnedShader->compile("assets/shaders/skinned_shader")) {
+        SLEAK_ERROR("VulkanRenderer: Failed to compile skinned shaders");
+        delete skinnedShader;
+        skinnedShader = nullptr;
+        return false;
+    }
+
+    // 2. Create pipeline (same as main but with skinned shaders)
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        skinnedShader->GetVertexInfo(), skinnedShader->GetFragInfo()};
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount =
+        static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Same vertex layout as main pipeline (7 attributes including bone data)
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
+    attributeDescs[0].binding = 0;
+    attributeDescs[0].location = 0;
+    attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[0].offset = offsetof(Vertex, px);
+
+    attributeDescs[1].binding = 0;
+    attributeDescs[1].location = 1;
+    attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[1].offset = offsetof(Vertex, nx);
+
+    attributeDescs[2].binding = 0;
+    attributeDescs[2].location = 2;
+    attributeDescs[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[2].offset = offsetof(Vertex, tx);
+
+    attributeDescs[3].binding = 0;
+    attributeDescs[3].location = 3;
+    attributeDescs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[3].offset = offsetof(Vertex, r);
+
+    attributeDescs[4].binding = 0;
+    attributeDescs[4].location = 4;
+    attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[4].offset = offsetof(Vertex, u);
+
+    attributeDescs[5].binding = 0;
+    attributeDescs[5].location = 5;
+    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SINT;
+    attributeDescs[5].offset = offsetof(Vertex, boneIDs);
+
+    attributeDescs[6].binding = 0;
+    attributeDescs[6].location = 6;
+    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[6].offset = offsetof(Vertex, boneWeights);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    inputAssemblyInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportInfo{};
+    viewportInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportInfo.viewportCount = 1;
+    viewportInfo.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Skinned: depth test + depth write enabled (same as main pipeline)
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments = &colorBlendAttachment;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;  // Reuse same pipeline layout (set 0 + set 1)
+    pipelineInfo.subpass = 0;
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &skinnedPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create skinned pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Skinned pipeline created successfully");
+    return true;
+}
+
+void VulkanRenderer::BeginSkinnedPass() {
+    if (skinnedPipeline == VK_NULL_HANDLE) {
+        if (!CreateSkinnedPipeline()) return;
+    }
+
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      skinnedPipeline);
+
+    // Do NOT rebind texture descriptor sets here — BindMaterialCommand already
+    // bound the correct per-material texture at set 0 before this draw call.
+    // Vulkan preserves descriptor set bindings across pipeline switches when
+    // the pipeline layout is compatible (we reuse the same pipelineLay).
+}
+
+void VulkanRenderer::EndSkinnedPass() {
+    // Restore main pipeline
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+    // Rebind main texture descriptor sets
+    if (m_textureDescriptorsWritten &&
+        CurrentFrameIndex < descriptorSets.size()) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
+            &descriptorSets[CurrentFrameIndex], 0, nullptr);
+    }
+}
+
+void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
+    if (!buffer) return;
+
+    // Lazily create bone UBO resources on first use
+    if (!m_boneUBOCreated) {
+        if (!CreateBoneUBOResources()) return;
+    }
+
+    auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
+    if (!vkBuf) return;
+
+    void* data = vkBuf->GetData();
+    if (!data) return;
+
+    uint32_t size = static_cast<uint32_t>(vkBuf->GetSize());
+    static constexpr uint32_t MAX_BONE_UBO_SIZE = 256 * 64; // MAX_BONES * sizeof(mat4)
+    if (size > MAX_BONE_UBO_SIZE) size = MAX_BONE_UBO_SIZE;
+
+    // Copy bone matrices to mapped UBO (use currentFrame, not CurrentFrameIndex
+    // which is the swapchain image index and can exceed MAX_FRAMES_IN_FLIGHT)
+    memcpy(boneUBOMapped[currentFrame], data, size);
+
+    // Bind bone descriptor set at set index 1
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLay, 1, 1,
+                            &boneDescriptorSets[currentFrame],
+                            0, nullptr);
 }
 
     }

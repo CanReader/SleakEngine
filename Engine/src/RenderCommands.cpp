@@ -26,7 +26,7 @@ void DrawCommand::Execute(RenderContext* context) {
     context->BindVertexBuffer(m_vertexBuffer, m_startVertexLocation);
 
     for (const auto& b : m_constantBuffers)
-        if (b) context->BindConstantBuffer(b);
+        if (b) context->BindConstantBuffer(b, b->GetSlot());
 
     context->Draw(m_vertexCount);
 }
@@ -50,13 +50,31 @@ DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
 
 void DrawIndexedCommand::Execute(RenderContext* context) {
     context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
-
     context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
 
-    for (const auto& b : m_constantBuffers)
-        if (b) context->BindConstantBuffer(b, 0);
+    // Detect if this is a skinned mesh (has bone buffer at slot 3)
+    bool hasBones = false;
+    for (const auto& b : m_constantBuffers) {
+        if (b && b->GetSlot() == 3) { hasBones = true; break; }
+    }
+
+    // Switch to skinned pipeline before binding any constants
+    // (Vulkan pipeline change invalidates push constants)
+    if (hasBones) context->BeginSkinnedPass();
+
+    for (const auto& b : m_constantBuffers) {
+        if (!b) continue;
+        if (b->GetSlot() == 3) {
+            context->BindBoneBuffer(b);
+        } else {
+            context->BindConstantBuffer(b, b->GetSlot());
+        }
+    }
 
     context->DrawIndexed(m_indexCount);
+
+    // Switch back to default pipeline for subsequent non-skinned draws
+    if (hasBones) context->EndSkinnedPass();
 }
 
 //------------------------------------------------------------------------------

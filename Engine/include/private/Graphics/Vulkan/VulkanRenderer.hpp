@@ -98,9 +98,13 @@ public:
     virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) override;
     virtual void BeginSkyboxPass() override;
     virtual void EndSkyboxPass() override;
+    virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
+    virtual void BeginSkinnedPass() override;
+    virtual void EndSkinnedPass() override;
 
 private:
     bool CreateSkyboxPipeline();
+    bool CreateSkinnedPipeline();
     void UpdateSkyboxDescriptorSets();
     bool InitVulkan();
     bool CreateSurface();
@@ -214,6 +218,21 @@ private:
     VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> skyboxDescriptorSets;
     bool m_skyboxDescriptorsWritten = false;
+
+    // Skinned pipeline (uses skinned shaders with bone UBO)
+    VkPipeline skinnedPipeline = VK_NULL_HANDLE;
+    VulkanShader* skinnedShader = nullptr;
+
+    // Bone UBO (for skeletal animation — set 1, binding 0)
+    VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool boneDescriptorPool = VK_NULL_HANDLE;
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> boneUBOBuffers = {};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> boneUBOMemory = {};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT> boneUBOMapped = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> boneDescriptorSets = {};
+    bool m_boneUBOCreated = false;
+    bool CreateBoneUBOResources();
+    void CleanupBoneUBOResources();
 
     // ImGUI
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;

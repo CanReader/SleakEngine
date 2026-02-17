@@ -128,6 +128,8 @@ if(GLSLC)
     file(GLOB VULKAN_SHADERS
         "${SHADER_SOURCE_DIR}/default_shader.vert"
         "${SHADER_SOURCE_DIR}/default_shader.frag"
+        "${SHADER_SOURCE_DIR}/skinned_shader.vert"
+        "${SHADER_SOURCE_DIR}/skinned_shader.frag"
         "${SHADER_SOURCE_DIR}/skybox.vert"
         "${SHADER_SOURCE_DIR}/skybox.frag"
     )

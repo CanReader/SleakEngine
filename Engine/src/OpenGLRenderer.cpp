@@ -255,6 +255,16 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                           (void*)offsetof(Vertex, u));
+
+    // BoneIDs: 4 ints (must use IPointer for integer attributes)
+    glEnableVertexAttribArray(5);
+    glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
+                           (void*)offsetof(Vertex, boneIDs));
+
+    // BoneWeights: 4 floats
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          (void*)offsetof(Vertex, boneWeights));
 }
 
 void OpenGLRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
@@ -271,6 +281,10 @@ void OpenGLRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!glBuf) return;
 
     glBindBufferBase(GL_UNIFORM_BUFFER, slot, glBuf->GetGLBuffer());
+}
+
+void OpenGLRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
+    BindConstantBuffer(buffer, 3);
 }
 
 BufferBase* OpenGLRenderer::CreateBuffer(BufferType type, uint32_t size,

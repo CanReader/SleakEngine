@@ -24,8 +24,10 @@ namespace Sleak {
 
             inline BufferType GetType() { return Type; }
             
-            inline void SetSlot(int slot) 
-            { 
+            inline int GetSlot() const { return Slot; }
+
+            inline void SetSlot(int slot)
+            {
                 Slot = slot;
             }
 

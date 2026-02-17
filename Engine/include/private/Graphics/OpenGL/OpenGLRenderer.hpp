@@ -60,6 +60,7 @@ public:
                                  uint32_t slot = 0) override;
     virtual void BindConstantBuffer(RefPtr<BufferBase> buffer,
                                     uint32_t slot = 0) override;
+    virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
 
     virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size,
                                      void* data) override;

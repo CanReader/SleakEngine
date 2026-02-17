@@ -29,6 +29,11 @@ namespace Sleak {
     // UV
     float u, v;              // 8
 
+    // Bone data (for skeletal animation)
+    int boneIDs[4] = {-1, -1, -1, -1};    // 16 bytes
+    float boneWeights[4] = {0, 0, 0, 0};  // 16 bytes
+    // Total: 96 bytes
+
         // Constructor
         Vertex() = default;
 
@@ -72,8 +77,8 @@ namespace Sleak {
          }
 
         // Get the memory layout description for the GPU input layout
-        static constexpr std::array<size_t, 4> GetAttributeSizes() {
-            return { 3, 3, 4, 2 }; // Position, Normal, Color, TexCoord
+        static constexpr std::array<size_t, 6> GetAttributeSizes() {
+            return { 3, 3, 4, 2, 4, 4 }; // Position, Normal, Color, TexCoord, BoneIDs(int), BoneWeights
         }
 
         // Get the total size of the vertex in bytes
@@ -82,12 +87,14 @@ namespace Sleak {
         }
 
         // Get the offset of each attribute in the vertex structure
-        static constexpr std::array<size_t, 4> GetAttributeOffsets() {
+        static constexpr std::array<size_t, 6> GetAttributeOffsets() {
             return {
-                offsetof(Vertex, px), // Position
-                offsetof(Vertex, nx), // Normal
-                offsetof(Vertex, r),   // Color
-                offsetof(Vertex, u)    // TexCoord
+                offsetof(Vertex, px),        // Position
+                offsetof(Vertex, nx),        // Normal
+                offsetof(Vertex, r),         // Color
+                offsetof(Vertex, u),         // TexCoord
+                offsetof(Vertex, boneIDs),   // BoneIDs (int)
+                offsetof(Vertex, boneWeights) // BoneWeights
             };
         }
     };

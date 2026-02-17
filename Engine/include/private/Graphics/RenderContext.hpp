@@ -73,6 +73,13 @@ enum class DepthCompare {
             virtual void BeginSkyboxPass() {}
             virtual void EndSkyboxPass() {}
 
+            // Bone buffer support (Vulkan needs UBO path — push constants too small)
+            virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) { (void)buffer; }
+
+            // Skinned pipeline support (Vulkan needs separate pipeline for skinned shaders)
+            virtual void BeginSkinnedPass() {}
+            virtual void EndSkinnedPass() {}
+
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
             virtual void BindIndexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
