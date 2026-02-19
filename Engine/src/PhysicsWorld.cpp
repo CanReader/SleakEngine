@@ -73,6 +73,9 @@ void PhysicsWorld::FindPairsAndResolve() {
             auto* colliderB = static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
             if (colliderB == colliderA) return true;
 
+            // Skip duplicate pairs: only process when A < B (pointer order)
+            if (colliderA > colliderB) return true;
+
             // Layer filtering
             if ((colliderA->GetLayer() & colliderB->GetMask()) == 0) return true;
             if ((colliderB->GetLayer() & colliderA->GetMask()) == 0) return true;
