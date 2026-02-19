@@ -135,23 +135,35 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
 // -----------------------------------------------------------------------
 
 void OpenGLRenderer::Draw(uint32_t vertexCount) {
-    glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+    GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
+    glDrawArrays(mode, 0, vertexCount);
 }
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
-    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
+    GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
+    glDrawElements(mode, indexCount, GL_UNSIGNED_INT, 0);
 }
 
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
-    glDrawArraysInstanced(GL_TRIANGLES, 0, vertexPerInstance,
+    GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
+    glDrawArraysInstanced(mode, 0, vertexPerInstance,
                           instanceCount);
 }
 
 void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
-    glDrawElementsInstanced(GL_TRIANGLES, indexPerInstance,
+    GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
+    glDrawElementsInstanced(mode, indexPerInstance,
                             GL_UNSIGNED_INT, 0, instanceCount);
+}
+
+void OpenGLRenderer::BeginDebugLinePass() {
+    m_debugLineMode = true;
+}
+
+void OpenGLRenderer::EndDebugLinePass() {
+    m_debugLineMode = false;
 }
 
 void OpenGLRenderer::SetRenderFace(RenderFace face) {

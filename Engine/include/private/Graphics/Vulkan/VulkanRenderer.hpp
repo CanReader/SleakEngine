@@ -101,6 +101,8 @@ public:
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
     virtual void BeginSkinnedPass() override;
     virtual void EndSkinnedPass() override;
+    virtual void BeginDebugLinePass() override;
+    virtual void EndDebugLinePass() override;
 
 private:
     bool CreateSkyboxPipeline();
@@ -222,6 +224,11 @@ private:
     // Skinned pipeline (uses skinned shaders with bone UBO)
     VkPipeline skinnedPipeline = VK_NULL_HANDLE;
     VulkanShader* skinnedShader = nullptr;
+
+    // Debug line pipeline
+    VkPipeline debugLinePipeline = VK_NULL_HANDLE;
+    VulkanShader* debugLineShader = nullptr;
+    bool CreateDebugLinePipeline();
 
     // Bone UBO (for skeletal animation — set 1, binding 0)
     VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;

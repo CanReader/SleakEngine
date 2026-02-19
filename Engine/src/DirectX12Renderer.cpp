@@ -1030,6 +1030,118 @@ void DirectX12Renderer::EndSkyboxPass() {
     }
 }
 
+bool DirectX12Renderer::CreateDebugLinePipelineState() {
+    if (m_debugLinePipelineState) return true;
+    if (!pipelineState) return false;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob, psBlob, errorBlob;
+
+    HRESULT hr = D3DCompileFromFile(
+        L"assets/shaders/debug_line_dx12.hlsl", nullptr, nullptr,
+        "VS_Main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob)
+            SLEAK_ERROR("Debug line VS compile error: {}",
+                        (char*)errorBlob->GetBufferPointer());
+        return false;
+    }
+
+    hr = D3DCompileFromFile(
+        L"assets/shaders/debug_line_dx12.hlsl", nullptr, nullptr,
+        "PS_Main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob)
+            SLEAK_ERROR("Debug line PS compile error: {}",
+                        (char*)errorBlob->GetBufferPointer());
+        return false;
+    }
+
+    if (!vsBlob || !psBlob) return false;
+
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = {inputLayout, _countof(inputLayout)};
+    psoDesc.pRootSignature = rootSignature.Get();
+    psoDesc.VS = {vsBlob->GetBufferPointer(), vsBlob->GetBufferSize()};
+    psoDesc.PS = {psBlob->GetBufferPointer(), psBlob->GetBufferSize()};
+
+    D3D12_RASTERIZER_DESC rasterDesc = {};
+    rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+    rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.DepthClipEnable = TRUE;
+    psoDesc.RasterizerState = rasterDesc;
+
+    D3D12_BLEND_DESC blendDesc = {};
+    blendDesc.AlphaToCoverageEnable = FALSE;
+    blendDesc.IndependentBlendEnable = FALSE;
+    D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
+    rtBlendDesc.BlendEnable = FALSE;
+    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+        blendDesc.RenderTarget[i] = rtBlendDesc;
+    psoDesc.BlendState = blendDesc;
+
+    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+    depthStencilDesc.DepthEnable = TRUE;
+    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    depthStencilDesc.StencilEnable = FALSE;
+    psoDesc.DepthStencilState = depthStencilDesc;
+
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count = 1;
+
+    hr = device->CreateGraphicsPipelineState(
+        &psoDesc, IID_PPV_ARGS(&m_debugLinePipelineState));
+    if (FAILED(hr)) {
+        SLEAK_ERROR(
+            "Failed to create debug line pipeline state! HRESULT: 0x{:08X}",
+            static_cast<unsigned int>(hr));
+        return false;
+    }
+
+    SLEAK_INFO("DirectX 12 debug line pipeline state created successfully");
+    return true;
+}
+
+void DirectX12Renderer::BeginDebugLinePass() {
+    if (!CreateDebugLinePipelineState()) {
+        SLEAK_WARN("BeginDebugLinePass: failed to create debug line PSO");
+        return;
+    }
+    commandList->SetPipelineState(m_debugLinePipelineState.Get());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+}
+
+void DirectX12Renderer::EndDebugLinePass() {
+    if (pipelineState) {
+        commandList->SetPipelineState(pipelineState.Get());
+    }
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
 // -----------------------------------------------------------------------
 // Pipeline State Configuration (DX12 requires PSO recreation)
 // -----------------------------------------------------------------------

@@ -79,6 +79,8 @@ public:
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
     virtual void BeginSkyboxPass() override;
     virtual void EndSkyboxPass() override;
+    virtual void BeginDebugLinePass() override;
+    virtual void EndDebugLinePass() override;
 
 private:
     bool CreateDevice();
@@ -146,6 +148,10 @@ private:
     // Skybox PSO (depth write off, LEQUAL, no cull)
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_skyboxPipelineState;
     bool CreateSkyboxPipelineState();
+
+    // Debug line PSO (line topology)
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_debugLinePipelineState;
+    bool CreateDebugLinePipelineState();
 
     // ImGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiSrvHeap;

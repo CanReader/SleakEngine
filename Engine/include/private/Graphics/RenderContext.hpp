@@ -80,6 +80,10 @@ enum class DepthCompare {
             virtual void BeginSkinnedPass() {}
             virtual void EndSkinnedPass() {}
 
+            // Debug line rendering pipeline support
+            virtual void BeginDebugLinePass() {}
+            virtual void EndDebugLinePass() {}
+
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
             virtual void BindIndexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;

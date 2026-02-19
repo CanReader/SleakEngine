@@ -62,6 +62,9 @@ public:
                                     uint32_t slot = 0) override;
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
 
+    virtual void BeginDebugLinePass() override;
+    virtual void EndDebugLinePass() override;
+
     virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size,
                                      void* data) override;
     virtual Shader* CreateShader(const std::string& shaderSource) override;
@@ -78,6 +81,7 @@ private:
     bool m_Initialized = false;
 
     GLuint m_VAO = 0;
+    bool m_debugLineMode = false;
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;

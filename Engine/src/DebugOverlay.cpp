@@ -1,4 +1,5 @@
 #include <Debug/DebugOverlay.hpp>
+#include <Debug/DebugLineRenderer.hpp>
 #include <Graphics/Renderer.hpp>
 #include <GameBase.hpp>
 #include <Camera/Camera.hpp>
@@ -9,6 +10,7 @@
 namespace Sleak {
 
 DebugOverlay::~DebugOverlay() {
+    DebugLineRenderer::Shutdown();
     SystemMetrics::Shutdown();
 }
 
@@ -17,6 +19,7 @@ void DebugOverlay::Initialize(RenderEngine::Renderer* renderer,
     m_renderer = renderer;
     m_game = game;
     SystemMetrics::Initialize();
+    DebugLineRenderer::Initialize();
 }
 
 void DebugOverlay::Render(float deltaTime) {
@@ -180,6 +183,11 @@ void DebugOverlay::RenderPerformancePanel() {
                      m_cachedMetrics.GpuUsagePercent);
     else
         ImGui::TextDisabled("GPU: N/A");
+
+    ImGui::Separator();
+    if (ImGui::Checkbox("Show Colliders", &m_showColliders)) {
+        DebugLineRenderer::SetEnabled(m_showColliders);
+    }
 
     ImGui::End();
 }

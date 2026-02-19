@@ -38,6 +38,7 @@ private:
     GameBase* m_game = nullptr;
 
     bool m_visible = true;
+    bool m_showColliders = false;
     DebugOverlayConfig m_config;
 
     // Cached metrics

@@ -72,6 +72,8 @@ public:
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
     virtual void BeginSkyboxPass() override;
     virtual void EndSkyboxPass() override;
+    virtual void BeginDebugLinePass() override;
+    virtual void EndDebugLinePass() override;
 
     virtual bool CreateImGUI();
 
@@ -125,6 +127,7 @@ public:
     Window* window;
 
     // Skybox state
+    D3D11_PRIMITIVE_TOPOLOGY m_savedTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     ID3D11DepthStencilState* m_savedDepthStencilState = nullptr;
     D3D11_CULL_MODE m_savedCullMode = D3D11_CULL_FRONT;
     bool m_depthWriteEnabled = true;

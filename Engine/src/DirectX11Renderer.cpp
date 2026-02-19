@@ -696,6 +696,17 @@ void DirectX11Renderer::EndSkyboxPass() {
     m_depthFunc = D3D11_COMPARISON_LESS;
 }
 
+void DirectX11Renderer::BeginDebugLinePass() {
+    m_savedTopology = topology;
+    topology = D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+    deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+}
+
+void DirectX11Renderer::EndDebugLinePass() {
+    topology = m_savedTopology;
+    deviceContext->IASetPrimitiveTopology(topology);
+}
+
 BufferBase* DirectX11Renderer::CreateBuffer(BufferType Type, uint32_t size, void* data) {
     assert(size > 0);
 
