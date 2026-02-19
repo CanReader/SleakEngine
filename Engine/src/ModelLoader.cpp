@@ -617,4 +617,43 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     return tex;
 }
 
+// ---------------------------------------------------------------------------
+// LoadAnimationsOnly — load animations from FBX, reuse existing skeleton
+// ---------------------------------------------------------------------------
+std::vector<AnimationClip*> ModelLoader::LoadAnimationsOnly(
+    const std::string& filePath, Skeleton* skeleton) {
+    std::vector<AnimationClip*> result;
+
+    if (!skeleton) {
+        SLEAK_ERROR("LoadAnimationsOnly: null skeleton");
+        return result;
+    }
+
+    Assimp::Importer importer;
+    unsigned int flags = aiProcess_Triangulate;
+
+    const aiScene* scene = importer.ReadFile(filePath, flags);
+    if (!scene || !scene->HasAnimations()) {
+        SLEAK_ERROR("LoadAnimationsOnly: failed to load or no animations in '{}'",
+                    filePath);
+        return result;
+    }
+
+    result = ExtractAnimations(scene, skeleton);
+
+    // Rename clips to filename stem if they have generic names
+    std::string stem = std::filesystem::path(filePath).stem().string();
+    for (auto* clip : result) {
+        if (clip->name.empty() || clip->name.find("Armature") != std::string::npos
+            || clip->name.find("mixamo") != std::string::npos
+            || clip->name.find("Animation") != std::string::npos) {
+            clip->name = stem;
+            clip->BuildLookup();
+        }
+    }
+
+    SLEAK_INFO("LoadAnimationsOnly: '{}' -> {} clips", filePath, result.size());
+    return result;
+}
+
 } // namespace Sleak

@@ -3,6 +3,7 @@
 #include <Core/GameObject.hpp>
 #include <Graphics/ResourceManager.hpp>
 #include <Graphics/BufferBase.hpp>
+#include <Runtime/AnimationStateMachine.hpp>
 #include <Logger.hpp>
 #include <cmath>
 
@@ -13,7 +14,9 @@ AnimatorComponent::AnimatorComponent(GameObject* owner, Skeleton* skeleton,
     : Component(owner), m_skeleton(skeleton), m_clips(std::move(clips)) {
 }
 
-AnimatorComponent::~AnimatorComponent() = default;
+AnimatorComponent::~AnimatorComponent() {
+    delete m_stateMachine;
+}
 
 bool AnimatorComponent::Initialize() {
     if (!m_skeleton || m_skeleton->GetBoneCount() == 0) {
@@ -23,6 +26,7 @@ bool AnimatorComponent::Initialize() {
 
     int boneCount = m_skeleton->GetBoneCount();
     m_boneMatrices.resize(boneCount, Math::Matrix4::Identity());
+    m_boneMatricesB.resize(boneCount, Math::Matrix4::Identity());
 
     // Create bone constant buffer at slot 3
     uint32_t bufferSize = static_cast<uint32_t>(boneCount * sizeof(Math::Matrix4));
@@ -51,7 +55,36 @@ bool AnimatorComponent::Initialize() {
 }
 
 void AnimatorComponent::Update(float deltaTime) {
-    if (!bIsInitialized || !m_playing || m_currentClip < 0)
+    if (!bIsInitialized)
+        return;
+
+    // --- State machine path ---
+    if (m_stateMachine) {
+        SampleRequest req = m_stateMachine->Update(deltaTime);
+
+        if (!req.clipA)
+            return;
+
+        if (req.clipB && req.blendWeight > 0.0f) {
+            // Blending two clips
+            ComputeBoneTransformsForClip(req.clipA, req.timeA, m_boneMatrices);
+            ComputeBoneTransformsForClip(req.clipB, req.timeB, m_boneMatricesB);
+            BlendBoneMatrices(m_boneMatrices, m_boneMatricesB,
+                              req.blendWeight, m_boneMatrices);
+        } else {
+            // Single clip
+            ComputeBoneTransformsForClip(req.clipA, req.timeA, m_boneMatrices);
+        }
+
+        // Upload bone matrices to GPU
+        uint32_t bufferSize = static_cast<uint32_t>(
+            m_skeleton->GetBoneCount() * sizeof(Math::Matrix4));
+        m_boneBuffer->Update(m_boneMatrices.data(), bufferSize);
+        return;
+    }
+
+    // --- Legacy single-clip path ---
+    if (!m_playing || m_currentClip < 0)
         return;
 
     AnimationClip* clip = m_clips[m_currentClip];
@@ -78,21 +111,35 @@ void AnimatorComponent::Update(float deltaTime) {
     m_boneBuffer->Update(m_boneMatrices.data(), bufferSize);
 }
 
-void AnimatorComponent::ComputeBoneTransforms(float animTime) {
-    Math::Matrix4 identity = Math::Matrix4::Identity();
+// --- State machine ---
 
-    // Walk the full scene node tree (not just bones)
+AnimationStateMachine* AnimatorComponent::CreateStateMachine() {
+    delete m_stateMachine;
+    m_stateMachine = new AnimationStateMachine();
+    return m_stateMachine;
+}
+
+void AnimatorComponent::AddClip(AnimationClip* clip) {
+    if (clip)
+        m_clips.push_back(clip);
+}
+
+// --- Parameterized bone computation (for any clip + time) ---
+
+void AnimatorComponent::ComputeBoneTransformsForClip(AnimationClip* clip, float animTime,
+                                                      std::vector<Math::Matrix4>& outMatrices) {
+    Math::Matrix4 identity = Math::Matrix4::Identity();
     int rootIdx = m_skeleton->GetRootNodeIndex();
     if (rootIdx >= 0) {
-        ProcessNodeHierarchy(rootIdx, identity, animTime);
+        ProcessNodeHierarchyForClip(rootIdx, identity, clip, animTime, outMatrices);
     }
 }
 
-void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
-                                              const Math::Matrix4& parentTransform,
-                                              float animTime) {
+void AnimatorComponent::ProcessNodeHierarchyForClip(int nodeIndex,
+                                                     const Math::Matrix4& parentTransform,
+                                                     AnimationClip* clip, float animTime,
+                                                     std::vector<Math::Matrix4>& outMatrices) {
     const NodeData& node = m_skeleton->GetNode(nodeIndex);
-    AnimationClip* clip = m_clips[m_currentClip];
 
     // Start with the node's default transform from the scene graph
     Math::Matrix4 nodeTransform = node.defaultTransform;
@@ -104,9 +151,6 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
         Math::Quaternion rot = InterpolateRotation(*channel, animTime);
         Math::Vector3D scl = InterpolateScale(*channel, animTime);
 
-        // Conjugate the quaternion: Assimp uses column-vector convention (R_cv * v),
-        // but the engine's row-vector convention needs R_rv = R_cv^T.
-        // Conjugating the quaternion produces the transposed rotation matrix.
         Math::Quaternion rotConj(rot.GetW(), -rot.GetX(), -rot.GetY(), -rot.GetZ());
 
         Math::Matrix4 scaleMat = Math::Matrix4::Scale(scl);
@@ -119,13 +163,76 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
     Math::Matrix4 globalTransform = nodeTransform * parentTransform;
 
     // If this node is a bone, compute its final bone matrix
+    if (node.boneIndex >= 0 && node.boneIndex < static_cast<int>(outMatrices.size())) {
+        const Bone& bone = m_skeleton->GetBone(node.boneIndex);
+        outMatrices[node.boneIndex] = bone.offsetMatrix * globalTransform *
+                                       m_skeleton->GetGlobalInverseTransform();
+    }
+
+    // Recurse into all children
+    for (int childIdx : node.children) {
+        ProcessNodeHierarchyForClip(childIdx, globalTransform, clip, animTime, outMatrices);
+    }
+}
+
+// --- Blend ---
+
+void AnimatorComponent::BlendBoneMatrices(const std::vector<Math::Matrix4>& a,
+                                           const std::vector<Math::Matrix4>& b,
+                                           float weight,
+                                           std::vector<Math::Matrix4>& out) {
+    float w0 = 1.0f - weight;
+    float w1 = weight;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                out[i](r, c) = a[i](r, c) * w0 + b[i](r, c) * w1;
+            }
+        }
+    }
+}
+
+// --- Legacy single-clip computation ---
+
+void AnimatorComponent::ComputeBoneTransforms(float animTime) {
+    Math::Matrix4 identity = Math::Matrix4::Identity();
+    int rootIdx = m_skeleton->GetRootNodeIndex();
+    if (rootIdx >= 0) {
+        ProcessNodeHierarchy(rootIdx, identity, animTime);
+    }
+}
+
+void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
+                                              const Math::Matrix4& parentTransform,
+                                              float animTime) {
+    const NodeData& node = m_skeleton->GetNode(nodeIndex);
+    AnimationClip* clip = m_clips[m_currentClip];
+
+    Math::Matrix4 nodeTransform = node.defaultTransform;
+
+    const AnimationChannel* channel = clip->FindChannel(node.name);
+    if (channel) {
+        Math::Vector3D pos = InterpolatePosition(*channel, animTime);
+        Math::Quaternion rot = InterpolateRotation(*channel, animTime);
+        Math::Vector3D scl = InterpolateScale(*channel, animTime);
+
+        Math::Quaternion rotConj(rot.GetW(), -rot.GetX(), -rot.GetY(), -rot.GetZ());
+
+        Math::Matrix4 scaleMat = Math::Matrix4::Scale(scl);
+        Math::Matrix4 rotMat = Math::Matrix4::Rotate(rotConj);
+        Math::Matrix4 transMat = Math::Matrix4::Translate(pos);
+
+        nodeTransform = scaleMat * rotMat * transMat;
+    }
+
+    Math::Matrix4 globalTransform = nodeTransform * parentTransform;
+
     if (node.boneIndex >= 0 && node.boneIndex < static_cast<int>(m_boneMatrices.size())) {
         const Bone& bone = m_skeleton->GetBone(node.boneIndex);
         m_boneMatrices[node.boneIndex] = bone.offsetMatrix * globalTransform *
                                           m_skeleton->GetGlobalInverseTransform();
     }
 
-    // Recurse into all children (bones AND non-bone nodes)
     for (int childIdx : node.children) {
         ProcessNodeHierarchy(childIdx, globalTransform, animTime);
     }
@@ -133,7 +240,6 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
 
 // --- Keyframe interpolation ---
 
-// Find the keyframe index and interpolation factor for a given time
 template<typename T>
 static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, float time) {
     int idx = 0;
@@ -196,13 +302,11 @@ Math::Quaternion AnimatorComponent::Slerp(const Math::Quaternion& a,
                 a.GetY() * b.GetY() + a.GetZ() * b.GetZ();
 
     Math::Quaternion b2 = b;
-    // If dot is negative, negate one quaternion to take the short path
     if (dot < 0.0f) {
         b2 = Math::Quaternion(-b.GetW(), -b.GetX(), -b.GetY(), -b.GetZ());
         dot = -dot;
     }
 
-    // If quaternions are very close, use linear interpolation
     if (dot > 0.9995f) {
         Math::Quaternion result(
             a.GetW() + (b2.GetW() - a.GetW()) * t,

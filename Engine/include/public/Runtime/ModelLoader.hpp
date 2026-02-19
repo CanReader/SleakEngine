@@ -42,6 +42,10 @@ namespace Sleak {
         static GameObject* Load(const std::string& filePath,
                                 const ModelLoadOptions& options = {});
 
+        // Load only animations from an FBX, reusing an existing skeleton
+        static std::vector<AnimationClip*> LoadAnimationsOnly(
+            const std::string& filePath, Skeleton* skeleton);
+
     private:
         // Static mesh path (with PreTransformVertices)
         static void ProcessNode(aiNode* node, const aiScene* scene,

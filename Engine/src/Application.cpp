@@ -162,6 +162,10 @@ namespace Sleak {
                     // Late update (after all updates, e.g. camera follow)
                     activeScene->LateUpdate(DeltaTime);
                 }
+
+                // Per-frame game logic
+                if (Game)
+                    Game->Loop(DeltaTime);
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
 
