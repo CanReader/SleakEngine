@@ -1,4 +1,5 @@
 #include <ECS/Components/FreeLookCameraController.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <SDL3/SDL.h>
 #include <Events/Event.h>
 #include <Math/Math.hpp>
@@ -119,7 +120,17 @@ namespace Sleak {
         // Apply damping more consistently
         velocity = velocity * (1.0f - damping * deltaTime);
 
-        // Update camera position
+        // Cancel velocity component along collision normal for smooth sliding
+        auto* rb = owner->GetComponent<RigidbodyComponent>();
+        if (rb && rb->HadCollision()) {
+            Math::Vector3D normal = rb->GetLastCollisionNormal();
+            float dot = worldVelocity.Dot(normal);
+            if (dot < 0.0f) {
+                worldVelocity = worldVelocity - normal * dot;
+            }
+        }
+
+        // Update camera position (collision handled by ColliderComponent + RigidbodyComponent)
         camera->AddPosition(worldVelocity * deltaTime);
 
         // Update look target
