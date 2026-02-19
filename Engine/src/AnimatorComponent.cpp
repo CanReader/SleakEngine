@@ -133,99 +133,61 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
 
 // --- Keyframe interpolation ---
 
-Math::Vector3D AnimatorComponent::InterpolatePosition(
-    const AnimationChannel& channel, float time) {
-    auto& keys = channel.positionKeys;
-    if (keys.empty())
-        return Math::Vector3D(0.0f, 0.0f, 0.0f);
-    if (keys.size() == 1)
-        return keys[0].value;
-
-    // Find the two keyframes surrounding the current time
+// Find the keyframe index and interpolation factor for a given time
+template<typename T>
+static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, float time) {
     int idx = 0;
     for (int i = 0; i < static_cast<int>(keys.size()) - 1; ++i) {
-        if (time < keys[i + 1].time) {
-            idx = i;
-            break;
-        }
+        if (time < keys[i + 1].time) { idx = i; break; }
         idx = i;
     }
+    int next = idx + 1;
+    if (next >= static_cast<int>(keys.size()))
+        return {idx, 0.0f};
 
-    int nextIdx = idx + 1;
-    if (nextIdx >= static_cast<int>(keys.size()))
-        return keys[idx].value;
-
-    float dt = keys[nextIdx].time - keys[idx].time;
+    float dt = keys[next].time - keys[idx].time;
     float t = (dt > 0.0f) ? (time - keys[idx].time) / dt : 0.0f;
-    t = std::max(0.0f, std::min(1.0f, t));
+    return {idx, std::max(0.0f, std::min(1.0f, t))};
+}
 
-    const auto& a = keys[idx].value;
-    const auto& b = keys[nextIdx].value;
+static Math::Vector3D LerpVec3(const Math::Vector3D& a, const Math::Vector3D& b, float t) {
     return Math::Vector3D(
         a.GetX() + (b.GetX() - a.GetX()) * t,
         a.GetY() + (b.GetY() - a.GetY()) * t,
         a.GetZ() + (b.GetZ() - a.GetZ()) * t);
+}
+
+Math::Vector3D AnimatorComponent::InterpolatePosition(
+    const AnimationChannel& channel, float time) {
+    auto& keys = channel.positionKeys;
+    if (keys.empty()) return Math::Vector3D(0.0f, 0.0f, 0.0f);
+    if (keys.size() == 1) return keys[0].value;
+
+    auto [idx, t] = FindKeyframe(keys, time);
+    if (idx + 1 >= static_cast<int>(keys.size())) return keys[idx].value;
+    return LerpVec3(keys[idx].value, keys[idx + 1].value, t);
 }
 
 Math::Quaternion AnimatorComponent::InterpolateRotation(
     const AnimationChannel& channel, float time) {
     auto& keys = channel.rotationKeys;
-    if (keys.empty())
-        return Math::Quaternion();
-    if (keys.size() == 1)
-        return keys[0].value;
+    if (keys.empty()) return Math::Quaternion();
+    if (keys.size() == 1) return keys[0].value;
 
-    int idx = 0;
-    for (int i = 0; i < static_cast<int>(keys.size()) - 1; ++i) {
-        if (time < keys[i + 1].time) {
-            idx = i;
-            break;
-        }
-        idx = i;
-    }
-
-    int nextIdx = idx + 1;
-    if (nextIdx >= static_cast<int>(keys.size()))
-        return keys[idx].value;
-
-    float dt = keys[nextIdx].time - keys[idx].time;
-    float t = (dt > 0.0f) ? (time - keys[idx].time) / dt : 0.0f;
-    t = std::max(0.0f, std::min(1.0f, t));
-
-    return Slerp(keys[idx].value, keys[nextIdx].value, t);
+    auto [idx, t] = FindKeyframe(keys, time);
+    if (idx + 1 >= static_cast<int>(keys.size())) return keys[idx].value;
+    return Slerp(keys[idx].value, keys[idx + 1].value, t);
 }
 
 Math::Vector3D AnimatorComponent::InterpolateScale(
     const AnimationChannel& channel, float time) {
     auto& keys = channel.scaleKeys;
-    if (keys.empty())
-        return Math::Vector3D(1.0f, 1.0f, 1.0f);
-    if (keys.size() == 1)
-        return keys[0].value;
+    if (keys.empty()) return Math::Vector3D(1.0f, 1.0f, 1.0f);
+    if (keys.size() == 1) return keys[0].value;
 
-    int idx = 0;
-    for (int i = 0; i < static_cast<int>(keys.size()) - 1; ++i) {
-        if (time < keys[i + 1].time) {
-            idx = i;
-            break;
-        }
-        idx = i;
-    }
-
-    int nextIdx = idx + 1;
-    if (nextIdx >= static_cast<int>(keys.size()))
-        return keys[idx].value;
-
-    float dt = keys[nextIdx].time - keys[idx].time;
-    float t = (dt > 0.0f) ? (time - keys[idx].time) / dt : 0.0f;
-    t = std::max(0.0f, std::min(1.0f, t));
-
-    const auto& a = keys[idx].value;
-    const auto& b = keys[nextIdx].value;
-    return Math::Vector3D(
-        a.GetX() + (b.GetX() - a.GetX()) * t,
-        a.GetY() + (b.GetY() - a.GetY()) * t,
-        a.GetZ() + (b.GetZ() - a.GetZ()) * t);
+    auto [idx, t] = FindKeyframe(keys, time);
+    if (idx + 1 >= static_cast<int>(keys.size())) return keys[idx].value;
+    return LerpVec3(keys[idx].value, keys[idx + 1].value, t);
 }
 
 Math::Quaternion AnimatorComponent::Slerp(const Math::Quaternion& a,

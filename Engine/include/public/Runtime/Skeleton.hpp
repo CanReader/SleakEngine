@@ -83,23 +83,9 @@ namespace Sleak {
 
         bool HasNodeTree() const { return !m_nodes.empty(); }
 
-        // Legacy bone hierarchy (kept for compatibility)
         void SetBoneParent(int boneId, int parentId) {
             if (boneId >= 0 && boneId < static_cast<int>(m_bones.size()))
                 m_bones[boneId].parentId = parentId;
-        }
-
-        std::vector<int> GetChildren(int parentId) const {
-            std::vector<int> children;
-            for (const auto& bone : m_bones) {
-                if (bone.parentId == parentId)
-                    children.push_back(bone.id);
-            }
-            return children;
-        }
-
-        std::vector<int> GetRootBones() const {
-            return GetChildren(-1);
         }
 
     private:

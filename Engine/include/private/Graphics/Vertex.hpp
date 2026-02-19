@@ -4,8 +4,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
-#include <iostream>
 #include <Utility/Container/List.hpp>
 
 namespace Sleak {
@@ -113,7 +111,10 @@ namespace Sleak {
             }
     
             // Get raw pointer to vertex data (for GPU upload)
-            const Vertex* GetData() { return vertices.GetData(); }
+            const Vertex* GetData() const { return vertices.GetData(); }
+
+            // Get mutable pointer to vertex data (for bone weight assignment)
+            Vertex* GetMutableData() { return const_cast<Vertex*>(vertices.GetData()); }
 
             // Get raw pointer to vertex data (for GPU upload)
             void* GetRawData() { return vertices.GetRawData(); }

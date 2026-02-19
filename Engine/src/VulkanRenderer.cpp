@@ -2559,16 +2559,9 @@ void VulkanRenderer::BeginSkinnedPass() {
 }
 
 void VulkanRenderer::EndSkinnedPass() {
-    // Restore main pipeline
+    // Restore main pipeline. Descriptor sets are preserved across compatible
+    // pipeline switches so no rebinding needed.
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-    // Rebind main texture descriptor sets
-    if (m_textureDescriptorsWritten &&
-        CurrentFrameIndex < descriptorSets.size()) {
-        vkCmdBindDescriptorSets(
-            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 0, 1,
-            &descriptorSets[CurrentFrameIndex], 0, nullptr);
-    }
 }
 
 void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
@@ -2600,5 +2593,5 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
                             0, nullptr);
 }
 
-    }
+}
 }

@@ -6,6 +6,7 @@
 #include <Math/Quaternion.hpp>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace Sleak {
 
@@ -35,12 +36,20 @@ namespace Sleak {
         }
 
         const AnimationChannel* FindChannel(const std::string& boneName) const {
-            for (const auto& ch : channels) {
-                if (ch.boneName == boneName)
-                    return &ch;
-            }
-            return nullptr;
+            auto it = m_channelLookup.find(boneName);
+            return (it != m_channelLookup.end()) ? &channels[it->second] : nullptr;
         }
+
+        // Call after all channels have been added
+        void BuildLookup() {
+            m_channelLookup.clear();
+            for (size_t i = 0; i < channels.size(); ++i) {
+                m_channelLookup[channels[i].boneName] = static_cast<int>(i);
+            }
+        }
+
+    private:
+        std::unordered_map<std::string, int> m_channelLookup;
     };
 
 } // namespace Sleak

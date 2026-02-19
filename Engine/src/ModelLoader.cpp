@@ -250,6 +250,8 @@ std::vector<AnimationClip*> ModelLoader::ExtractAnimations(
             clip->channels.push_back(std::move(channel));
         }
 
+        clip->BuildLookup();
+
         SLEAK_INFO("  Animation '{}': {} channels, {:.1f}s",
                    clip->name, clip->channels.size(),
                    clip->GetDurationInSeconds());
@@ -422,8 +424,7 @@ MeshData ModelLoader::ProcessMesh(aiMesh* mesh, const ModelLoadOptions& options,
 
                 if (vertexId >= data.vertices.GetSize()) continue;
 
-                // Get mutable reference to vertex
-                Vertex* vPtr = const_cast<Vertex*>(data.vertices.GetData()) + vertexId;
+                Vertex* vPtr = data.vertices.GetMutableData() + vertexId;
 
                 // Find first empty bone slot
                 for (int s = 0; s < MAX_BONE_INFLUENCE; ++s) {
