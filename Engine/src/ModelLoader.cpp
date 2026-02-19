@@ -9,6 +9,8 @@
 #include <Runtime/Texture.hpp>
 #include <Runtime/Skeleton.hpp>
 #include <Runtime/AnimationClip.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <Memory/RefPtr.h>
 #include <Logger.hpp>
 
@@ -293,6 +295,8 @@ void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
         }
 
         MeshData meshData = ProcessMesh(mesh, options);
+        meshObj->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
+        meshObj->AddComponent<RigidbodyComponent>(BodyType::Static);
         meshObj->AddComponent<MeshComponent>(std::move(meshData));
 
         meshObj->SetParent(parent);
@@ -340,6 +344,8 @@ void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
 
         // Process mesh with bone data extraction
         MeshData meshData = ProcessMesh(mesh, options, skeleton);
+        meshObj->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
+        meshObj->AddComponent<RigidbodyComponent>(BodyType::Static);
         meshObj->AddComponent<MeshComponent>(std::move(meshData));
 
         // Add AnimatorComponent if mesh has bones

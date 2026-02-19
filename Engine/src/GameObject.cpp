@@ -1,8 +1,13 @@
 #include <Core/GameObject.hpp>
 #include <Runtime/InternalGeometry.hpp>
+#include <Runtime/Material.hpp>
 #include <Math/Vector.hpp>
 #include <ECS/Components/MeshComponent.hpp>
 #include <ECS/Components/TransformComponent.hpp>
+#include <ECS/Components/MaterialComponent.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/RigidbodyComponent.hpp>
+#include "../../include/private/Graphics/Vertex.hpp"
 
 namespace Sleak {
 
@@ -147,10 +152,20 @@ namespace Sleak {
 
     // --- Factory methods ---
 
+    static Material* CreateDefaultMaterial() {
+        auto* mat = new Material();
+        mat->SetShader("assets/shaders/default_shader.hlsl");
+        return mat;
+    }
+
     GameObject* GameObject::CreatePlane(Math::Vector3D position, int width, int height) {
         GameObject* object = new GameObject("Plane");
 
-        object->AddComponent<MeshComponent>(GetPlaneMesh(width, height));
+        MeshData meshData = GetPlaneMesh(width, height);
+        object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
+        object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
+        object->AddComponent<MeshComponent>(std::move(meshData));
         object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
@@ -160,7 +175,11 @@ namespace Sleak {
     GameObject* GameObject::CreateCube(Math::Vector3D position) {
         GameObject* object = new GameObject("Cube");
 
-        object->AddComponent<MeshComponent>(GetCubeMesh());
+        MeshData meshData = GetCubeMesh();
+        object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
+        object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
+        object->AddComponent<MeshComponent>(std::move(meshData));
         object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
@@ -170,7 +189,11 @@ namespace Sleak {
     GameObject* GameObject::CreateSphere(Math::Vector3D position, int stack, int slices) {
         GameObject* object = new GameObject("Sphere");
 
-        object->AddComponent<MeshComponent>(GetSphereMesh(stack, slices));
+        MeshData meshData = GetSphereMesh(stack, slices);
+        object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::Sphere);
+        object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
+        object->AddComponent<MeshComponent>(std::move(meshData));
         object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
@@ -180,7 +203,11 @@ namespace Sleak {
     GameObject* GameObject::CreateCapsule(Math::Vector3D position, int segments, int rings, float height, float radius) {
         GameObject* object = new GameObject("Capsule");
 
-        object->AddComponent<MeshComponent>(GetCapsuleMesh(segments, rings, height, radius));
+        MeshData meshData = GetCapsuleMesh(segments, rings, height, radius);
+        object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::Capsule);
+        object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
+        object->AddComponent<MeshComponent>(std::move(meshData));
         object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
@@ -190,7 +217,11 @@ namespace Sleak {
     GameObject* GameObject::CreateCylinder(Math::Vector3D position, int segments, float height, float radius) {
         GameObject* object = new GameObject("Cylinder");
 
-        object->AddComponent<MeshComponent>(GetCylinderMesh(segments, height, radius));
+        MeshData meshData = GetCylinderMesh(segments, height, radius);
+        object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
+        object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
+        object->AddComponent<MeshComponent>(std::move(meshData));
         object->AddComponent<TransformComponent>(position);
         object->Initialize();
 

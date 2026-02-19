@@ -22,6 +22,9 @@ namespace Sleak {
     class Light;
     class LightManager;
     class Skybox;
+    class ColliderComponent;
+
+    namespace Physics { class PhysicsWorld; }
 
     class ENGINE_API SceneBase {
     public:
@@ -83,6 +86,10 @@ namespace Sleak {
             return m_lightManager;
         }
 
+        Physics::PhysicsWorld* GetPhysicsWorld() const {
+            return m_physicsWorld;
+        }
+
         void SetSkybox(Skybox* skybox);
         Skybox* GetSkybox() const { return m_skybox; }
 
@@ -98,6 +105,7 @@ namespace Sleak {
         ObjectPtr<Camera> DebugCamera;
 
         LightManager* m_lightManager = nullptr;
+        Physics::PhysicsWorld* m_physicsWorld = nullptr;
         Skybox* m_skybox = nullptr;
 
         void ProcessPendingDestroy();
