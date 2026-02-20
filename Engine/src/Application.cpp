@@ -209,11 +209,9 @@ namespace Sleak {
     }
 
     void Application::onMouseMove(const Sleak::Events::Input::MouseMovedEvent& e) {
-        SLEAK_INFO(e.ToString());
     }
 
     void Application::OnKeyPressed(const Sleak::Events::Input::KeyPressedEvent& e) {
-        SLEAK_INFO(e.ToString());
 
         switch(e.GetKeyCode())
         {
