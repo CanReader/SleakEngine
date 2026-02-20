@@ -1,0 +1,23 @@
+name: Notify Downstream Repos
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo:
+          - SleakEngine-Empty
+          - SleakEngine-FPP
+    steps:
+      - name: Trigger submodule update in ${{ matrix.repo }}
+        run: |
+          gh api repos/CanReader/${{ matrix.repo }}/dispatches \
+            -f event_type=engine-updated \
+            -f "client_payload[sha]=${{ github.sha }}" \
+            -f "client_payload[ref]=${{ github.ref }}"
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
