@@ -185,24 +185,7 @@ void DirectX11Renderer::EndRender() {
 
     swapChain->Present(1, 0);
 
-    if(bEnabledPerformanceCounter) {
-        auto now = std::chrono::high_resolution_clock::now();
-        FrameTimes.push(FrameTimer.Elapsed() * 1000);
-        FrameTimer.Reset();
-
-        if(FrameTimes.size() > FrameTimeHistory)
-        FrameTimes.pop();
-    
-        float total = 0.0f;
-        for(float val : FrameTimes)
-            total += val;
-    
-        frameTime = total / FrameTimes.size();
-        frameRate = frameTime  > 0 ? static_cast<int>(1000 / frameTime) : 0;
-     
-        DrawnVertices = 0;
-        DrawnTriangles = 0;
-    }
+    UpdateFrameMetrics();
 }
 
 void DirectX11Renderer::Cleanup() {

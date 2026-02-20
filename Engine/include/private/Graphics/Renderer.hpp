@@ -3,6 +3,7 @@
 
 #include "RenderContext.hpp"
 #include <Core/OSDef.hpp>
+#include <Core/Timer.hpp>
 
 namespace Sleak {
 
@@ -118,7 +119,21 @@ public:
     protected:
     virtual void ConfigureRenderMode() = 0;
     virtual void ConfigureRenderFace() = 0;
-    
+
+    void UpdateFrameMetrics() {
+        if (!bEnabledPerformanceCounter) return;
+        m_frameCount++;
+        float elapsed = m_frameTimer.Elapsed(); // seconds since last reset
+        if (elapsed >= MetricUpdateInterval) {
+            frameRate = static_cast<int>(m_frameCount / elapsed);
+            frameTime = (elapsed / m_frameCount) * 1000.0f; // ms per frame
+            m_frameCount = 0;
+            m_frameTimer.Reset();
+            DrawnVertices = 0;
+            DrawnTriangles = 0;
+        }
+    }
+
     // Performance counter
     bool bEnabledPerformanceCounter = false;
     int frameRate = 0;
@@ -127,6 +142,8 @@ public:
     float UsedCPU = 0;
     int DrawnVertices = 0;
     int DrawnTriangles = 0;
+    Timer m_frameTimer;
+    uint32_t m_frameCount = 0;
 
     // ImGUI
     bool bImInitialized = false;
@@ -142,7 +159,7 @@ public:
     bool m_msaaChangeRequested = false;
     uint32_t m_pendingMsaaSampleCount = 1;
 
-    static constexpr int FrameTimeHistory = 100;
+    static constexpr float MetricUpdateInterval = 0.5f; // seconds
 };
 
 inline Renderer::~Renderer() {} // Provide definition for pure virtual destructor

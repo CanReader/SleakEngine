@@ -80,6 +80,7 @@ bool OpenGLRenderer::Initialize() {
     SetupVertexLayout();
 
     m_Initialized = true;
+    SetPerformanceCounter(true);
 
     SLEAK_INFO("OpenGL renderer has been initialized successfully!");
     SLEAK_INFO("OpenGL Version: {}",
@@ -132,6 +133,8 @@ void OpenGLRenderer::EndRender() {
 
     glBindVertexArray(0);
     SDL_GL_SwapWindow(m_Window->GetSDLWindow());
+
+    UpdateFrameMetrics();
 }
 
 void OpenGLRenderer::Cleanup() {

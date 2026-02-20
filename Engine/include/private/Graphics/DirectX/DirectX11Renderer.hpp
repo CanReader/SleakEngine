@@ -136,9 +136,6 @@ public:
     D3D11_COMPARISON_FUNC m_depthFunc = D3D11_COMPARISON_LESS;
 
     ImGuiContext* ImCon;
-    Timer FrameTimer;
-    std::chrono::steady_clock::time_point LastFrame;
-    Queue<float> FrameTimes;
 
 };
 

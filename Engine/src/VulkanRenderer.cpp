@@ -127,6 +127,8 @@ bool VulkanRenderer::Initialize() {
     if (!CreateSyncObjects())
         SLEAK_RETURN_ERR("Failed to synchronization objects of renderer!");
 
+    SetPerformanceCounter(true);
+
     SLEAK_INFO("Vulkan renderer has been initialized successfully!");
 
     return true;
@@ -357,6 +359,8 @@ void VulkanRenderer::EndRender() {
     }
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+    UpdateFrameMetrics();
 }
 
 // -----------------------------------------------------------------------
