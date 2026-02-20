@@ -2,7 +2,7 @@
 
 // ============================================================
 // Skinned Material Shader - Vulkan Fragment Shader
-// Smooth PCF shadows with per-pixel rotated Poisson disk
+// Hemisphere ambient + Fresnel + smooth PCF shadows
 // ============================================================
 
 layout(location = 0) in vec3 fragWorldPos;
@@ -20,7 +20,7 @@ layout(set = 0, binding = 0) uniform sampler2D diffuseTexture;
 layout(set = 2, binding = 0) uniform ShadowLightUBO {
     vec4  uLightDir;
     vec4  uLightColor;
-    vec4  uAmbient;
+    vec4  uAmbient;        // rgb = sky ambient color, a = intensity
     vec4  uCameraPos;
     mat4  uLightVP;
     float uShadowBias;
@@ -31,15 +31,12 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;
 
-// Interleaved gradient noise — gives a unique angle per screen pixel,
-// breaks up PCF banding into imperceptible high-frequency grain.
+// Interleaved gradient noise for per-pixel disk rotation
 float InterleavedGradientNoise(vec2 screenPos) {
     vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
     return fract(magic.z * fract(dot(screenPos, magic.xy)));
 }
 
-// 16-tap Poisson disk — rotated per pixel, with hardware bilinear PCF
-// that gives 4 sub-samples each = 64 effective filtered comparisons
 const vec2 disk[16] = vec2[](
     vec2(-0.9465, -0.1484), vec2(-0.7431,  0.5353),
     vec2(-0.5863, -0.5879), vec2(-0.3935,  0.1025),
@@ -62,7 +59,6 @@ float CalcShadow(vec4 sc) {
 
     float biasedDepth = projCoords.z - uShadowBias;
 
-    // Per-pixel random rotation angle — eliminates banding
     float angle = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
     float sa = sin(angle);
     float ca = cos(angle);
@@ -84,24 +80,40 @@ void main() {
     vec4 texColor = texture(diffuseTexture, fragUV);
     vec4 baseColor = texColor * fragColor;
 
+    vec3 N = normalize(fragWorldNorm);
     vec3 lightDir = normalize(uLightDir.xyz);
+    vec3 viewDir = normalize(uCameraPos.xyz - fragWorldPos);
     vec3 lightColor = uLightColor.rgb;
     float lightIntensity = uLightColor.a;
-    vec3 ambient = uAmbient.rgb * uAmbient.a;
 
-    vec3 N = normalize(fragWorldNorm);
-    float NdotL = max(dot(N, -lightDir), 0.0);
-    vec3 diffuse = lightColor * lightIntensity * NdotL;
+    // ---- Ambient ----
+    vec3 ambientColor = uAmbient.rgb * uAmbient.a;
+    // Subtle hemisphere: ground bounce slightly warmer/darker than sky
+    vec3 groundColor = ambientColor * vec3(0.7, 0.65, 0.6);
+    float hemisphere = N.y * 0.5 + 0.5;
+    vec3 ambient = mix(groundColor, ambientColor, hemisphere);
 
-    vec3 viewDir = normalize(uCameraPos.xyz - fragWorldPos);
+    // ---- Diffuse (Lambert) ----
+    float NdotL = dot(N, -lightDir);
+    float diffuseTerm = max(NdotL, 0.0);
+    vec3 diffuse = lightColor * lightIntensity * diffuseTerm;
+
+    // ---- Specular (Blinn-Phong) ----
     vec3 halfDir = normalize(-lightDir + viewDir);
-    float spec = pow(max(dot(N, halfDir), 0.0), 32.0);
-    vec3 specular = lightColor * spec * 0.3;
+    float shininess = 32.0;
+    float normFactor = (shininess + 8.0) / 25.1327;
+    float spec = normFactor * pow(max(dot(N, halfDir), 0.0), shininess);
+    vec3 specular = lightColor * spec * 0.5 * max(NdotL, 0.0);
 
+    // ---- Shadow ----
     float shadow = CalcShadow(fragShadowCoord);
 
-    vec3 finalColor = baseColor.rgb * (ambient + shadow * diffuse)
-                    + shadow * specular;
+    // ---- Compose ----
+    vec3 lit = baseColor.rgb * (ambient + shadow * diffuse)
+             + shadow * specular;
 
-    outColor = vec4(finalColor, baseColor.a);
+    // ---- Tone mapping (Reinhard) ----
+    lit = lit / (lit + vec3(1.0));
+
+    outColor = vec4(lit, baseColor.a);
 }
