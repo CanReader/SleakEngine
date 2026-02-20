@@ -29,6 +29,8 @@ public:
 
     virtual bool CreateImGUI() override;
 
+    void ApplyMSAAChange() override;
+
     virtual RenderContext* GetContext() override { return this; }
 
     // RenderContext interface
@@ -82,6 +84,13 @@ private:
 
     GLuint m_VAO = 0;
     bool m_debugLineMode = false;
+
+    // MSAA FBO resources
+    GLuint m_msaaFBO = 0;
+    GLuint m_msaaColorRBO = 0;
+    GLuint m_msaaDepthRBO = 0;
+    void CreateMSAAFramebuffer();
+    void CleanupMSAAFramebuffer();
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;

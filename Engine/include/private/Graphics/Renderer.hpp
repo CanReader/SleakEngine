@@ -99,6 +99,22 @@ public:
     virtual void UpdateShadowLightUBO(const void* data, uint32_t size) { (void)data; (void)size; }
     virtual void SetLightVP(const float* lightVP) { (void)lightVP; }
 
+    // Anti-aliasing (MSAA)
+    virtual void SetMSAASampleCount(uint32_t samples) {
+        // Validate: must be 1, 2, 4, or 8
+        if (samples != 1 && samples != 2 && samples != 4 && samples != 8)
+            return;
+        if (samples > m_maxMsaaSampleCount)
+            samples = m_maxMsaaSampleCount;
+        if (samples == m_msaaSampleCount)
+            return;
+        m_pendingMsaaSampleCount = samples;
+        m_msaaChangeRequested = true;
+    }
+    uint32_t GetMSAASampleCount() const { return m_msaaSampleCount; }
+    uint32_t GetMaxMSAASampleCount() const { return m_maxMsaaSampleCount; }
+    virtual void ApplyMSAAChange() {}
+
     protected:
     virtual void ConfigureRenderMode() = 0;
     virtual void ConfigureRenderFace() = 0;
@@ -119,6 +135,12 @@ public:
     RendererType Type;
     RenderMode Mode;
     RenderFace Face;
+
+    // MSAA state
+    uint32_t m_msaaSampleCount = 1;
+    uint32_t m_maxMsaaSampleCount = 1;
+    bool m_msaaChangeRequested = false;
+    uint32_t m_pendingMsaaSampleCount = 1;
 
     static constexpr int FrameTimeHistory = 100;
 };

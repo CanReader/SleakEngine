@@ -149,7 +149,14 @@ bool DirectX11Renderer::Initialize() {
 }
 
 void DirectX11Renderer::BeginRender() {
-    //SetBlendState(0.5,0.5,0.5,1.0,0xFFFFFF);
+    if (m_msaaChangeRequested)
+        ApplyMSAAChange();
+
+    // Bind MSAA targets if active
+    if (msaaSampleCount > 1 && msaaRenderTargetView && msaaDepthStencilView) {
+        deviceContext->OMSetRenderTargets(1, &msaaRenderTargetView, msaaDepthStencilView);
+    }
+
     ClearRenderTarget(0.39f, 0.58f, 0.93f, 1.0f);
     ClearDepthStencil(true, false, 1.0, 0);
 
@@ -164,6 +171,13 @@ void DirectX11Renderer::BeginRender() {
 }
 
 void DirectX11Renderer::EndRender() {
+    // Resolve MSAA before presenting
+    if (msaaSampleCount > 1) {
+        // Switch back to default render target for ImGui
+        deviceContext->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
+        ResolveMSAA();
+    }
+
     if (bImInitialized) {
         ImGui::Render();
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -193,6 +207,12 @@ void DirectX11Renderer::EndRender() {
 
 void DirectX11Renderer::Cleanup() {
     bImInitialized = false;
+
+    // Cleanup MSAA resources
+    if (msaaRenderTarget) { msaaRenderTarget->Release(); msaaRenderTarget = nullptr; }
+    if (msaaRenderTargetView) { msaaRenderTargetView->Release(); msaaRenderTargetView = nullptr; }
+    if (msaaDepthStencilBuffer) { msaaDepthStencilBuffer->Release(); msaaDepthStencilBuffer = nullptr; }
+    if (msaaDepthStencilView) { msaaDepthStencilView->Release(); msaaDepthStencilView = nullptr; }
 
     if (renderTargetView) {
         renderTargetView->Release();
@@ -759,6 +779,7 @@ void DirectX11Renderer::SetBlendState(float r, float g, float b, float a, UINT M
 }
 
 void DirectX11Renderer::CheckMSAASupport() {
+    m_maxMsaaSampleCount = 1;
     for (UINT sampleCount = 1;
          sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
          sampleCount *= 2)
@@ -769,6 +790,8 @@ void DirectX11Renderer::CheckMSAASupport() {
         if (SUCCEEDED(hr) && quality > 0) {
             SLEAK_INFO("MSAA {}x supported with {} quality levels.",
                        sampleCount, quality);
+            if (sampleCount <= 8)
+                m_maxMsaaSampleCount = sampleCount;
         }
     }
 }
@@ -830,7 +853,7 @@ void DirectX11Renderer::ResolveMSAA() {
         return;
 
     ID3D11Texture2D* back;
-    if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)back))) {
+    if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back))) {
         SLEAK_ERROR("Failed to get back buffer for MSAA!");
         return;
     }
@@ -839,7 +862,35 @@ void DirectX11Renderer::ResolveMSAA() {
     back->Release();
 }
 
-bool DirectX11Renderer::CreateImGUI() 
+void DirectX11Renderer::ApplyMSAAChange() {
+    if (!m_msaaChangeRequested)
+        return;
+    m_msaaChangeRequested = false;
+
+    m_msaaSampleCount = m_pendingMsaaSampleCount;
+    msaaSampleCount = m_pendingMsaaSampleCount;
+
+    // Query quality level for new sample count
+    UINT quality = 0;
+    device->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM,
+                                           msaaSampleCount, &quality);
+    msaaQualityLevel = (quality > 0) ? quality - 1 : 0;
+
+    // Cleanup old MSAA resources
+    if (msaaRenderTarget) { msaaRenderTarget->Release(); msaaRenderTarget = nullptr; }
+    if (msaaRenderTargetView) { msaaRenderTargetView->Release(); msaaRenderTargetView = nullptr; }
+    if (msaaDepthStencilBuffer) { msaaDepthStencilBuffer->Release(); msaaDepthStencilBuffer = nullptr; }
+    if (msaaDepthStencilView) { msaaDepthStencilView->Release(); msaaDepthStencilView = nullptr; }
+
+    if (msaaSampleCount > 1) {
+        CreateMSAARenderTarget();
+        CreateMSAADepthStencil();
+    }
+
+    SLEAK_INFO("DX11 MSAA changed to {}x", msaaSampleCount);
+}
+
+bool DirectX11Renderer::CreateImGUI()
 {
     IMGUI_CHECKVERSION();
     ImCon = ImGui::CreateContext();

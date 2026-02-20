@@ -77,6 +77,8 @@ public:
 
     virtual bool CreateImGUI();
 
+    void ApplyMSAAChange() override;
+
     virtual RenderContext* GetContext() override { return this; }
 
    private:

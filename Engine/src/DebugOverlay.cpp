@@ -189,6 +189,22 @@ void DebugOverlay::RenderPerformancePanel() {
         DebugLineRenderer::SetEnabled(m_showColliders);
     }
 
+    ImGui::Separator();
+    ImGui::Text("Anti-Aliasing");
+    {
+        const char* labels[] = {"Off", "2x", "4x", "8x"};
+        int values[] = {1, 2, 4, 8};
+        int count = 1;
+        uint32_t maxMSAA = m_renderer->GetMaxMSAASampleCount();
+        for (int i = 1; i < 4; i++)
+            if (static_cast<uint32_t>(values[i]) <= maxMSAA) count = i + 1;
+        int current = 0;
+        for (int i = 0; i < count; i++)
+            if (static_cast<uint32_t>(values[i]) == m_renderer->GetMSAASampleCount()) current = i;
+        if (ImGui::Combo("MSAA", &current, labels, count))
+            m_renderer->SetMSAASampleCount(values[current]);
+    }
+
     ImGui::End();
 }
 

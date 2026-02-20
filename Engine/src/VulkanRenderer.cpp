@@ -88,6 +88,9 @@ bool VulkanRenderer::Initialize() {
     if (!CreateDepthResources())
         SLEAK_RETURN_ERR("Failed to create depth resources!");
 
+    if (!CreateMSAAColorResources())
+        SLEAK_RETURN_ERR("Failed to create MSAA color resources!");
+
     if (!CreateRenderPass())
         SLEAK_RETURN_ERR("Failed to create a render pass for the renderer!");
 
@@ -136,6 +139,10 @@ void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
     if (!bRender)
         return;
+
+    // Apply pending MSAA changes between frames
+    if (m_msaaChangeRequested)
+        ApplyMSAAChange();
 
     VkResult result;
 
@@ -220,9 +227,15 @@ void VulkanRenderer::BeginRender() {
     }
 
     // Begin render pass
-    std::array<VkClearValue, 2> clearValues{};
+    // When MSAA: 3 attachments (color, depth, resolve); otherwise 2
+    std::vector<VkClearValue> clearValues(2);
     clearValues[0] = clearColor;
     clearValues[1].depthStencil = {1.0f, 0};
+    if (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT) {
+        VkClearValue resolveClear{};
+        resolveClear.color = clearColor.color;
+        clearValues.push_back(resolveClear);
+    }
 
     VkRenderPassBeginInfo passInfo{};
     passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -351,20 +364,24 @@ void VulkanRenderer::EndRender() {
 // -----------------------------------------------------------------------
 
 void VulkanRenderer::Draw(uint32_t vertexCount) {
+    if (!bFrameStarted) return;
     vkCmdDraw(command, vertexCount, 1, 0, 0);
 }
 
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
+    if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
 }
 
 void VulkanRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
+    if (!bFrameStarted) return;
     vkCmdDraw(command, vertexPerInstance, instanceCount, 0, 0);
 }
 
 void VulkanRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
+    if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexPerInstance, instanceCount, 0, 0, 0);
 }
 
@@ -382,6 +399,7 @@ void VulkanRenderer::SetRenderMode(RenderMode mode) {
 void VulkanRenderer::SetViewport(float x, float y, float width,
                                   float height, float minDepth,
                                   float maxDepth) {
+    if (!bFrameStarted) return;
     VkViewport viewport{};
     viewport.x = x;
     viewport.y = y;
@@ -404,6 +422,7 @@ void VulkanRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
 
 void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
+    if (!bFrameStarted) return;
     auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
     VkBuffer buffers[] = {vkBuf->GetVkBuffer()};
@@ -413,6 +432,7 @@ void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
 void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                                       uint32_t slot) {
+    if (!bFrameStarted) return;
     auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
     vkCmdBindIndexBuffer(command, vkBuf->GetVkBuffer(), 0,
@@ -421,6 +441,7 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
 
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
+    if (!bFrameStarted) return;
     auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
 
@@ -515,12 +536,14 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
+        m_skyboxCubemapView = texture->GetImageView();
+        m_skyboxCubemapSampler = texture->GetSampler();
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = texture->GetImageView();
-            imageInfo.sampler = texture->GetSampler();
+            imageInfo.imageView = m_skyboxCubemapView;
+            imageInfo.sampler = m_skyboxCubemapSampler;
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -559,12 +582,14 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
+        m_skyboxCubemapView = texture->GetImageView();
+        m_skyboxCubemapSampler = texture->GetSampler();
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = texture->GetImageView();
-            imageInfo.sampler = texture->GetSampler();
+            imageInfo.imageView = m_skyboxCubemapView;
+            imageInfo.sampler = m_skyboxCubemapSampler;
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -590,6 +615,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
 
 void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
                                   uint32_t slot) {
+    if (!bFrameStarted) return;
     if (!texture.IsValid() || slot != 0)
         return;
 
@@ -607,6 +633,7 @@ void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
 }
 
 void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
+    if (!bFrameStarted) return;
     if (!texture || slot != 0)
         return;
 
@@ -623,6 +650,7 @@ void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
 }
 
 void VulkanRenderer::BeginSkyboxPass() {
+    if (!bFrameStarted) return;
     if (skyboxPipeline == VK_NULL_HANDLE || !m_skyboxDescriptorsWritten)
         return;
 
@@ -637,6 +665,7 @@ void VulkanRenderer::BeginSkyboxPass() {
 }
 
 void VulkanRenderer::EndSkyboxPass() {
+    if (!bFrameStarted) return;
     // Restore main pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
@@ -730,6 +759,9 @@ void VulkanRenderer::Cleanup() {
     }
     delete debugLineShader;
     debugLineShader = nullptr;
+
+    // Destroy MSAA color resources
+    CleanupMSAAColorResources();
 
     // Destroy shadow mapping resources
     CleanupShadowResources();
@@ -1088,6 +1120,17 @@ bool VulkanRenderer::CreateDevice() {
     VkPhysicalDeviceFeatures features{};
     vkGetPhysicalDeviceFeatures(physicalDevice, &features);
 
+    // Query max MSAA sample count
+    VkPhysicalDeviceProperties deviceProperties;
+    vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    VkSampleCountFlags counts = deviceProperties.limits.framebufferColorSampleCounts
+                              & deviceProperties.limits.framebufferDepthSampleCounts;
+    m_maxMsaaSampleCount = 1;
+    if (counts & VK_SAMPLE_COUNT_8_BIT)  m_maxMsaaSampleCount = 8;
+    else if (counts & VK_SAMPLE_COUNT_4_BIT)  m_maxMsaaSampleCount = 4;
+    else if (counts & VK_SAMPLE_COUNT_2_BIT)  m_maxMsaaSampleCount = 2;
+    SLEAK_INFO("Max MSAA sample count: {}", m_maxMsaaSampleCount);
+
     std::vector<const char*> requiredExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
@@ -1254,6 +1297,7 @@ bool VulkanRenderer::CreateSwapChain() {
 bool VulkanRenderer::RecreateSwapChain() {
     vkDeviceWaitIdle(device);
 
+    CleanupMSAAColorResources();
     CleanupSwapChain();
 
     if (!CreateSwapChain()) {
@@ -1268,6 +1312,10 @@ bool VulkanRenderer::RecreateSwapChain() {
         SLEAK_ERROR("Failed to recreate depth resources!");
         return false;
     }
+    if (!CreateMSAAColorResources()) {
+        SLEAK_ERROR("Failed to recreate MSAA color resources!");
+        return false;
+    }
     if (!CreateFrameBuffer()) {
         SLEAK_ERROR("Failed to recreate framebuffers!");
         return false;
@@ -1278,6 +1326,7 @@ bool VulkanRenderer::RecreateSwapChain() {
 
 void VulkanRenderer::CleanupSwapChain() {
     CleanupDepthResources();
+    CleanupMSAAColorResources();
 
     for (auto framebuffer : swapChainFramebuffers) {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -1293,6 +1342,184 @@ void VulkanRenderer::CleanupSwapChain() {
         vkDestroySwapchainKHR(device, swapChain, nullptr);
         swapChain = VK_NULL_HANDLE;
     }
+}
+
+// -----------------------------------------------------------------------
+// MSAA Color Resources
+// -----------------------------------------------------------------------
+
+bool VulkanRenderer::CreateMSAAColorResources() {
+    if (m_msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+        return true; // No MSAA image needed
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = scExtent.width;
+    imageInfo.extent.height = scExtent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = scImageFormat;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    imageInfo.samples = m_msaaSamples;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &m_msaaColorImage) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to create MSAA color image!");
+
+    VkMemoryRequirements memRequirements;
+    vkGetImageMemoryRequirements(device, m_msaaColorImage, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = FindMemoryType(
+        memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_msaaColorImageMemory) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to allocate MSAA color image memory!");
+
+    vkBindImageMemory(device, m_msaaColorImage, m_msaaColorImageMemory, 0);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_msaaColorImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = scImageFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_msaaColorImageView) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to create MSAA color image view!");
+
+    return true;
+}
+
+void VulkanRenderer::CleanupMSAAColorResources() {
+    if (m_msaaColorImageView) {
+        vkDestroyImageView(device, m_msaaColorImageView, nullptr);
+        m_msaaColorImageView = VK_NULL_HANDLE;
+    }
+    if (m_msaaColorImage) {
+        vkDestroyImage(device, m_msaaColorImage, nullptr);
+        m_msaaColorImage = VK_NULL_HANDLE;
+    }
+    if (m_msaaColorImageMemory) {
+        vkFreeMemory(device, m_msaaColorImageMemory, nullptr);
+        m_msaaColorImageMemory = VK_NULL_HANDLE;
+    }
+}
+
+VkSampleCountFlagBits VulkanRenderer::GetMaxUsableSampleCount() {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physicalDevice, &props);
+    VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts
+                              & props.limits.framebufferDepthSampleCounts;
+    if (counts & VK_SAMPLE_COUNT_8_BIT) return VK_SAMPLE_COUNT_8_BIT;
+    if (counts & VK_SAMPLE_COUNT_4_BIT) return VK_SAMPLE_COUNT_4_BIT;
+    if (counts & VK_SAMPLE_COUNT_2_BIT) return VK_SAMPLE_COUNT_2_BIT;
+    return VK_SAMPLE_COUNT_1_BIT;
+}
+
+void VulkanRenderer::ApplyMSAAChange() {
+    if (!m_msaaChangeRequested)
+        return;
+    m_msaaChangeRequested = false;
+
+    uint32_t newCount = m_pendingMsaaSampleCount;
+    m_msaaSampleCount = newCount;
+
+    // Convert to Vulkan enum
+    switch (newCount) {
+        case 1: m_msaaSamples = VK_SAMPLE_COUNT_1_BIT; break;
+        case 2: m_msaaSamples = VK_SAMPLE_COUNT_2_BIT; break;
+        case 4: m_msaaSamples = VK_SAMPLE_COUNT_4_BIT; break;
+        case 8: m_msaaSamples = VK_SAMPLE_COUNT_8_BIT; break;
+        default: m_msaaSamples = VK_SAMPLE_COUNT_1_BIT; break;
+    }
+
+    SLEAK_INFO("Applying MSAA change: {}x", newCount);
+
+    vkDeviceWaitIdle(device);
+
+    // Destroy render pass
+    if (renderPass) {
+        vkDestroyRenderPass(device, renderPass, nullptr);
+        renderPass = VK_NULL_HANDLE;
+    }
+
+    // Destroy main-pass pipelines (NOT shadow pipeline)
+    if (pipeline) {
+        vkDestroyPipeline(device, pipeline, nullptr);
+        pipeline = VK_NULL_HANDLE;
+    }
+    if (skyboxPipeline) {
+        vkDestroyPipeline(device, skyboxPipeline, nullptr);
+        skyboxPipeline = VK_NULL_HANDLE;
+    }
+    if (skinnedPipeline) {
+        vkDestroyPipeline(device, skinnedPipeline, nullptr);
+        skinnedPipeline = VK_NULL_HANDLE;
+    }
+    if (debugLinePipeline) {
+        vkDestroyPipeline(device, debugLinePipeline, nullptr);
+        debugLinePipeline = VK_NULL_HANDLE;
+    }
+
+    // Shutdown ImGUI
+    if (bImInitialized) {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+        bImInitialized = false;
+    }
+
+    // Cleanup swapchain-related resources
+    CleanupMSAAColorResources();
+    CleanupSwapChain();
+
+    // Recreate everything
+    CreateSwapChain();
+    CreateImageViews();
+    CreateDepthResources();
+    CreateMSAAColorResources();
+    CreateRenderPass();
+    CreateFrameBuffer();
+    CreateGraphicsPipeline();
+    CreateSkyboxPipeline();
+    CreateSkinnedPipeline();
+    CreateDebugLinePipeline();
+    CreateImGUI();
+
+    // Re-bind skybox cubemap texture to the new descriptor sets
+    if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
+        for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = m_skyboxCubemapView;
+            imageInfo.sampler = m_skyboxCubemapSampler;
+
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = skyboxDescriptorSets[i];
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+        }
+        m_skyboxDescriptorsWritten = true;
+    }
+
+    SLEAK_INFO("MSAA change applied successfully");
 }
 
 void VulkanRenderer::ConfigureRenderMode() {
@@ -1358,7 +1585,7 @@ bool VulkanRenderer::CreateDepthResources() {
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.samples = m_msaaSamples;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     if (vkCreateImage(device, &imageInfo, nullptr, &depthImage) !=
@@ -1779,7 +2006,7 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     msaa.sType =
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msaa.rasterizationSamples = m_msaaSamples;
 
     // Depth stencil
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
@@ -1871,25 +2098,27 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
 // -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateRenderPass() {
-    // Color attachment
+    const bool msaaEnabled = (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT);
+
+    // Color attachment (multisampled when MSAA on)
     VkAttachmentDescription colorAttachment{};
     colorAttachment.format = scImageFormat;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.samples = m_msaaSamples;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.storeOp = msaaEnabled ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    colorAttachment.finalLayout = msaaEnabled ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VkAttachmentReference colorRef{};
     colorRef.attachment = 0;
     colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    // Depth attachment
+    // Depth attachment (multisampled when MSAA on)
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = depthFormat;
-    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.samples = m_msaaSamples;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -1902,12 +2131,30 @@ bool VulkanRenderer::CreateRenderPass() {
     depthRef.attachment = 1;
     depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+    // Resolve attachment (swapchain image, only when MSAA on)
+    VkAttachmentDescription resolveAttachment{};
+    VkAttachmentReference resolveRef{};
+    if (msaaEnabled) {
+        resolveAttachment.format = scImageFormat;
+        resolveAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        resolveAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolveAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        resolveAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolveAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        resolveAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        resolveAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        resolveRef.attachment = 2;
+        resolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
     // Subpass
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
+    subpass.pResolveAttachments = msaaEnabled ? &resolveRef : nullptr;
 
     // Subpass dependency
     VkSubpassDependency dependency{};
@@ -1925,8 +2172,10 @@ bool VulkanRenderer::CreateRenderPass() {
         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     // Create render pass
-    std::array<VkAttachmentDescription, 2> attachments = {
+    std::vector<VkAttachmentDescription> attachments = {
         colorAttachment, depthAttachment};
+    if (msaaEnabled)
+        attachments.push_back(resolveAttachment);
 
     VkRenderPassCreateInfo renderInfo{};
     renderInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -1951,10 +2200,17 @@ bool VulkanRenderer::CreateRenderPass() {
 
 bool VulkanRenderer::CreateFrameBuffer() {
     swapChainFramebuffers.resize(swapChainImageViews.size());
+    const bool msaaEnabled = (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT);
 
     for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-        std::array<VkImageView, 2> attachments = {
-            swapChainImageViews[i], depthImageView};
+        std::vector<VkImageView> attachments;
+        if (msaaEnabled) {
+            // MSAA color, depth, resolve (swapchain)
+            attachments = {m_msaaColorImageView, depthImageView, swapChainImageViews[i]};
+        } else {
+            // No MSAA: swapchain color, depth
+            attachments = {swapChainImageViews[i], depthImageView};
+        }
 
         VkFramebufferCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -2192,7 +2448,7 @@ bool VulkanRenderer::CreateImGUI() {
     initInfo.MinImageCount = 2;
     initInfo.ImageCount =
         static_cast<uint32_t>(swapChainImages.size());
-    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.MSAASamples = m_msaaSamples;
     initInfo.RenderPass = renderPass;
     initInfo.Subpass = 0;
 
@@ -2347,7 +2603,7 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     msaa.sType =
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msaa.rasterizationSamples = m_msaaSamples;
 
     // Skybox: depth test enabled (LEQUAL), depth write DISABLED
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
@@ -2479,7 +2735,7 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
     msaa.sType =
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msaa.rasterizationSamples = m_msaaSamples;
 
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType =
@@ -2533,6 +2789,7 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
 }
 
 void VulkanRenderer::BeginDebugLinePass() {
+    if (!bFrameStarted) return;
     if (debugLinePipeline == VK_NULL_HANDLE) {
         if (!CreateDebugLinePipeline()) return;
     }
@@ -2541,6 +2798,7 @@ void VulkanRenderer::BeginDebugLinePass() {
 }
 
 void VulkanRenderer::EndDebugLinePass() {
+    if (!bFrameStarted) return;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
     // Rebind main texture descriptor sets
@@ -2786,7 +3044,7 @@ bool VulkanRenderer::CreateSkinnedPipeline() {
     msaa.sType =
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msaa.rasterizationSamples = m_msaaSamples;
 
     // Skinned: depth test + depth write enabled (same as main pipeline)
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
@@ -2841,6 +3099,7 @@ bool VulkanRenderer::CreateSkinnedPipeline() {
 }
 
 void VulkanRenderer::BeginSkinnedPass() {
+    if (!bFrameStarted) return;
     if (skinnedPipeline == VK_NULL_HANDLE) {
         if (!CreateSkinnedPipeline()) return;
     }
@@ -2855,12 +3114,14 @@ void VulkanRenderer::BeginSkinnedPass() {
 }
 
 void VulkanRenderer::EndSkinnedPass() {
+    if (!bFrameStarted) return;
     // Restore main pipeline. Descriptor sets are preserved across compatible
     // pipeline switches so no rebinding needed.
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 }
 
 void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
+    if (!bFrameStarted) return;
     if (!buffer) return;
 
     // Lazily create bone UBO resources on first use

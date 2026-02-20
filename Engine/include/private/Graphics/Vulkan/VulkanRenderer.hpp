@@ -113,6 +113,9 @@ public:
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     void SetLightVP(const float* lightVP) override;
 
+    // MSAA
+    void ApplyMSAAChange() override;
+
 private:
     bool CreateSkyboxPipeline();
     bool CreateSkinnedPipeline();
@@ -145,6 +148,11 @@ private:
 
     void CleanupSwapChain();
     void CleanupDepthResources();
+
+    // MSAA resources
+    bool CreateMSAAColorResources();
+    void CleanupMSAAColorResources();
+    VkSampleCountFlagBits GetMaxUsableSampleCount();
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
@@ -208,6 +216,12 @@ private:
     VkImageView depthImageView = VK_NULL_HANDLE;
     VkFormat depthFormat;
 
+    // MSAA color buffer (multisample resolve target)
+    VkSampleCountFlagBits m_msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkImage m_msaaColorImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_msaaColorImageMemory = VK_NULL_HANDLE;
+    VkImageView m_msaaColorImageView = VK_NULL_HANDLE;
+
     // Descriptor sets for uniform buffers
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
@@ -235,6 +249,8 @@ private:
     VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> skyboxDescriptorSets;
     bool m_skyboxDescriptorsWritten = false;
+    VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
+    VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
 
     // Skinned pipeline (uses skinned shaders with bone UBO)
     VkPipeline skinnedPipeline = VK_NULL_HANDLE;

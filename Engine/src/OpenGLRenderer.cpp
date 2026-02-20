@@ -68,6 +68,15 @@ bool OpenGLRenderer::Initialize() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Query max MSAA samples
+    GLint maxSamples = 1;
+    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+    m_maxMsaaSampleCount = 1;
+    if (maxSamples >= 8) m_maxMsaaSampleCount = 8;
+    else if (maxSamples >= 4) m_maxMsaaSampleCount = 4;
+    else if (maxSamples >= 2) m_maxMsaaSampleCount = 2;
+    SLEAK_INFO("OpenGL max MSAA samples: {}", m_maxMsaaSampleCount);
+
     SetupVertexLayout();
 
     m_Initialized = true;
@@ -84,6 +93,13 @@ void OpenGLRenderer::SetupVertexLayout() {
 }
 
 void OpenGLRenderer::BeginRender() {
+    if (m_msaaChangeRequested)
+        ApplyMSAAChange();
+
+    // Bind MSAA FBO if active
+    if (m_msaaFBO != 0)
+        glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
+
     glClearColor(0.39f, 0.58f, 0.93f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -97,6 +113,18 @@ void OpenGLRenderer::BeginRender() {
 }
 
 void OpenGLRenderer::EndRender() {
+    // Resolve MSAA FBO to default framebuffer before ImGui
+    if (m_msaaFBO != 0) {
+        int width, height;
+        SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_msaaFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, width, height,
+                          0, 0, width, height,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     if (bImInitialized) {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -108,6 +136,7 @@ void OpenGLRenderer::EndRender() {
 
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
+        CleanupMSAAFramebuffer();
         if (bImInitialized) {
             ImGui_ImplOpenGL3_Shutdown();
             ImGui_ImplSDL3_Shutdown();
@@ -128,6 +157,11 @@ void OpenGLRenderer::Cleanup() {
 
 void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     glViewport(0, 0, width, height);
+    // Recreate MSAA FBO at new size
+    if (m_msaaFBO != 0) {
+        CleanupMSAAFramebuffer();
+        CreateMSAAFramebuffer();
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -334,6 +368,60 @@ Texture* OpenGLRenderer::CreateTextureFromData(uint32_t width,
     }
     delete texture;
     return nullptr;
+}
+
+// -----------------------------------------------------------------------
+// MSAA FBO
+// -----------------------------------------------------------------------
+
+void OpenGLRenderer::CreateMSAAFramebuffer() {
+    if (m_msaaSampleCount <= 1)
+        return;
+
+    int width, height;
+    SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
+
+    glGenFramebuffers(1, &m_msaaFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
+
+    // Multisampled color renderbuffer
+    glGenRenderbuffers(1, &m_msaaColorRBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, m_msaaColorRBO);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_msaaSampleCount,
+                                     GL_RGBA8, width, height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_RENDERBUFFER, m_msaaColorRBO);
+
+    // Multisampled depth renderbuffer
+    glGenRenderbuffers(1, &m_msaaDepthRBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, m_msaaDepthRBO);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_msaaSampleCount,
+                                     GL_DEPTH24_STENCIL8, width, height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                               GL_RENDERBUFFER, m_msaaDepthRBO);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        SLEAK_ERROR("OpenGL MSAA framebuffer is not complete!");
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void OpenGLRenderer::CleanupMSAAFramebuffer() {
+    if (m_msaaDepthRBO) { glDeleteRenderbuffers(1, &m_msaaDepthRBO); m_msaaDepthRBO = 0; }
+    if (m_msaaColorRBO) { glDeleteRenderbuffers(1, &m_msaaColorRBO); m_msaaColorRBO = 0; }
+    if (m_msaaFBO) { glDeleteFramebuffers(1, &m_msaaFBO); m_msaaFBO = 0; }
+}
+
+void OpenGLRenderer::ApplyMSAAChange() {
+    if (!m_msaaChangeRequested)
+        return;
+    m_msaaChangeRequested = false;
+    m_msaaSampleCount = m_pendingMsaaSampleCount;
+
+    CleanupMSAAFramebuffer();
+    CreateMSAAFramebuffer();
+
+    SLEAK_INFO("OpenGL MSAA changed to {}x", m_msaaSampleCount);
 }
 
 void OpenGLRenderer::ConfigureRenderMode() {
