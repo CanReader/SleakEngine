@@ -84,6 +84,11 @@ enum class DepthCompare {
             virtual void BeginDebugLinePass() {}
             virtual void EndDebugLinePass() {}
 
+            // Shadow pass support
+            virtual void BeginShadowPass() {}
+            virtual void EndShadowPass() {}
+            virtual bool IsShadowPassActive() const { return false; }
+
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
             virtual void BindIndexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;

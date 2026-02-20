@@ -104,10 +104,25 @@ public:
     virtual void BeginDebugLinePass() override;
     virtual void EndDebugLinePass() override;
 
+    // Shadow pass support
+    virtual void BeginShadowPass() override;
+    virtual void EndShadowPass() override;
+    virtual bool IsShadowPassActive() const override { return m_shadowPassActive; }
+
+    // Light UBO update (called by LightManager)
+    void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    void SetLightVP(const float* lightVP) override;
+
 private:
     bool CreateSkyboxPipeline();
     bool CreateSkinnedPipeline();
     void UpdateSkyboxDescriptorSets();
+
+    // Shadow mapping
+    bool CreateShadowResources();
+    bool CreateShadowPipeline();
+    bool CreateShadowLightUBOResources();
+    void CleanupShadowResources();
     bool InitVulkan();
     bool CreateSurface();
     bool CreateDevice();
@@ -243,6 +258,36 @@ private:
 
     // ImGUI
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
+
+    // Shadow mapping resources
+    static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
+    VkImage m_shadowImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
+    VkImageView m_shadowImageView = VK_NULL_HANDLE;
+    VkSampler m_shadowSampler = VK_NULL_HANDLE;
+    VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
+    VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
+    VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
+    VulkanShader* m_shadowShader = nullptr;
+    bool m_shadowPassActive = false;
+    bool m_shadowResourcesCreated = false;
+
+    // Light VP matrix (stored as raw floats for push constant computation)
+    float m_lightVP[16] = {};
+
+    // Light/Shadow UBO (set 2, binding 0)
+    VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_lightUBODescriptorPool = VK_NULL_HANDLE;
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_lightUBOBuffers = {};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_lightUBOMemory = {};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT> m_lightUBOMapped = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_lightUBODescriptorSets = {};
+
+    // Shadow map sampler descriptor (set 3, binding 0)
+    VkDescriptorSetLayout m_shadowSamplerDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_shadowSamplerDescriptorPool = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_shadowSamplerDescriptorSets = {};
+    bool m_lightUBOCreated = false;
 };
 
 }  // namespace RenderEngine

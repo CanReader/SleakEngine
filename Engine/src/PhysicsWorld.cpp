@@ -38,16 +38,62 @@ void PhysicsWorld::UnregisterCollider(ColliderComponent* collider) {
         m_colliders.end());
 }
 
-void PhysicsWorld::Step(float /*dt*/) {
-    // Clear collision state from previous frame
+void PhysicsWorld::Step(float dt) {
+    // Phase 1: Save grounded state, then clear collision flags
+    // We need wasGrounded BEFORE clearing, so gravity doesn't apply while standing
     for (auto* collider : m_colliders) {
         if (auto* owner = collider->GetOwner()) {
-            if (auto* rb = owner->GetComponent<RigidbodyComponent>()) {
-                rb->ClearCollisionState();
+            auto* rb = owner->GetComponent<RigidbodyComponent>();
+            if (!rb) continue;
+
+            bool wasGrounded = rb->IsGrounded();
+            rb->ClearCollisionState();
+
+            if (rb->GetBodyType() == BodyType::Dynamic) {
+                // Reset grounded — collision detection will re-set it if still touching ground
+                rb->SetGrounded(false);
+
+                // Phase 2: Gravity integration
+                if (rb->GetUseGravity()) {
+                    Math::Vector3D vel = rb->GetVelocity();
+
+                    if (!wasGrounded) {
+                        // Airborne: apply full gravity
+                        vel = vel + rb->GetGravity() * dt;
+                    } else {
+                        // Grounded: apply small downward force to maintain ground contact
+                        // This ensures collision detection keeps finding the floor
+                        // without causing visible jitter
+                        if (vel.GetY() <= 0.0f) {
+                            vel = Math::Vector3D(vel.GetX(), -0.5f, vel.GetZ());
+                        }
+                        // If vel.Y > 0 (jumping), don't override — let the jump happen
+                    }
+
+                    // Clamp to terminal velocity
+                    float termVel = rb->GetTerminalVelocity();
+                    if (vel.GetY() < -termVel) {
+                        vel = Math::Vector3D(vel.GetX(), -termVel, vel.GetZ());
+                    }
+
+                    rb->SetVelocity(vel);
+                }
+
+                // Phase 3: Integrate velocity into position
+                Math::Vector3D vel = rb->GetVelocity();
+                Math::Vector3D delta = vel * dt;
+
+                auto* transform = owner->GetComponent<TransformComponent>();
+                if (transform) {
+                    transform->Translate(delta);
+                } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
+                    cam->AddPosition(delta);
+                }
             }
         }
     }
 
+    // Phase 4: Broadphase update and collision detection/resolution
     UpdateBroadphase();
     FindPairsAndResolve();
 }

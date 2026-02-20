@@ -59,8 +59,29 @@ bool VulkanShader::compile(const std::string& vert, const std::string& frag) {
     return true;
 }
 
+bool VulkanShader::compileVertexOnly(const std::string& vertPath) {
+    if (!device)
+        SLEAK_RETURN_ERR("Shader codes cannot be compiled without a device!")
+
+    auto vertCode = ReadFile(vertPath);
+    if (vertCode.empty())
+        SLEAK_RETURN_ERR("Could not read vertex shader file!");
+
+    vertShader = createShaderModule(vertCode);
+    if (!vertShader)
+        SLEAK_RETURN_ERR("Failed to create vertex shader!");
+
+    vertexInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexInfo.module = vertShader;
+    vertexInfo.pSpecializationInfo = nullptr;
+    vertexInfo.pName = "main";
+
+    return true;
+}
+
 void VulkanShader::bind() {
-    
+
 }
 
 VkShaderModule VulkanShader::createShaderModule(const std::vector<char>& code) {

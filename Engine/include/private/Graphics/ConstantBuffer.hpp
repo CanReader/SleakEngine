@@ -146,6 +146,19 @@ namespace Sleak {
             MaterialGPUData gpuData;
         };
 
+        // GPU-aligned struct for light + shadow data, bound via UBO (set 2, binding 0)
+        struct alignas(16) ShadowLightUBO {
+            float LightDir[4];       // xyz + pad
+            float LightColor[4];     // rgb + intensity
+            float Ambient[4];        // rgb + intensity
+            float CameraPos[4];      // xyz + pad
+            float LightVP[16];       // mat4 (light view-projection)
+            float ShadowBias;
+            float ShadowStrength;
+            float ShadowTexelSize;
+            float LightSize;         // world-space light size for PCSS penumbra
+        };
+
         struct alignas(16) LightBuffer : public ConstantBuffer {
             LightBuffer() : gpuData{} {}
             LightBuffer(const LightCBData& data)

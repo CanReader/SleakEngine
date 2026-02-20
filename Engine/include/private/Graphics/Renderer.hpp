@@ -95,6 +95,10 @@ public:
     inline void SetImGUI(bool bEnable) {bImInitialized = bEnable;}
     inline bool GetImGUIEnabled() { return bImInitialized; }
 
+    // Shadow mapping support (overridden by VulkanRenderer)
+    virtual void UpdateShadowLightUBO(const void* data, uint32_t size) { (void)data; (void)size; }
+    virtual void SetLightVP(const float* lightVP) { (void)lightVP; }
+
     protected:
     virtual void ConfigureRenderMode() = 0;
     virtual void ConfigureRenderFace() = 0;

@@ -12,12 +12,13 @@
                 CommandType GetType() const override { return CommandType::Type;}
 
 namespace Sleak {
+    class Texture;
+
     namespace RenderEngine {
 
         class BufferBase;
         class RenderContext;
         class Shader;
-        class Texture;
     } // close RenderEngine temporarily
 
     class Material;
@@ -49,6 +50,7 @@ namespace Sleak {
             virtual ~RenderCommandBase() = default;
             virtual void Execute(RenderContext* context) = 0;
             virtual CommandType GetType() const = 0;
+            virtual void ExecuteShadow(RenderContext* context) { /* no-op for non-draw commands */ }
 
             void SetOwnerObjectID(uint32_t id) { m_ownerObjectID = id; }
             uint32_t GetOwnerObjectID() const { return m_ownerObjectID; }
@@ -65,8 +67,9 @@ namespace Sleak {
                     uint32_t vertexCount,
                     uint32_t startVertexLocation = 0
                 );
-                
+
                 RENDER_COMMAND(Draw)
+                void ExecuteShadow(RenderContext* context) override;
 
             private:
                 RefPtr<BufferBase> m_vertexBuffer;
@@ -78,14 +81,15 @@ namespace Sleak {
         class DrawIndexedCommand : public RenderCommandBase {
         public:
             DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
-                 RefPtr<BufferBase> indexBuffer, 
+                 RefPtr<BufferBase> indexBuffer,
                  List<RefPtr<BufferBase>> constantBuffers,
                  uint32_t indexCount,
                  uint32_t startIndexLocation = 0,
                  int32_t baseVertexLocation = 0
                 );
-                 
+
             RENDER_COMMAND(DrawIndexed)
+            void ExecuteShadow(RenderContext* context) override;
             
         private:
             RefPtr<BufferBase> m_vertexBuffer;
@@ -119,6 +123,9 @@ namespace Sleak {
                 BindConstantBufferCommand(RefPtr<BufferBase> buffer, int slot);
 
                 RENDER_COMMAND(BindConstantBuffer)
+
+                RefPtr<BufferBase> GetBuffer() const { return constantBuffer; }
+                int GetSlot() const { return slot; }
 
             private:
                 RefPtr<BufferBase> constantBuffer;

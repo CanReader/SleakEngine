@@ -178,9 +178,9 @@ namespace Sleak {
         MeshData meshData = GetCubeMesh();
         object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
         object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<TransformComponent>(position);
         object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
         object->AddComponent<MeshComponent>(std::move(meshData));
-        object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
         return object;
@@ -192,9 +192,9 @@ namespace Sleak {
         MeshData meshData = GetSphereMesh(stack, slices);
         object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::Sphere);
         object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<TransformComponent>(position);
         object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
         object->AddComponent<MeshComponent>(std::move(meshData));
-        object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
         return object;
@@ -206,9 +206,9 @@ namespace Sleak {
         MeshData meshData = GetCapsuleMesh(segments, rings, height, radius);
         object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::Capsule);
         object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<TransformComponent>(position);
         object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
         object->AddComponent<MeshComponent>(std::move(meshData));
-        object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
         return object;

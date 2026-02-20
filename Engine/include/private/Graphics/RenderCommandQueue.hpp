@@ -47,6 +47,8 @@ namespace Sleak {
 
         void ExecuteCommands(RenderContext* context);
 
+        void ExecuteShadowPass(RenderContext* context);
+
         void Clear();
 
         void SortCommands();
@@ -58,9 +60,15 @@ namespace Sleak {
             return Instance;
         }
 
+        struct ShadowDrawEntry {
+            RefPtr<RenderCommandBase> command;
+            RefPtr<BufferBase> transformBuffer;  // last-bound slot-0 buffer
+        };
+
         private:
             static RenderCommandQueue* Instance;
             Queue<RefPtr<RenderCommandBase>> commands;
+            List<ShadowDrawEntry> cachedShadowDraws;
         };
     }
 }

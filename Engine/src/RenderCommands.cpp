@@ -31,6 +31,12 @@ void DrawCommand::Execute(RenderContext* context) {
     context->Draw(m_vertexCount);
 }
 
+void DrawCommand::ExecuteShadow(RenderContext* context) {
+    context->BindVertexBuffer(m_vertexBuffer, m_startVertexLocation);
+    // Transform buffer (slot 0) is bound by ExecuteShadowPass before this call
+    context->Draw(m_vertexCount);
+}
+
 //------------------------------------------------------------------------------
 // Indexed Drawing
 //------------------------------------------------------------------------------
@@ -75,6 +81,13 @@ void DrawIndexedCommand::Execute(RenderContext* context) {
 
     // Switch back to default pipeline for subsequent non-skinned draws
     if (hasBones) context->EndSkinnedPass();
+}
+
+void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
+    context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
+    context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
+    // Transform buffer (slot 0) is bound by ExecuteShadowPass before this call
+    context->DrawIndexed(m_indexCount);
 }
 
 //------------------------------------------------------------------------------

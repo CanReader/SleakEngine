@@ -218,10 +218,6 @@ void DebugLineRenderer::Flush(Camera* camera) {
         [shader, vb, cb, count](RenderEngine::RenderContext* ctx) {
             ctx->BeginDebugLinePass();
 
-            ctx->SetDepthWrite(true);
-            ctx->SetDepthCompare(RenderEngine::DepthCompare::LessEqual);
-            ctx->SetCullEnabled(false);
-
             shader->bind();
 
             ctx->BindConstantBuffer(cb, 0);
@@ -229,10 +225,6 @@ void DebugLineRenderer::Flush(Camera* camera) {
             ctx->Draw(count);
 
             ctx->EndDebugLinePass();
-
-            ctx->SetDepthWrite(true);
-            ctx->SetDepthCompare(RenderEngine::DepthCompare::Less);
-            ctx->SetCullEnabled(true);
         });
 
     s_vertices.clear();

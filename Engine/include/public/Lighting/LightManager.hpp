@@ -26,6 +26,7 @@ namespace Sleak {
         void UnregisterLight(Light* light);
 
         void UpdateAndBind();
+        void UpdateShadowData();
 
         void SetAmbientColor(float r, float g, float b);
         void SetAmbientIntensity(float intensity) {

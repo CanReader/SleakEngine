@@ -3,6 +3,7 @@
 #include <Logger.hpp>
 #include <Camera/Camera.hpp>
 #include <ECS/Components/FreeLookCameraController.hpp>
+#include <ECS/Components/FirstPersonController.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
@@ -391,13 +392,18 @@ void SceneBase::InitializeDebugCamera() {
     if (!DebugCamera.IsValid()) {
         DebugCamera = ObjectPtr<Camera>(new Camera(
             std::string("SceneDebugCamera"),
-            {2, 3, -6}, 60, 0.01, 100));
-        DebugCamera->AddComponent<FreeLookCameraController>();
+            {0, 3, 0}, 60, 0.01, 100));
+        DebugCamera->AddComponent<FirstPersonController>();
         DebugCamera->AddComponent<ColliderComponent>(
             Physics::BoundingSphere(Math::Vector3D(0, 0, 0), 0.3f));
-        DebugCamera->AddComponent<RigidbodyComponent>(BodyType::Kinematic);
+
+        DebugCamera->AddComponent<RigidbodyComponent>(BodyType::Dynamic);
+        auto* rb = DebugCamera->GetComponent<RigidbodyComponent>();
+        rb->SetUseGravity(true);
+        rb->SetGravity(Math::Vector3D(0, -9.81f, 0)); // Real gravity — matches UE default
+
         DebugCamera->Initialize();
-        DebugCamera->GetComponent<FreeLookCameraController>()->SetEnabled(true);
+        DebugCamera->GetComponent<FirstPersonController>()->SetEnabled(true);
 
         // Register camera collider with physics
         if (m_physicsWorld) {
@@ -408,7 +414,7 @@ void SceneBase::InitializeDebugCamera() {
         }
 
         DebugCamera->SetActive(true);
-        DebugCamera->SetLookTarget({0, 0, 0});
+        DebugCamera->SetLookTarget({0, 0, 1});
     }
 }
 

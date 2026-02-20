@@ -47,6 +47,12 @@ namespace Sleak {
         }
         float GetShadowStrength() const { return m_shadowStrength; }
 
+        void SetShadowNormalBias(float bias) { m_shadowNormalBias = bias; }
+        float GetShadowNormalBias() const { return m_shadowNormalBias; }
+
+        void SetLightSize(float size) { m_lightSize = size; }
+        float GetLightSize() const { return m_lightSize; }
+
     protected:
         Math::Vector3D m_color{1.0f, 1.0f, 1.0f};
         float m_intensity = 1.0f;
@@ -54,6 +60,8 @@ namespace Sleak {
         bool m_castShadows = false;
         float m_shadowBias = 0.005f;
         float m_shadowStrength = 1.0f;
+        float m_shadowNormalBias = 0.02f;
+        float m_lightSize = 1.0f;
     };
 
 }  // namespace Sleak

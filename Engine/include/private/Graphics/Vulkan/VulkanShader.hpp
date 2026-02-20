@@ -15,6 +15,7 @@ public:
     
     virtual bool compile(const std::string& shaderPath) override;
     virtual bool compile(const std::string& vert, const std::string& frag) override;
+    bool compileVertexOnly(const std::string& vertPath);
     virtual void bind() override;
 
     inline VkShaderModule GetVertexShader() { return vertShader; }

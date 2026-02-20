@@ -24,6 +24,7 @@
 #include "ECS/Components/MeshComponent.hpp"
 #include "ECS/Components/TransformComponent.hpp"
 #include "ECS/Components/FreeLookCameraController.hpp"
+#include "ECS/Components/FirstPersonController.hpp"
 #include <Runtime/Skybox.hpp>
 #include <Runtime/Material.hpp>
 #include <Debug/DebugOverlay.hpp>
@@ -241,9 +242,14 @@ namespace Sleak {
                 if (Game && Game->GetActiveScene()) {
                     Camera* cam = Game->GetActiveScene()->GetDebugCamera();
                     if (cam) {
-                        auto* ctrl = cam->GetComponent<FreeLookCameraController>();
-                        if (ctrl)
-                            ctrl->SetEnabled(!ctrl->IsEnabled());
+                        auto* fpc = cam->GetComponent<FirstPersonController>();
+                        if (fpc) {
+                            fpc->SetEnabled(!fpc->IsEnabled());
+                        } else {
+                            auto* ctrl = cam->GetComponent<FreeLookCameraController>();
+                            if (ctrl)
+                                ctrl->SetEnabled(!ctrl->IsEnabled());
+                        }
                     }
                 }
             }

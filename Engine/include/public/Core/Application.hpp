@@ -64,6 +64,10 @@ class ENGINE_API Application {
 
     Window& GetWindow();
 
+    RenderEngine::Renderer* GetRenderer() { return renderer; }
+
+    static Application* GetInstance() { return Instance; }
+
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
     void OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e);
 

@@ -2,6 +2,7 @@
 #include "../../include/private/Graphics/BufferBase.hpp"
 #include "../../include/private/Graphics/RenderContext.hpp"
 #include <Memory/ObjectPtr.h>
+#include <Logger.hpp>
 
 namespace Sleak {
     namespace RenderEngine {
@@ -59,50 +60,57 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::ExecuteCommands(RenderContext* context) {
-            
+
             SortCommands();
             OptimizeBatching();
 
-            while (!commands.isEmpty())  
-                commands.pop()->Execute(context);
-        }
-
-        void RenderCommandQueue::SortCommands() {
-            // Sorting is also important for minimizing state changes.
-
-            Queue<RefPtr<RenderCommandBase>> customQueue;
-            Queue<RefPtr<RenderCommandBase>> updateCBQueue;    // UpdateConstantBuffer
-            Queue<RefPtr<RenderCommandBase>> bindCBQueue;      // BindConstantBuffer
-            Queue<RefPtr<RenderCommandBase>> materialQueue;    // BindMaterial
-            Queue<RefPtr<RenderCommandBase>> drawQueue;        // DrawIndexed + Draw
-
-            // Step 1: Categorize the commands
-            while (!commands.isEmpty()) {
-                auto command = commands.pop();
-                switch (command->GetType()) {
-                    case CommandType::Draw:
-                    case CommandType::DrawIndexed:        drawQueue.push(command); break;
-                    case CommandType::UpdateConstantBuffer: updateCBQueue.push(command); break;
-                    case CommandType::BindConstantBuffer: bindCBQueue.push(command); break;
-                    case CommandType::BindMaterial:       materialQueue.push(command); break;
-                    case CommandType::CustomCommand:      customQueue.push(command); break;
-                    // State commands: keep in draw queue to preserve order
-                    case CommandType::SetMode:
-                    case CommandType::SetFace:            drawQueue.push(command); break;
-                    default: break;
+            // Cache draw commands for shadow pass replay next frame,
+            // pairing each with the last-bound slot-0 (transform) buffer
+            cachedShadowDraws.clear();
+            RefPtr<BufferBase> lastSlot0Buffer;
+            for (auto& cmd : commands) {
+                auto type = cmd->GetType();
+                if (type == CommandType::BindConstantBuffer) {
+                    auto* bindCmd = static_cast<BindConstantBufferCommand*>(cmd.get());
+                    if (bindCmd->GetSlot() == 0) {
+                        lastSlot0Buffer = bindCmd->GetBuffer();
+                    }
+                }
+                if (type == CommandType::Draw || type == CommandType::DrawIndexed) {
+                    ShadowDrawEntry entry;
+                    entry.command = cmd;
+                    entry.transformBuffer = lastSlot0Buffer;
+                    cachedShadowDraws.add(entry);
                 }
             }
 
-            // Step 2: Interleave per-object: UpdateCB → BindCB → BindMaterial → Draw
-            // Then custom commands last (e.g. skybox)
-            while (!updateCBQueue.isEmpty() || !bindCBQueue.isEmpty() ||
-                   !materialQueue.isEmpty() || !drawQueue.isEmpty()) {
-                if (!updateCBQueue.isEmpty()) commands.push(updateCBQueue.pop());
-                if (!bindCBQueue.isEmpty())   commands.push(bindCBQueue.pop());
-                if (!materialQueue.isEmpty()) commands.push(materialQueue.pop());
-                if (!drawQueue.isEmpty())     commands.push(drawQueue.pop());
+            while (!commands.isEmpty())
+                commands.pop()->Execute(context);
+        }
+
+        void RenderCommandQueue::ExecuteShadowPass(RenderContext* context) {
+            static int shadowPassDbg = 0;
+            if (shadowPassDbg < 5) {
+                SLEAK_INFO("ExecuteShadowPass: {} cached shadow draws", cachedShadowDraws.GetSize());
+                ++shadowPassDbg;
             }
-            while (!customQueue.isEmpty()) commands.push(customQueue.pop());
+            for (size_t i = 0; i < cachedShadowDraws.GetSize(); ++i) {
+                auto& entry = cachedShadowDraws[i];
+                // Bind the transform buffer (slot 0) before drawing — shadow mode
+                // in VulkanRenderer::BindConstantBuffer computes LightVP * World
+                if (entry.transformBuffer) {
+                    context->BindConstantBuffer(entry.transformBuffer, 0);
+                }
+                entry.command->ExecuteShadow(context);
+            }
+        }
+
+        void RenderCommandQueue::SortCommands() {
+            // Commands are submitted in the correct per-object order:
+            // UpdateCB → BindCB → BindMaterial → Draw for each object,
+            // with custom commands (skybox, debug lines) at their correct position.
+            // Preserve submission order to maintain correct state bindings.
+            // Future optimization: batch by material while preserving per-object groups.
         }
 
         void RenderCommandQueue::OptimizeBatching() {

@@ -2,6 +2,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
+#include "../../include/private/Graphics/RenderCommandQueue.hpp"
 
 #include <SDL3/SDL_vulkan.h>
 #include <Window.hpp>
@@ -49,7 +50,7 @@ VulkanRenderer::VulkanRenderer(Window* window)
         this, &VulkanRenderer::CreateCubemapTextureFromPanorama);
 
     ResourceManager::RegisterCreateTextureFromMemory(
-        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> ::Sleak::Texture* {
             auto* tex = new VulkanTexture(device, physicalDevice, commands, graphicsQueue);
             if (tex->LoadFromMemory(data, w, h, fmt)) {
                 WriteTextureDescriptors(tex);
@@ -111,6 +112,12 @@ bool VulkanRenderer::Initialize() {
     if (!CreateGraphicsPipeline())
         SLEAK_RETURN_ERR("Failed to create graphics pipeline!");
 
+    if (!CreateShadowLightUBOResources())
+        SLEAK_WARN("Failed to create light UBO resources — dynamic lighting disabled");
+
+    if (!CreateShadowResources())
+        SLEAK_WARN("Failed to create shadow mapping resources — shadows disabled");
+
     if (!CreateFrameBuffer())
         SLEAK_RETURN_ERR("Failed to create framebuffer of renderer!");
 
@@ -165,6 +172,53 @@ void VulkanRenderer::BeginRender() {
         return;
     }
 
+    // --- Shadow pass (before main render pass) ---
+    if (m_shadowResourcesCreated) {
+        VkClearValue shadowClear{};
+        shadowClear.depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo shadowPassInfo{};
+        shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        shadowPassInfo.renderPass = m_shadowRenderPass;
+        shadowPassInfo.framebuffer = m_shadowFramebuffer;
+        shadowPassInfo.renderArea.offset = {0, 0};
+        shadowPassInfo.renderArea.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+        shadowPassInfo.clearValueCount = 1;
+        shadowPassInfo.pClearValues = &shadowClear;
+
+        vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+
+        VkViewport shadowViewport{};
+        shadowViewport.x = 0.0f;
+        shadowViewport.y = 0.0f;
+        shadowViewport.width = static_cast<float>(SHADOW_MAP_SIZE);
+        shadowViewport.height = static_cast<float>(SHADOW_MAP_SIZE);
+        shadowViewport.minDepth = 0.0f;
+        shadowViewport.maxDepth = 1.0f;
+        vkCmdSetViewport(command, 0, 1, &shadowViewport);
+
+        VkRect2D shadowScissor{};
+        shadowScissor.offset = {0, 0};
+        shadowScissor.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+        vkCmdSetScissor(command, 0, 1, &shadowScissor);
+
+        m_shadowPassActive = true;
+        auto* queue = RenderCommandQueue::GetInstance();
+        if (queue) {
+            static int shadowDbgFrame = 0;
+            if (shadowDbgFrame < 5) {
+                SLEAK_INFO("Shadow pass frame {}: lightVP[0]={:.4f}, [5]={:.4f}, [10]={:.4f}, [15]={:.4f}",
+                    shadowDbgFrame, m_lightVP[0], m_lightVP[5], m_lightVP[10], m_lightVP[15]);
+            }
+            queue->ExecuteShadowPass(this);
+            ++shadowDbgFrame;
+        }
+        m_shadowPassActive = false;
+
+        vkCmdEndRenderPass(command);
+    }
+
     // Begin render pass
     std::array<VkClearValue, 2> clearValues{};
     clearValues[0] = clearColor;
@@ -206,6 +260,16 @@ void VulkanRenderer::BeginRender() {
     scissor.offset = {0, 0};
     scissor.extent = scExtent;
     vkCmdSetScissor(command, 0, 1, &scissor);
+
+    // Bind light UBO at set 2 and shadow sampler at set 3
+    if (m_lightUBOCreated) {
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 2, 1,
+            &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLay, 3, 1,
+            &m_shadowSamplerDescriptorSets[currentFrame], 0, nullptr);
+    }
 
     // RenderCommandQueue will now call Draw/DrawIndexed/Bind* methods
     // via the RenderContext interface on this object
@@ -367,8 +431,33 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     uint32_t size = static_cast<uint32_t>(vkBuf->GetSize());
     if (size > 128) size = 128;  // Vulkan guarantees at least 128 bytes
 
-    vkCmdPushConstants(command, pipelineLay,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, size, data);
+    if (m_shadowPassActive && slot == 0 && size >= 128) {
+        // In shadow mode: compute LightVP * World for the push constant
+        // Buffer layout: [WVP (64 bytes)][World (64 bytes)]
+        // We need to replace WVP with LightVP * World
+        float shadowPC[32]; // 128 bytes = 2 x mat4
+        const float* srcWorld = reinterpret_cast<const float*>(
+            static_cast<const char*>(data) + 64);
+
+        // Matrix multiply: shadowWVP = World * LightVP (row-major)
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+                }
+                shadowPC[r * 4 + c] = sum;
+            }
+        }
+        // Copy World matrix to second half
+        memcpy(&shadowPC[16], srcWorld, 64);
+
+        vkCmdPushConstants(command, pipelineLay,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, 128, shadowPC);
+    } else {
+        vkCmdPushConstants(command, pipelineLay,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, size, data);
+    }
 }
 
 BufferBase* VulkanRenderer::CreateBuffer(BufferType type, uint32_t size,
@@ -388,7 +477,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
-Texture* VulkanRenderer::CreateTexture(const std::string& TexturePath) {
+::Sleak::Texture* VulkanRenderer::CreateTexture(const std::string& TexturePath) {
     auto* texture = new VulkanTexture(device, physicalDevice, commands,
                                        graphicsQueue);
     if (texture->LoadFromFile(TexturePath)) {
@@ -399,7 +488,7 @@ Texture* VulkanRenderer::CreateTexture(const std::string& TexturePath) {
     return nullptr;
 }
 
-Texture* VulkanRenderer::CreateTextureFromData(uint32_t width,
+::Sleak::Texture* VulkanRenderer::CreateTextureFromData(uint32_t width,
                                                 uint32_t height,
                                                 void* data) {
     auto* texture = new VulkanTexture(device, physicalDevice, commands,
@@ -411,7 +500,7 @@ Texture* VulkanRenderer::CreateTextureFromData(uint32_t width,
     return nullptr;
 }
 
-Texture* VulkanRenderer::CreateCubemapTexture(
+::Sleak::Texture* VulkanRenderer::CreateCubemapTexture(
     const std::array<std::string, 6>& facePaths) {
     auto* texture = new VulkanCubemapTexture(device, physicalDevice,
                                               commands, graphicsQueue);
@@ -455,7 +544,7 @@ Texture* VulkanRenderer::CreateCubemapTexture(
     return nullptr;
 }
 
-Texture* VulkanRenderer::CreateCubemapTextureFromPanorama(
+::Sleak::Texture* VulkanRenderer::CreateCubemapTextureFromPanorama(
     const std::string& panoramaPath) {
     auto* texture = new VulkanCubemapTexture(device, physicalDevice,
                                               commands, graphicsQueue);
@@ -642,10 +731,21 @@ void VulkanRenderer::Cleanup() {
     delete debugLineShader;
     debugLineShader = nullptr;
 
+    // Destroy shadow mapping resources
+    CleanupShadowResources();
+
     // Destroy bone UBO resources
     CleanupBoneUBOResources();
 
     // Destroy descriptor set layouts
+    if (m_shadowSamplerDescriptorSetLayout) {
+        vkDestroyDescriptorSetLayout(device, m_shadowSamplerDescriptorSetLayout, nullptr);
+        m_shadowSamplerDescriptorSetLayout = VK_NULL_HANDLE;
+    }
+    if (m_lightUBODescriptorSetLayout) {
+        vkDestroyDescriptorSetLayout(device, m_lightUBODescriptorSetLayout, nullptr);
+        m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
+    }
     if (boneDescriptorSetLayout) {
         vkDestroyDescriptorSetLayout(device, boneDescriptorSetLayout, nullptr);
         boneDescriptorSetLayout = VK_NULL_HANDLE;
@@ -1393,6 +1493,40 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
                                      &boneDescriptorSetLayout) != VK_SUCCESS)
         SLEAK_RETURN_ERR("Failed to create bone descriptor set layout!");
 
+    // Set 2: light/shadow UBO
+    VkDescriptorSetLayoutBinding lightUBOBinding{};
+    lightUBOBinding.binding = 0;
+    lightUBOBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    lightUBOBinding.descriptorCount = 1;
+    lightUBOBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    lightUBOBinding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo lightUBOLayoutInfo{};
+    lightUBOLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    lightUBOLayoutInfo.bindingCount = 1;
+    lightUBOLayoutInfo.pBindings = &lightUBOBinding;
+
+    if (vkCreateDescriptorSetLayout(device, &lightUBOLayoutInfo, nullptr,
+                                     &m_lightUBODescriptorSetLayout) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to create light UBO descriptor set layout!");
+
+    // Set 3: shadow map sampler
+    VkDescriptorSetLayoutBinding shadowSamplerBinding{};
+    shadowSamplerBinding.binding = 0;
+    shadowSamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    shadowSamplerBinding.descriptorCount = 1;
+    shadowSamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    shadowSamplerBinding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo shadowSamplerLayoutInfo{};
+    shadowSamplerLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    shadowSamplerLayoutInfo.bindingCount = 1;
+    shadowSamplerLayoutInfo.pBindings = &shadowSamplerBinding;
+
+    if (vkCreateDescriptorSetLayout(device, &shadowSamplerLayoutInfo, nullptr,
+                                     &m_shadowSamplerDescriptorSetLayout) != VK_SUCCESS)
+        SLEAK_RETURN_ERR("Failed to create shadow sampler descriptor set layout!");
+
     return true;
 }
 
@@ -1685,9 +1819,12 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     pushConstantRange.offset = 0;
     pushConstantRange.size = 128;  // sizeof(mat4) * 2 = 128 bytes (WVP + World)
 
-    // Two descriptor set layouts: set 0 = texture sampler, set 1 = bone UBO
-    std::array<VkDescriptorSetLayout, 2> setLayouts = {
-        descriptorSetLayout, boneDescriptorSetLayout
+    // Four descriptor set layouts:
+    // set 0 = texture sampler, set 1 = bone UBO,
+    // set 2 = light/shadow UBO, set 3 = shadow map sampler
+    std::array<VkDescriptorSetLayout, 4> setLayouts = {
+        descriptorSetLayout, boneDescriptorSetLayout,
+        m_lightUBODescriptorSetLayout, m_shadowSamplerDescriptorSetLayout
     };
 
     VkPipelineLayoutCreateInfo layoutInfo{};
@@ -2750,6 +2887,509 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
                             pipelineLay, 1, 1,
                             &boneDescriptorSets[currentFrame],
                             0, nullptr);
+}
+
+// -----------------------------------------------------------------------
+// Shadow Mapping Resources
+// -----------------------------------------------------------------------
+
+bool VulkanRenderer::CreateShadowResources() {
+    // 1. Create shadow depth image (2048x2048, D32_SFLOAT)
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &m_shadowImage) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create shadow map image!");
+        return false;
+    }
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(device, m_shadowImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
+                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_shadowImageMemory) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate shadow map memory!");
+        return false;
+    }
+
+    vkBindImageMemory(device, m_shadowImage, m_shadowImageMemory, 0);
+
+    // 2. Create image view (DEPTH aspect)
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_shadowImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_D32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_shadowImageView) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create shadow map image view!");
+        return false;
+    }
+
+    // 3. Create comparison sampler with bilinear filtering for smooth PCF
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerInfo.compareEnable = VK_TRUE;
+    samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 1.0f;
+    samplerInfo.anisotropyEnable = VK_FALSE;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &m_shadowSampler) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create shadow map sampler!");
+        return false;
+    }
+
+    // 4. Create depth-only render pass
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = VK_FORMAT_D32_SFLOAT;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference depthRef{};
+    depthRef.attachment = 0;
+    depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 0;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    // Dependencies for layout transitions
+    std::array<VkSubpassDependency, 2> dependencies{};
+
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &depthAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+    renderPassInfo.pDependencies = dependencies.data();
+
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &m_shadowRenderPass) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create shadow render pass!");
+        return false;
+    }
+
+    // 5. Create framebuffer
+    VkFramebufferCreateInfo fbInfo{};
+    fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbInfo.renderPass = m_shadowRenderPass;
+    fbInfo.attachmentCount = 1;
+    fbInfo.pAttachments = &m_shadowImageView;
+    fbInfo.width = SHADOW_MAP_SIZE;
+    fbInfo.height = SHADOW_MAP_SIZE;
+    fbInfo.layers = 1;
+
+    if (vkCreateFramebuffer(device, &fbInfo, nullptr, &m_shadowFramebuffer) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create shadow framebuffer!");
+        return false;
+    }
+
+    // 6. Create shadow pipeline
+    if (!CreateShadowPipeline()) {
+        SLEAK_ERROR("Failed to create shadow pipeline!");
+        return false;
+    }
+
+    // Write shadow sampler to set 3 descriptors (UBO resources already created)
+    if (m_lightUBOCreated && m_shadowImageView && m_shadowSampler) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = m_shadowImageView;
+            imageInfo.sampler = m_shadowSampler;
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = m_shadowSamplerDescriptorSets[i];
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+    }
+
+    m_shadowResourcesCreated = true;
+    SLEAK_INFO("VulkanRenderer: Shadow mapping resources created ({}x{} shadow map)",
+               SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    return true;
+}
+
+bool VulkanRenderer::CreateShadowPipeline() {
+    m_shadowShader = new VulkanShader(device);
+    if (!m_shadowShader->compileVertexOnly("assets/shaders/shadow_depth.vert.spv")) {
+        SLEAK_ERROR("VulkanRenderer: Failed to compile shadow depth shader");
+        delete m_shadowShader;
+        m_shadowShader = nullptr;
+        return false;
+    }
+
+    // Vertex-only pipeline (no fragment shader)
+    VkPipelineShaderStageCreateInfo shaderStage = m_shadowShader->GetVertexInfo();
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Same vertex layout as main pipeline
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
+    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, px)};
+    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, nx)};
+    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, tx)};
+    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, r)};
+    attributeDescs[4] = {4, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)};
+    attributeDescs[5] = {5, 0, VK_FORMAT_R32G32B32A32_SINT, offsetof(Vertex, boneIDs)};
+    attributeDescs[6] = {6, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, boneWeights)};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE; // No culling in shadow pass — avoids winding issues
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_TRUE;
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor = 1.75f;
+    rasterizer.depthBiasClamp = 0.0f;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    // No color blend (depth-only, no color attachment)
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 0;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 1; // Vertex-only
+    pipelineInfo.pStages = &shaderStage;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;
+    pipelineInfo.renderPass = m_shadowRenderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_shadowPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create shadow pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Shadow pipeline created successfully");
+    return true;
+}
+
+bool VulkanRenderer::CreateShadowLightUBOResources() {
+    static constexpr VkDeviceSize uboSize = sizeof(ShadowLightUBO);
+
+    // Create per-frame UBO buffers
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = uboSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &m_lightUBOBuffers[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("Failed to create light UBO buffer!");
+            return false;
+        }
+
+        VkMemoryRequirements memReqs;
+        vkGetBufferMemoryRequirements(device, m_lightUBOBuffers[i], &memReqs);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memReqs.size;
+        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &m_lightUBOMemory[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("Failed to allocate light UBO memory!");
+            return false;
+        }
+
+        vkBindBufferMemory(device, m_lightUBOBuffers[i], m_lightUBOMemory[i], 0);
+        vkMapMemory(device, m_lightUBOMemory[i], 0, uboSize, 0, &m_lightUBOMapped[i]);
+        memset(m_lightUBOMapped[i], 0, uboSize);
+    }
+
+    // Create descriptor pool for light UBO + shadow sampler
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * 2; // UBO sets + sampler sets
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_lightUBODescriptorPool) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create light UBO descriptor pool!");
+        return false;
+    }
+
+    // Allocate light UBO descriptor sets (set 2)
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> uboLayouts;
+    uboLayouts.fill(m_lightUBODescriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo uboAllocInfo{};
+    uboAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    uboAllocInfo.descriptorPool = m_lightUBODescriptorPool;
+    uboAllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    uboAllocInfo.pSetLayouts = uboLayouts.data();
+
+    if (vkAllocateDescriptorSets(device, &uboAllocInfo, m_lightUBODescriptorSets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate light UBO descriptor sets!");
+        return false;
+    }
+
+    // Write UBO descriptors
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorBufferInfo bufInfo{};
+        bufInfo.buffer = m_lightUBOBuffers[i];
+        bufInfo.offset = 0;
+        bufInfo.range = uboSize;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = m_lightUBODescriptorSets[i];
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &bufInfo;
+
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+
+    // Allocate shadow sampler descriptor sets (set 3)
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> samplerLayouts;
+    samplerLayouts.fill(m_shadowSamplerDescriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo samplerAllocInfo{};
+    samplerAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    samplerAllocInfo.descriptorPool = m_lightUBODescriptorPool;
+    samplerAllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    samplerAllocInfo.pSetLayouts = samplerLayouts.data();
+
+    if (vkAllocateDescriptorSets(device, &samplerAllocInfo, m_shadowSamplerDescriptorSets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate shadow sampler descriptor sets!");
+        return false;
+    }
+
+    // Write default shadow sampler descriptors (using default texture as placeholder)
+    // These will be overwritten with actual shadow map when shadow resources are created
+    if (m_defaultTexture) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = m_defaultTexture->GetImageView();
+            imageInfo.sampler = m_defaultTexture->GetSampler();
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = m_shadowSamplerDescriptorSets[i];
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+    }
+
+    m_lightUBOCreated = true;
+    SLEAK_INFO("VulkanRenderer: Light UBO and shadow sampler resources created");
+    return true;
+}
+
+void VulkanRenderer::CleanupShadowResources() {
+    if (m_shadowPipeline) {
+        vkDestroyPipeline(device, m_shadowPipeline, nullptr);
+        m_shadowPipeline = VK_NULL_HANDLE;
+    }
+    delete m_shadowShader;
+    m_shadowShader = nullptr;
+
+    if (m_shadowFramebuffer) {
+        vkDestroyFramebuffer(device, m_shadowFramebuffer, nullptr);
+        m_shadowFramebuffer = VK_NULL_HANDLE;
+    }
+    if (m_shadowRenderPass) {
+        vkDestroyRenderPass(device, m_shadowRenderPass, nullptr);
+        m_shadowRenderPass = VK_NULL_HANDLE;
+    }
+    if (m_shadowSampler) {
+        vkDestroySampler(device, m_shadowSampler, nullptr);
+        m_shadowSampler = VK_NULL_HANDLE;
+    }
+    if (m_shadowImageView) {
+        vkDestroyImageView(device, m_shadowImageView, nullptr);
+        m_shadowImageView = VK_NULL_HANDLE;
+    }
+    if (m_shadowImage) {
+        vkDestroyImage(device, m_shadowImage, nullptr);
+        m_shadowImage = VK_NULL_HANDLE;
+    }
+    if (m_shadowImageMemory) {
+        vkFreeMemory(device, m_shadowImageMemory, nullptr);
+        m_shadowImageMemory = VK_NULL_HANDLE;
+    }
+
+    // Cleanup light UBO resources
+    if (m_lightUBOCreated) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            if (m_lightUBOMapped[i]) {
+                vkUnmapMemory(device, m_lightUBOMemory[i]);
+                m_lightUBOMapped[i] = nullptr;
+            }
+            if (m_lightUBOBuffers[i]) {
+                vkDestroyBuffer(device, m_lightUBOBuffers[i], nullptr);
+                m_lightUBOBuffers[i] = VK_NULL_HANDLE;
+            }
+            if (m_lightUBOMemory[i]) {
+                vkFreeMemory(device, m_lightUBOMemory[i], nullptr);
+                m_lightUBOMemory[i] = VK_NULL_HANDLE;
+            }
+        }
+        m_lightUBOCreated = false;
+    }
+
+    if (m_lightUBODescriptorPool) {
+        vkDestroyDescriptorPool(device, m_lightUBODescriptorPool, nullptr);
+        m_lightUBODescriptorPool = VK_NULL_HANDLE;
+    }
+
+    m_shadowResourcesCreated = false;
+}
+
+void VulkanRenderer::BeginShadowPass() {
+    m_shadowPassActive = true;
+}
+
+void VulkanRenderer::EndShadowPass() {
+    m_shadowPassActive = false;
+}
+
+void VulkanRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
+    if (!m_lightUBOCreated || !data) return;
+    uint32_t copySize = std::min(size, static_cast<uint32_t>(sizeof(ShadowLightUBO)));
+    memcpy(m_lightUBOMapped[currentFrame], data, copySize);
+}
+
+void VulkanRenderer::SetLightVP(const float* lightVP) {
+    if (lightVP) {
+        memcpy(m_lightVP, lightVP, sizeof(m_lightVP));
+    }
 }
 
 }
