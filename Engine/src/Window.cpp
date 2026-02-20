@@ -186,6 +186,10 @@ void Window::SetFullScreen(bool isFullscreen) {
   }
 }
 
+void Window::SetRelativeMouseMode(bool enabled) {
+  SDL_SetWindowRelativeMouseMode(SDLWindow, enabled);
+}
+
 void Window::Close() {
   event.type = SDL_EVENT_QUIT;
   SDL_Quit();

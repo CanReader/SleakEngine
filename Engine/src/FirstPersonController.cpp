@@ -1,5 +1,7 @@
 #include <ECS/Components/FirstPersonController.hpp>
 #include <Physics/RigidbodyComponent.hpp>
+#include <Core/Application.hpp>
+#include <Window.hpp>
 #include <SDL3/SDL.h>
 #include <Events/Event.h>
 #include <Math/Math.hpp>
@@ -193,8 +195,8 @@ void FirstPersonController::SetEnabled(bool enabled) {
 
     if (!camera) return;
 
-    SDL_Window* window = SDL_GetMouseFocus();
-    SDL_SetWindowRelativeMouseMode(window, enabled);
+    auto* app = Application::GetInstance();
+    if (app) app->GetWindow().SetRelativeMouseMode(enabled);
     ToggleCursor(!enabled);
 
     if (enabled) {

@@ -42,6 +42,8 @@ public:
 
   void SetImGuiReady(bool ready) { m_imguiReady = ready; }
 
+  void SetRelativeMouseMode(bool enabled);
+
   static int GetWidth() { return Width; }
   static int GetHeight() { return Height; }
 
