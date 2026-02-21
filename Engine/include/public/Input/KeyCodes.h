@@ -16,9 +16,9 @@
         Button6 = 6,
         Button7 = 7,
 
-        ButtonLeft = Button0,
-        ButtonMiddle = Button2,
-        ButtonRight = Button3,
+        ButtonLeft = Button1,    // SDL_BUTTON_LEFT = 1
+        ButtonMiddle = Button2,  // SDL_BUTTON_MIDDLE = 2
+        ButtonRight = Button3,   // SDL_BUTTON_RIGHT = 3
     };
 
      enum class KEY_CODE
@@ -557,30 +557,22 @@
 
     inline std::string Button_toString(MOUSE_CODE button) {
         switch(button) {
-            case MOUSE_CODE::ButtonLeft: // Mouse 0
+            case MOUSE_CODE::Button0:
+                return "Button 0";
+            case MOUSE_CODE::ButtonLeft: // SDL_BUTTON_LEFT = 1
                 return "Left Button";
-                break;
-            case MOUSE_CODE::ButtonRight: // Mouse 3
-                return "Right Button";
-                break;
-            case MOUSE_CODE::ButtonMiddle: // Mouse 2
+            case MOUSE_CODE::ButtonMiddle: // SDL_BUTTON_MIDDLE = 2
                 return "Middle Button";
-                break;
-            case MOUSE_CODE::Button1:
-                return "Button 1";
-                break;
+            case MOUSE_CODE::ButtonRight: // SDL_BUTTON_RIGHT = 3
+                return "Right Button";
             case MOUSE_CODE::Button4:
                 return "Button 4";
-                break;
             case MOUSE_CODE::Button5:
                 return "Button 5";
-                break;
             case MOUSE_CODE::Button6:
                 return "Button 6";
-                break;
             case MOUSE_CODE::Button7:
                 return "Button 7";
-                break;
             default:
                 return "Unknown button!";
         }
