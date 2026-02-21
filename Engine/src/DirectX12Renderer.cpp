@@ -816,11 +816,14 @@ BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
 Shader* DirectX12Renderer::CreateShader(const std::string& shaderSource) {
     auto* shader = new DirectX12Shader(device.Get());
     if (shader->compile(shaderSource)) {
-        // Create/update the PSO with this shader's compiled blobs
-        if (!pipelineState && shader->getVertexShaderBlob()) {
+        // Create a PSO for this shader's compiled blobs
+        if (shader->getVertexShaderBlob()) {
             CreatePipelineStateFromShader(
                 shader->getVertexShaderBlob(),
                 shader->getPixelShaderBlob());
+            // Give the shader its own PSO reference so bind() sets it
+            shader->SetPSO(pipelineState);
+            shader->SetCommandList(commandList.Get());
         }
         return shader;
     }
