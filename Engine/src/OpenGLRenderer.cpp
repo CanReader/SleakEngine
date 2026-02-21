@@ -174,11 +174,15 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
 void OpenGLRenderer::Draw(uint32_t vertexCount) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArrays(mode, 0, vertexCount);
+    DrawnVertices += vertexCount;
+    DrawnTriangles += vertexCount / 3;
 }
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawElements(mode, indexCount, GL_UNSIGNED_INT, 0);
+    DrawnVertices += indexCount;
+    DrawnTriangles += indexCount / 3;
 }
 
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
@@ -186,6 +190,8 @@ void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArraysInstanced(mode, 0, vertexPerInstance,
                           instanceCount);
+    DrawnVertices += vertexPerInstance * instanceCount;
+    DrawnTriangles += (vertexPerInstance / 3) * instanceCount;
 }
 
 void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
@@ -193,6 +199,8 @@ void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawElementsInstanced(mode, indexPerInstance,
                             GL_UNSIGNED_INT, 0, instanceCount);
+    DrawnVertices += indexPerInstance * instanceCount;
+    DrawnTriangles += (indexPerInstance / 3) * instanceCount;
 }
 
 void OpenGLRenderer::BeginDebugLinePass() {
