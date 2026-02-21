@@ -78,11 +78,11 @@ public:
     }
 
     inline int GetVertices() const {
-        return DrawnVertices;
+        return DisplayVertices;
     }
 
     inline int GetTriangles() const {
-        return DrawnTriangles;
+        return DisplayTriangles;
     }
 
     inline bool GetIsPerformanceCounter() {
@@ -127,6 +127,8 @@ public:
         if (elapsed >= MetricUpdateInterval) {
             frameRate = static_cast<int>(m_frameCount / elapsed);
             frameTime = (elapsed / m_frameCount) * 1000.0f; // ms per frame
+            DisplayVertices = DrawnVertices;
+            DisplayTriangles = DrawnTriangles;
             m_frameCount = 0;
             m_frameTimer.Reset();
             DrawnVertices = 0;
@@ -142,6 +144,8 @@ public:
     float UsedCPU = 0;
     int DrawnVertices = 0;
     int DrawnTriangles = 0;
+    int DisplayVertices = 0;
+    int DisplayTriangles = 0;
     Timer m_frameTimer;
     uint32_t m_frameCount = 0;
 
