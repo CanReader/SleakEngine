@@ -1,4 +1,5 @@
 #include <Debug/DebugLineRenderer.hpp>
+#include <Graphics/Vertex.hpp>
 #include <Graphics/ResourceManager.hpp>
 #include <Graphics/RenderCommandQueue.hpp>
 #include <Graphics/RenderContext.hpp>
@@ -13,7 +14,7 @@ struct alignas(16) DebugLineCBData {
 };
 
 // Static member definitions
-std::vector<Vertex> DebugLineRenderer::s_vertices;
+std::vector<Vertex>* DebugLineRenderer::s_vertices = nullptr;
 RefPtr<RenderEngine::BufferBase> DebugLineRenderer::s_vertexBuffer;
 RefPtr<RenderEngine::Shader> DebugLineRenderer::s_shader;
 RefPtr<RenderEngine::BufferBase> DebugLineRenderer::s_constantBuffer;
@@ -46,13 +47,15 @@ void DebugLineRenderer::Initialize() {
         &cbData));
     s_constantBuffer->SetSlot(0);
 
-    s_vertices.reserve(MAX_VERTICES);
+    s_vertices = new std::vector<Vertex>();
+    s_vertices->reserve(MAX_VERTICES);
     s_initialized = true;
     SLEAK_INFO("DebugLineRenderer initialized");
 }
 
 void DebugLineRenderer::Shutdown() {
-    s_vertices.clear();
+    delete s_vertices;
+    s_vertices = nullptr;
     s_vertexBuffer.reset();
     s_shader.reset();
     s_constantBuffer.reset();
@@ -61,7 +64,7 @@ void DebugLineRenderer::Shutdown() {
 
 void DebugLineRenderer::DrawLine(const Math::Vector3D& start, const Math::Vector3D& end,
                                   float r, float g, float b, float a) {
-    if (s_vertices.size() + 2 > MAX_VERTICES) return;
+    if (s_vertices->size() + 2 > MAX_VERTICES) return;
 
     Vertex v1{};
     v1.px = start.GetX(); v1.py = start.GetY(); v1.pz = start.GetZ();
@@ -71,8 +74,8 @@ void DebugLineRenderer::DrawLine(const Math::Vector3D& start, const Math::Vector
     v2.px = end.GetX(); v2.py = end.GetY(); v2.pz = end.GetZ();
     v2.r = r; v2.g = g; v2.b = b; v2.a = a;
 
-    s_vertices.push_back(v1);
-    s_vertices.push_back(v2);
+    s_vertices->push_back(v1);
+    s_vertices->push_back(v2);
 }
 
 void DebugLineRenderer::DrawAABB(const Physics::AABB& aabb,
@@ -187,17 +190,17 @@ void DebugLineRenderer::DrawCapsule(const Physics::BoundingCapsule& capsule,
 }
 
 void DebugLineRenderer::Flush(Camera* camera) {
-    if (!s_initialized || !s_enabled || s_vertices.empty()) {
-        s_vertices.clear();
+    if (!s_initialized || !s_vertices || s_vertices->empty()) {
+        if (s_vertices) s_vertices->clear();
         return;
     }
 
     if (!camera) {
-        s_vertices.clear();
+        s_vertices->clear();
         return;
     }
 
-    uint32_t vertexCount = static_cast<uint32_t>(s_vertices.size());
+    uint32_t vertexCount = static_cast<uint32_t>(s_vertices->size());
     if (vertexCount > MAX_VERTICES) vertexCount = MAX_VERTICES;
 
     // Update constant buffer with ViewProjection
@@ -206,7 +209,7 @@ void DebugLineRenderer::Flush(Camera* camera) {
     s_constantBuffer->Update(&cbData, sizeof(DebugLineCBData));
 
     // Update vertex buffer
-    s_vertexBuffer->Update(s_vertices.data(), vertexCount * sizeof(Vertex));
+    s_vertexBuffer->Update(s_vertices->data(), vertexCount * sizeof(Vertex));
 
     // Capture for lambda
     auto shader = s_shader;
@@ -227,7 +230,7 @@ void DebugLineRenderer::Flush(Camera* camera) {
             ctx->EndDebugLinePass();
         });
 
-    s_vertices.clear();
+    s_vertices->clear();
 }
 
 } // namespace Sleak

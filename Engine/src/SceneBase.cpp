@@ -222,8 +222,10 @@ void SceneBase::Update(float deltaTime) {
             }
         }
 
-        DebugLineRenderer::Flush(DebugCamera.IsValid() ? DebugCamera.get() : nullptr);
     }
+
+    // Flush debug lines (always runs — game code may queue lines independently of collider debug)
+    DebugLineRenderer::Flush(DebugCamera.IsValid() ? DebugCamera.get() : nullptr);
 
     // Process deferred destruction at end of frame
     ProcessPendingDestroy();

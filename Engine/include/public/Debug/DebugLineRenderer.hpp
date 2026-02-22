@@ -2,14 +2,14 @@
 
 #include <Core/OSDef.hpp>
 #include <Math/Vector.hpp>
-#include <Graphics/Vertex.hpp>
-#include <Graphics/BufferBase.hpp>
-#include <Graphics/Shader.hpp>
 #include <Memory/RefPtr.h>
 #include <Physics/Colliders.hpp>
 #include <vector>
 
 namespace Sleak {
+
+struct Vertex;
+namespace RenderEngine { class BufferBase; class Shader; }
 
 class Camera;
 
@@ -38,7 +38,7 @@ public:
     static void Flush(Camera* camera);
 
 private:
-    static std::vector<Vertex> s_vertices;
+    static std::vector<Vertex>* s_vertices;
     static RefPtr<RenderEngine::BufferBase> s_vertexBuffer;
     static RefPtr<RenderEngine::Shader> s_shader;
     static RefPtr<RenderEngine::BufferBase> s_constantBuffer;
