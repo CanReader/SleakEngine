@@ -108,10 +108,11 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
 
         m_velocity = m_velocity + inputDir * accel * deltaTime;
 
-        // Clamp to max walk speed
+        // Clamp to current max speed (walk or sprint)
+        float currentMaxSpeed = m_sprinting ? m_maxWalkSpeed * m_sprintMultiplier : m_maxWalkSpeed;
         float newSpeed = m_velocity.Magnitude();
-        if (newSpeed > m_maxWalkSpeed) {
-            m_velocity = m_velocity * (m_maxWalkSpeed / newSpeed);
+        if (newSpeed > currentMaxSpeed) {
+            m_velocity = m_velocity * (currentMaxSpeed / newSpeed);
         }
     } else {
         // Braking: decelerate to stop
@@ -174,6 +175,10 @@ void FirstPersonController::OnKeyPressed(const Events::Input::KeyPressedEvent& e
                 translationInput.SetY(1.0f);
             }
             break;
+        case Input::KEY_CODE::KEY__LSHIFT:
+        case Input::KEY_CODE::KEY__RSHIFT:
+            m_sprinting = true;
+            break;
         default: break;
     }
 }
@@ -186,6 +191,10 @@ void FirstPersonController::OnKeyReleased(const Events::Input::KeyReleasedEvent&
         case Input::KEY_CODE::KEY__S: translationInput.SetZ(0.0f); break;
         case Input::KEY_CODE::KEY__A:
         case Input::KEY_CODE::KEY__D: translationInput.SetX(0.0f); break;
+        case Input::KEY_CODE::KEY__LSHIFT:
+        case Input::KEY_CODE::KEY__RSHIFT:
+            m_sprinting = false;
+            break;
         default: break;
     }
 }

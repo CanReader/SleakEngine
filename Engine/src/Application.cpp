@@ -90,6 +90,10 @@ namespace Sleak {
     }
 
     Application::~Application() {
+        // Wait for GPU to finish before destroying any resources
+        if (renderer)
+            renderer->Cleanup();
+
         // Game must be deleted first — scene cleanup destroys objects
         // whose components hold render resources (buffers, etc.)
         delete Game;

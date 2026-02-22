@@ -3,6 +3,7 @@
 
 #include <Utility/Exception.hpp>
 #include <Core/GameObject.hpp>
+#include <Camera/ViewFrustum.hpp>
 #include <Math/Matrix.hpp>
 #include <Math/Vector.hpp>
 
@@ -62,6 +63,10 @@ namespace Sleak {
             return Camera::MainPosition;
         }
 
+        static const ViewFrustum& GetMainViewFrustum() {
+            return Camera::s_frustum;
+        }
+
     protected:
         void RecalculateViewMatrix();
         void RecalculateProjectionMatrix();
@@ -81,6 +86,7 @@ namespace Sleak {
         static Math::Matrix4 View;
         static Math::Matrix4 Projection;
         static Math::Vector3D MainPosition;
+        static ViewFrustum s_frustum;
     };
 }
 

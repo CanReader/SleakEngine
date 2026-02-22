@@ -22,8 +22,13 @@ namespace Sleak {
 
         void SetMaxWalkSpeed(float speed) { m_maxWalkSpeed = speed; }
         float GetMaxWalkSpeed() const { return m_maxWalkSpeed; }
+        void SetSprintSpeedMultiplier(float mult) { m_sprintMultiplier = mult; }
+        float GetSprintSpeedMultiplier() const { return m_sprintMultiplier; }
         void SetJumpZVelocity(float vel) { m_jumpZVelocity = vel; }
         float GetJumpZVelocity() const { return m_jumpZVelocity; }
+        void SetMaxAcceleration(float accel) { m_maxAcceleration = accel; }
+        void SetBrakingDeceleration(float decel) { m_brakingDeceleration = decel; }
+        void SetGroundFriction(float friction) { m_groundFriction = friction; }
 
         float GetPitch() const { return m_pitch; }
         float GetYaw() const { return m_yaw; }
@@ -37,6 +42,8 @@ namespace Sleak {
 
         // UE-style movement parameters — tuned slower for a calmer pace
         float m_maxWalkSpeed = 2.5f;             // Casual walking pace
+        float m_sprintMultiplier = 2.0f;         // Sprint speed = walk * multiplier
+        bool m_sprinting = false;
         float m_maxAcceleration = 10.0f;         // Gentle ramp-up (~0.25s to full speed)
         float m_brakingDeceleration = 12.0f;     // Smooth stop
         float m_groundFriction = 8.0f;           // UE default

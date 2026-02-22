@@ -207,6 +207,7 @@ private:
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> imagesInFlight;
     VulkanShader* simpleShader = nullptr;
     VkClearValue clearColor;
 

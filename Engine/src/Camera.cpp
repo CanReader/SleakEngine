@@ -8,6 +8,7 @@ namespace Sleak {
     Math::Matrix4 Camera::View = Math::Matrix4::Identity();
     Math::Matrix4 Camera::Projection = Math::Matrix4::Identity();
     Math::Vector3D Camera::MainPosition = Math::Vector3D(0, 0, 0);
+    ViewFrustum Camera::s_frustum;
 
     Camera::Camera(std::string Name, Math::Vector3D Position, float Fov, float Near, float Far) : GameObject(Name) {
         this->Position = Position;
@@ -53,6 +54,10 @@ namespace Sleak {
         View = Matrix4::LookAt(Position.BaseVector(),   // Position
                                LookTarget.BaseVector(), // Target
                                Up.BaseVector());        // Up
+
+        // Update view frustum from VP = View * Projection (row-vector convention)
+        Math::Matrix4 VP = View * Projection;
+        s_frustum.ExtractFromVP(VP);
     }
 
     void Camera::RecalculateProjectionMatrix() {

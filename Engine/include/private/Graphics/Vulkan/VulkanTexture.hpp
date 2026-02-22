@@ -39,6 +39,7 @@ public:
 
 private:
     void Cleanup();
+    void UpdateDescriptorSets();
 
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);

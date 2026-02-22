@@ -149,9 +149,8 @@ void VulkanRenderer::BeginRender() {
     VkResult result;
 
     if (device && !inFlightFences.empty()) {
-        result = vkWaitForFences(device, 1, &inFlightFences[currentFrame],
-                                 VK_TRUE, UINT64_MAX);
-        result = vkResetFences(device, 1, &inFlightFences[currentFrame]);
+        vkWaitForFences(device, 1, &inFlightFences[currentFrame],
+                        VK_TRUE, UINT64_MAX);
     }
 
     // Acquire the next image from the swapchain
@@ -165,6 +164,17 @@ void VulkanRenderer::BeginRender() {
         SLEAK_ERROR("Failed to acquire swapchain image!");
         return;
     }
+
+    // Wait if this swapchain image is still in use by a previous frame
+    if (CurrentFrameIndex < imagesInFlight.size() &&
+        imagesInFlight[CurrentFrameIndex] != VK_NULL_HANDLE) {
+        vkWaitForFences(device, 1, &imagesInFlight[CurrentFrameIndex],
+                        VK_TRUE, UINT64_MAX);
+    }
+    imagesInFlight[CurrentFrameIndex] = inFlightFences[currentFrame];
+
+    // Reset the fence only after all waits are done
+    vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
     // Select the command buffer for this frame-in-flight
     command = commandBuffers[currentFrame];
@@ -370,11 +380,15 @@ void VulkanRenderer::EndRender() {
 void VulkanRenderer::Draw(uint32_t vertexCount) {
     if (!bFrameStarted) return;
     vkCmdDraw(command, vertexCount, 1, 0, 0);
+    DrawnVertices += vertexCount;
+    DrawnTriangles += vertexCount / 3;
 }
 
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
     if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
+    DrawnVertices += indexCount;
+    DrawnTriangles += indexCount / 3;
 }
 
 void VulkanRenderer::DrawInstance(uint32_t instanceCount,
@@ -1766,7 +1780,7 @@ bool VulkanRenderer::CreateDescriptorPool() {
         static_cast<uint32_t>(swapChainImages.size());
 
     // Allow up to 128 textures, each needing imageCount descriptor sets
-    static constexpr uint32_t MAX_TEXTURES = 128;
+    static constexpr uint32_t MAX_TEXTURES = 1024;
     uint32_t totalSets = imageCount * MAX_TEXTURES;
 
     VkDescriptorPoolSize poolSize{};
@@ -2254,6 +2268,7 @@ bool VulkanRenderer::CreateSyncObjects() {
     imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     renderFinishedSemaphores.resize(swapChainImages.size());
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+    imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
