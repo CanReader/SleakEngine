@@ -3,12 +3,10 @@
 
 namespace Sleak {
 
-    // Shared material constructor (copies RefPtr, shares ownership)
     MaterialComponent::MaterialComponent(
         GameObject* object, const RefPtr<Material>& material)
         : Component(object), m_material(material) {}
 
-    // Raw pointer constructor (takes sole ownership)
     MaterialComponent::MaterialComponent(GameObject* object,
                                          Material* material)
         : Component(object) {
@@ -18,7 +16,6 @@ namespace Sleak {
             m_material = RefPtr<Material>(new Material());
     }
 
-    // Color constructor (creates a new material with diffuse color)
     MaterialComponent::MaterialComponent(GameObject* object,
                                          Math::Color diffuseColor)
         : Component(object) {
@@ -27,8 +24,6 @@ namespace Sleak {
         m_material = RefPtr<Material>(mat);
     }
 
-    // Texture path constructor (creates a new material with diffuse
-    // texture)
     MaterialComponent::MaterialComponent(
         GameObject* object, const std::string& diffuseTexture)
         : Component(object) {
@@ -56,8 +51,6 @@ namespace Sleak {
 
     void MaterialComponent::OnDisable() { m_enabled = false; }
 
-    // --- Material access ---
-
     void MaterialComponent::SetMaterial(
         const RefPtr<Material>& material) {
         m_material = material;
@@ -84,8 +77,6 @@ namespace Sleak {
     Material* MaterialComponent::GetMaterialRaw() const {
         return m_material.IsValid() ? m_material.get() : nullptr;
     }
-
-    // --- Convenience shortcuts ---
 
     void MaterialComponent::SetDiffuseColor(Math::Color color) {
         if (m_material)

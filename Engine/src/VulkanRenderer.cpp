@@ -191,7 +191,6 @@ void VulkanRenderer::BeginRender() {
         return;
     }
 
-    // --- Shadow pass (before main render pass) ---
     if (m_shadowResourcesCreated) {
         VkClearValue shadowClear{};
         shadowClear.depthStencil = {1.0f, 0};
@@ -372,10 +371,6 @@ void VulkanRenderer::EndRender() {
 
     UpdateFrameMetrics();
 }
-
-// -----------------------------------------------------------------------
-// RenderContext Implementation
-// -----------------------------------------------------------------------
 
 void VulkanRenderer::Draw(uint32_t vertexCount) {
     if (!bFrameStarted) return;
@@ -696,10 +691,6 @@ void VulkanRenderer::EndSkyboxPass() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Command Buffer
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateCommandBuffer() {
     commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
@@ -715,10 +706,6 @@ bool VulkanRenderer::CreateCommandBuffer() {
 
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Cleanup
-// -----------------------------------------------------------------------
 
 void VulkanRenderer::Cleanup() {
     SLEAK_INFO("Cleaning Vulkan...");
@@ -915,10 +902,6 @@ void VulkanRenderer::Resize(uint32_t width, uint32_t height) {
     }
 }
 
-// -----------------------------------------------------------------------
-// Vulkan Instance
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::InitVulkan() {
     try {
         instance = VK_NULL_HANDLE;
@@ -1018,10 +1001,6 @@ bool VulkanRenderer::InitVulkan() {
         return false;
     }
 }
-
-// -----------------------------------------------------------------------
-// Device
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateDevice() {
     // Enumerate physical devices
@@ -1199,10 +1178,6 @@ VulkanRenderer::GetUniqueQueueCreateInfos() {
     return result;
 }
 
-// -----------------------------------------------------------------------
-// Debug
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::SetupDebugMessenger() {
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     PopulateDebugMessengerCreateInfo(createInfo);
@@ -1230,10 +1205,6 @@ bool VulkanRenderer::SetupDebugMessenger() {
     return true;
 }
 
-// -----------------------------------------------------------------------
-// Surface
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateSurface() {
     SDL_Vulkan_LoadLibrary(NULL);
     bool result = SDL_Vulkan_CreateSurface(sdlWindow->GetSDLWindow(),
@@ -1247,10 +1218,6 @@ bool VulkanRenderer::CreateSurface() {
 
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Swap Chain
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateSwapChain() {
     auto details = QuerySwapchain();
@@ -1361,10 +1328,6 @@ void VulkanRenderer::CleanupSwapChain() {
         swapChain = VK_NULL_HANDLE;
     }
 }
-
-// -----------------------------------------------------------------------
-// MSAA Color Resources
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateMSAAColorResources() {
     if (m_msaaSamples == VK_SAMPLE_COUNT_1_BIT)
@@ -1548,10 +1511,6 @@ void VulkanRenderer::ConfigureRenderFace() {
     // Pipeline recreation needed for Vulkan cull mode changes
 }
 
-// -----------------------------------------------------------------------
-// Image Views
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateImageViews() {
     swapChainImageViews.resize(swapChainImages.size());
 
@@ -1582,10 +1541,6 @@ bool VulkanRenderer::CreateImageViews() {
 
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Depth Resources
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateDepthResources() {
     depthFormat = FindDepthFormat();
@@ -1695,10 +1650,6 @@ uint32_t VulkanRenderer::FindMemoryType(
     SLEAK_ERROR("Failed to find suitable memory type!");
     return 0;
 }
-
-// -----------------------------------------------------------------------
-// Descriptor Sets
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateDescriptorSetLayout() {
     // Set 0: texture sampler
@@ -1906,10 +1857,6 @@ void VulkanRenderer::WriteTextureDescriptors(VulkanTexture* texture) {
     texture->SetDescriptorSets(std::move(sets));
 }
 
-// -----------------------------------------------------------------------
-// Graphics Pipeline
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateGraphicsPipeline() {
     VkResult result;
 
@@ -2111,10 +2058,6 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     return true;
 }
 
-// -----------------------------------------------------------------------
-// Render Pass
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateRenderPass() {
     const bool msaaEnabled = (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT);
 
@@ -2212,10 +2155,6 @@ bool VulkanRenderer::CreateRenderPass() {
     return true;
 }
 
-// -----------------------------------------------------------------------
-// Frame Buffer
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateFrameBuffer() {
     swapChainFramebuffers.resize(swapChainImageViews.size());
     const bool msaaEnabled = (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT);
@@ -2246,10 +2185,6 @@ bool VulkanRenderer::CreateFrameBuffer() {
     }
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Command Pool + Sync
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateCommandPool() {
     VkCommandPoolCreateInfo poolInfo{};
@@ -2295,10 +2230,6 @@ bool VulkanRenderer::CreateSyncObjects() {
 
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Swapchain Queries
-// -----------------------------------------------------------------------
 
 std::optional<SwapchainDetails> VulkanRenderer::QuerySwapchain() {
     SwapchainDetails details;
@@ -2384,10 +2315,6 @@ VkExtent2D VulkanRenderer::ChooseExtend(SwapchainDetails details) {
 
     return actualExtent;
 }
-
-// -----------------------------------------------------------------------
-// Debug Messenger
-// -----------------------------------------------------------------------
 
 void VulkanRenderer::PopulateDebugMessengerCreateInfo(
     VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
@@ -2477,10 +2404,6 @@ bool VulkanRenderer::CreateImGUI() {
     bImInitialized = true;
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Skybox Pipeline
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateSkyboxPipeline() {
     // 1. Compile skybox shaders
@@ -2676,10 +2599,6 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     return true;
 }
 
-// -----------------------------------------------------------------------
-// Debug Line Pipeline
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateDebugLinePipeline() {
     if (debugLinePipeline != VK_NULL_HANDLE) return true;
 
@@ -2829,10 +2748,6 @@ void VulkanRenderer::EndDebugLinePass() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Bone UBO Resources (for skeletal animation)
-// -----------------------------------------------------------------------
-
 bool VulkanRenderer::CreateBoneUBOResources() {
     if (m_boneUBOCreated) return true;
 
@@ -2956,10 +2871,6 @@ void VulkanRenderer::CleanupBoneUBOResources() {
     }
     m_boneUBOCreated = false;
 }
-
-// -----------------------------------------------------------------------
-// Skinned Pipeline (for skeletal animation)
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateSkinnedPipeline() {
     // 1. Compile skinned shaders
@@ -3168,10 +3079,6 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
                             &boneDescriptorSets[currentFrame],
                             0, nullptr);
 }
-
-// -----------------------------------------------------------------------
-// Shadow Mapping Resources
-// -----------------------------------------------------------------------
 
 bool VulkanRenderer::CreateShadowResources() {
     // 1. Create shadow depth image (2048x2048, D32_SFLOAT)

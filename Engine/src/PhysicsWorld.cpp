@@ -39,7 +39,6 @@ void PhysicsWorld::UnregisterCollider(ColliderComponent* collider) {
 }
 
 void PhysicsWorld::Step(float dt) {
-    // Phase 1: Save grounded state, then clear collision flags
     // We need wasGrounded BEFORE clearing, so gravity doesn't apply while standing
     for (auto* collider : m_colliders) {
         if (auto* owner = collider->GetOwner()) {
@@ -53,7 +52,6 @@ void PhysicsWorld::Step(float dt) {
                 // Reset grounded — collision detection will re-set it if still touching ground
                 rb->SetGrounded(false);
 
-                // Phase 2: Gravity integration
                 if (rb->GetUseGravity()) {
                     Math::Vector3D vel = rb->GetVelocity();
 
@@ -79,7 +77,6 @@ void PhysicsWorld::Step(float dt) {
                     rb->SetVelocity(vel);
                 }
 
-                // Phase 3: Integrate velocity into position
                 Math::Vector3D vel = rb->GetVelocity();
                 Math::Vector3D delta = vel * dt;
 
@@ -93,7 +90,6 @@ void PhysicsWorld::Step(float dt) {
         }
     }
 
-    // Phase 4: Broadphase update and collision detection/resolution
     UpdateBroadphase();
     FindPairsAndResolve();
 }
@@ -176,8 +172,6 @@ void PhysicsWorld::FindPairsAndResolve() {
         });
     }
 }
-
-// --- Query API ---
 
 std::vector<CollisionPair> PhysicsWorld::OverlapSphere(const Vector3D& center, float radius, uint32_t layerMask) const {
     std::vector<CollisionPair> results;

@@ -22,8 +22,6 @@ namespace Sleak {
         // Build GPU data for the lighting constant buffer
         virtual RenderEngine::LightGPUEntry BuildGPUData() const = 0;
 
-        // --- Properties ---
-
         void SetColor(float r, float g, float b);
         void SetColor(const Math::Color& color);
         Math::Vector3D GetColor() const { return m_color; }

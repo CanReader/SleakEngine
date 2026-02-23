@@ -11,18 +11,14 @@
 
 namespace Sleak {
 
-    // --- Destructor ---
-
     GameObject::~GameObject() {
         DestroyComponents();
 
-        // Detach from parent
         if (m_parent) {
             m_parent->RemoveChild(this);
             m_parent = nullptr;
         }
 
-        // Detach children (don't delete — scene owns them)
         for (size_t i = 0; i < m_children.GetSize(); ++i) {
             if (m_children[i]) {
                 m_children[i]->m_parent = nullptr;
@@ -30,8 +26,6 @@ namespace Sleak {
         }
         m_children.clear();
     }
-
-    // --- Lifecycle ---
 
     void GameObject::Initialize() {
         for (size_t i = 0; i < Components.GetSize(); ++i) {
@@ -49,7 +43,6 @@ namespace Sleak {
                 Components[i]->Update(deltaTime);
         }
 
-        // Recursively update children
         for (size_t i = 0; i < m_children.GetSize(); ++i) {
             if (m_children[i] && m_children[i]->IsActive())
                 m_children[i]->Update(deltaTime);
@@ -88,7 +81,6 @@ namespace Sleak {
         if (m_isActive == active) return;
         m_isActive = active;
 
-        // Notify components
         for (size_t i = 0; i < Components.GetSize(); ++i) {
             if (Components[i]) {
                 if (active)
@@ -98,28 +90,22 @@ namespace Sleak {
             }
         }
 
-        // Propagate to children
         for (size_t i = 0; i < m_children.GetSize(); ++i) {
             if (m_children[i])
                 m_children[i]->SetActive(active);
         }
     }
 
-    // --- Parent-child hierarchy ---
-
     void GameObject::SetParent(GameObject* parent) {
         if (m_parent == parent) return;
 
-        // Remove from old parent's children list
         if (m_parent) {
             m_parent->RemoveChild(this);
         }
 
         m_parent = parent;
 
-        // Add to new parent's children list
         if (m_parent) {
-            // Avoid duplicate adds
             if (m_parent->m_children.indexOf(this) == -1) {
                 m_parent->m_children.add(this);
             }
@@ -140,8 +126,6 @@ namespace Sleak {
         }
     }
 
-    // --- Internal ---
-
     void GameObject::DestroyComponents() {
         for (size_t i = 0; i < Components.GetSize(); ++i) {
             if (Components[i])
@@ -149,8 +133,6 @@ namespace Sleak {
         }
         Components.clear();
     }
-
-    // --- Factory methods ---
 
     static Material* CreateDefaultMaterial() {
         auto* mat = new Material();

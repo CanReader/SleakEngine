@@ -9,8 +9,6 @@ namespace Sleak {
 
     Material::~Material() = default;
 
-    // --- Initialization & Binding ---
-
     void Material::Initialize() {
         if (!m_materialBuffer) {
             m_materialBuffer = ObjectPtr<RenderEngine::BufferBase>(
@@ -27,7 +25,6 @@ namespace Sleak {
             m_shader->bind();
         }
 
-        // Bind textures to their respective slots
         if (m_diffuseTexture)
             m_diffuseTexture->Bind(TEXTURE_SLOT_DIFFUSE);
         if (m_normalTexture)
@@ -43,7 +40,6 @@ namespace Sleak {
         if (m_emissiveTexture)
             m_emissiveTexture->Bind(TEXTURE_SLOT_EMISSIVE);
 
-        // Update material constant buffer with all properties
         if (m_materialBuffer) {
             RenderEngine::MaterialGPUData data = BuildGPUData();
             m_materialBuffer->Update(&data, sizeof(data));
@@ -54,7 +50,6 @@ namespace Sleak {
     RenderEngine::MaterialGPUData Material::BuildGPUData() const {
         RenderEngine::MaterialGPUData data = {};
 
-        // Texture presence flags
         data.HasDiffuseMap   = m_diffuseTexture.IsValid()   ? 1u : 0u;
         data.HasNormalMap    = m_normalTexture.IsValid()     ? 1u : 0u;
         data.HasSpecularMap  = m_specularTexture.IsValid()   ? 1u : 0u;
@@ -64,7 +59,6 @@ namespace Sleak {
         data.HasEmissiveMap  = m_emissiveTexture.IsValid()   ? 1u : 0u;
         data._pad0 = 0;
 
-        // Convert Color (0-255) to normalized float (0-1) for GPU
         Math::Vector4D diffNorm = m_diffuseColor.normalize();
         data.DiffuseR = diffNorm.GetX();
         data.DiffuseG = diffNorm.GetY();
@@ -83,19 +77,16 @@ namespace Sleak {
         data.EmissiveB = emitNorm.GetZ();
         data.EmissiveIntensity = m_emissiveIntensity;
 
-        // PBR factors
         data.Metallic        = m_metallic;
         data.Roughness       = m_roughness;
         data.AO              = m_ao;
         data.NormalIntensity  = m_normalIntensity;
 
-        // UV transform
         data.TilingX = m_tilingX;
         data.TilingY = m_tilingY;
         data.OffsetX = m_offsetX;
         data.OffsetY = m_offsetY;
 
-        // Alpha
         data.Opacity     = m_opacity;
         data.AlphaCutoff = m_alphaCutoff;
         data._pad1 = 0.0f;
@@ -103,8 +94,6 @@ namespace Sleak {
 
         return data;
     }
-
-    // --- Shader ---
 
     void Material::SetShader(RenderEngine::Shader* shader) {
         m_shader = ObjectPtr<RenderEngine::Shader>(shader);
@@ -120,8 +109,6 @@ namespace Sleak {
     RenderEngine::Shader* Material::GetShader() const {
         return m_shader.IsValid() ? m_shader.operator->() : nullptr;
     }
-
-    // --- Diffuse Texture ---
 
     void Material::SetDiffuseTexture(Texture* texture) {
         m_diffuseTexture = ObjectPtr<Texture>(texture);
@@ -141,8 +128,6 @@ namespace Sleak {
         return m_diffuseTexture.IsValid();
     }
 
-    // --- Normal Texture ---
-
     void Material::SetNormalTexture(Texture* texture) {
         m_normalTexture = ObjectPtr<Texture>(texture);
     }
@@ -161,8 +146,6 @@ namespace Sleak {
         return m_normalTexture.IsValid();
     }
 
-    // --- Specular Texture ---
-
     void Material::SetSpecularTexture(Texture* texture) {
         m_specularTexture = ObjectPtr<Texture>(texture);
     }
@@ -180,8 +163,6 @@ namespace Sleak {
     bool Material::HasSpecularTexture() const {
         return m_specularTexture.IsValid();
     }
-
-    // --- Roughness Texture ---
 
     void Material::SetRoughnessTexture(Texture* texture) {
         m_roughnessTexture = ObjectPtr<Texture>(texture);
@@ -202,8 +183,6 @@ namespace Sleak {
         return m_roughnessTexture.IsValid();
     }
 
-    // --- Metallic Texture ---
-
     void Material::SetMetallicTexture(Texture* texture) {
         m_metallicTexture = ObjectPtr<Texture>(texture);
     }
@@ -223,8 +202,6 @@ namespace Sleak {
         return m_metallicTexture.IsValid();
     }
 
-    // --- AO Texture ---
-
     void Material::SetAOTexture(Texture* texture) {
         m_aoTexture = ObjectPtr<Texture>(texture);
     }
@@ -241,8 +218,6 @@ namespace Sleak {
     bool Material::HasAOTexture() const {
         return m_aoTexture.IsValid();
     }
-
-    // --- Emissive Texture ---
 
     void Material::SetEmissiveTexture(Texture* texture) {
         m_emissiveTexture = ObjectPtr<Texture>(texture);
@@ -262,8 +237,6 @@ namespace Sleak {
     bool Material::HasEmissiveTexture() const {
         return m_emissiveTexture.IsValid();
     }
-
-    // --- Color Properties ---
 
     void Material::SetDiffuseColor(Math::Color color) {
         m_diffuseColor = color;
@@ -316,8 +289,6 @@ namespace Sleak {
         return m_emissiveColor;
     }
 
-    // --- Scalar Properties ---
-
     void Material::SetShininess(float shininess) {
         m_shininess = shininess;
     }
@@ -364,8 +335,6 @@ namespace Sleak {
 
     float Material::GetAlphaCutoff() const { return m_alphaCutoff; }
 
-    // --- UV Transform ---
-
     void Material::SetTiling(float x, float y) {
         m_tilingX = x;
         m_tilingY = y;
@@ -393,8 +362,6 @@ namespace Sleak {
     Math::Vector2D Material::GetOffset() const {
         return Math::Vector2D(m_offsetX, m_offsetY);
     }
-
-    // --- Rendering Mode ---
 
     void Material::SetRenderMode(MaterialRenderMode mode) {
         m_renderMode = mode;

@@ -167,10 +167,6 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     }
 }
 
-// -----------------------------------------------------------------------
-// RenderContext Implementation
-// -----------------------------------------------------------------------
-
 void OpenGLRenderer::Draw(uint32_t vertexCount) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArrays(mode, 0, vertexCount);
@@ -380,10 +376,6 @@ Texture* OpenGLRenderer::CreateTextureFromData(uint32_t width,
     delete texture;
     return nullptr;
 }
-
-// -----------------------------------------------------------------------
-// MSAA FBO
-// -----------------------------------------------------------------------
 
 void OpenGLRenderer::CreateMSAAFramebuffer() {
     if (m_msaaSampleCount <= 1)

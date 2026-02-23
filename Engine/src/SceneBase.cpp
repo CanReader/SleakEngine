@@ -15,8 +15,6 @@
 
 namespace Sleak {
 
-// --- Physics helpers (needed early for Initialize) ---
-
 static void RegisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* world) {
     if (!obj || !world) return;
     auto* collider = obj->GetComponent<ColliderComponent>();
@@ -39,8 +37,6 @@ static void UnregisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld*
     }
 }
 
-// --- Destructor ---
-
 SceneBase::~SceneBase() {
     DestroyAllObjects();
     delete m_lightManager;
@@ -50,8 +46,6 @@ SceneBase::~SceneBase() {
     delete m_skybox;
     m_skybox = nullptr;
 }
-
-// --- State transitions ---
 
 void SceneBase::Load() {
     if (state != SceneState::Unloaded) return;
@@ -105,8 +99,6 @@ void SceneBase::Resume() {
     bActive = true;
 }
 
-// --- Initialization ---
-
 bool SceneBase::Initialize() {
     if (bInitialized) return true;
 
@@ -146,34 +138,27 @@ void SceneBase::Begin() {
     }
 }
 
-// --- Update loops ---
-
 void SceneBase::Update(float deltaTime) {
     if (!bActive) return;
 
-    // Update lighting constant buffer before rendering
     if (m_lightManager)
         m_lightManager->UpdateAndBind();
 
-    // Only update root objects — children update recursively
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
         if (Objects[i] && Objects[i]->IsActive() && !Objects[i]->HasParent()) {
             Objects[i]->Update(deltaTime);
         }
     }
 
-    // Render skybox after scene objects (depth testing ensures it appears behind)
     if (m_skybox)
         m_skybox->Render();
 
     if (DebugCamera)
         DebugCamera->Update(deltaTime);
 
-    // Resolve collisions after all movement is done
     if (m_physicsWorld)
         m_physicsWorld->Step(deltaTime);
 
-    // Debug line rendering for colliders
     if (DebugLineRenderer::IsEnabled()) {
         auto drawColliderShape = [](ColliderComponent* collider, const Math::Vector3D& worldPos, const Math::Vector3D& worldScale) {
             const auto& shape = collider->GetShape();
@@ -213,7 +198,6 @@ void SceneBase::Update(float deltaTime) {
             drawColliderShape(collider, pos, scale);
         }
 
-        // Also draw debug camera collider
         if (DebugCamera.IsValid()) {
             auto* collider = DebugCamera->GetComponent<ColliderComponent>();
             if (collider) {
@@ -224,10 +208,8 @@ void SceneBase::Update(float deltaTime) {
 
     }
 
-    // Flush debug lines (always runs — game code may queue lines independently of collider debug)
     DebugLineRenderer::Flush(DebugCamera.IsValid() ? DebugCamera.get() : nullptr);
 
-    // Process deferred destruction at end of frame
     ProcessPendingDestroy();
 }
 
@@ -251,26 +233,21 @@ void SceneBase::LateUpdate(float deltaTime) {
     }
 }
 
-// --- Object management ---
-
 void SceneBase::AddObject(GameObject* object) {
     if (!object) return;
     if (Objects.indexOf(object) != -1) return; // already in scene
 
     Objects.add(object);
 
-    // Auto-register lights with the LightManager
     if (m_lightManager && object->IsLight()) {
         m_lightManager->RegisterLight(
             static_cast<Light*>(object));
     }
 
-    // Auto-register colliders with the PhysicsWorld
     if (m_physicsWorld) {
         RegisterCollidersRecursive(object, m_physicsWorld);
     }
 
-    // If scene is already initialized, initialize the new object
     if (bInitialized && !object->IsActive()) {
         object->Initialize();
         if (bActive) object->SetActive(true);
@@ -300,7 +277,6 @@ void SceneBase::DestroyObject(GameObject* object) {
     object->MarkForDestroy();
     m_pendingDestroy.add(object);
 
-    // Mark children for destruction too
     const auto& children = object->GetChildren();
     for (size_t i = 0; i < children.GetSize(); ++i) {
         if (children[i] && !children[i]->IsPendingDestroy()) {
@@ -308,8 +284,6 @@ void SceneBase::DestroyObject(GameObject* object) {
         }
     }
 }
-
-// --- Object queries ---
 
 GameObject* SceneBase::FindObjectByName(const std::string& objectName) {
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
@@ -339,8 +313,6 @@ List<GameObject*> SceneBase::FindObjectsByTag(const std::string& tag) {
     return result;
 }
 
-// --- Internal ---
-
 void SceneBase::ProcessPendingDestroy() {
     if (m_pendingDestroy.empty()) return;
 
@@ -348,18 +320,15 @@ void SceneBase::ProcessPendingDestroy() {
         GameObject* obj = m_pendingDestroy[i];
         if (!obj) continue;
 
-        // Unregister lights
         if (m_lightManager && obj->IsLight()) {
             m_lightManager->UnregisterLight(
                 static_cast<Light*>(obj));
         }
 
-        // Unregister colliders
         if (m_physicsWorld) {
             UnregisterCollidersRecursive(obj, m_physicsWorld);
         }
 
-        // Remove from the main objects list
         int index = Objects.indexOf(obj);
         if (index != -1) {
             Objects.erase(index);

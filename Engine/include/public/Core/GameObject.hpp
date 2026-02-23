@@ -19,8 +19,6 @@ namespace Sleak {
 
         ~GameObject() override;
 
-        // --- Component management ---
-
         template<typename T, typename... Args>
         void AddComponent(Args&&... args) {
             static_assert(std::is_base_of<Component, T>::value, "T must derive from Component!");
@@ -72,8 +70,6 @@ namespace Sleak {
             return GetComponent<T>() != nullptr;
         }
 
-        // --- Lifecycle ---
-
         virtual void Initialize();
         virtual void Update(float deltaTime);
         virtual void FixedUpdate(float fixedDeltaTime);
@@ -82,12 +78,8 @@ namespace Sleak {
         void SetActive(bool active);
         bool IsActive() const { return m_isActive; }
 
-        // --- Tag system ---
-
         void SetTag(const std::string& tag) { m_tag = tag; }
         const std::string& GetTag() const { return m_tag; }
-
-        // --- Parent-child hierarchy ---
 
         void SetParent(GameObject* parent);
         GameObject* GetParent() const { return m_parent; }
@@ -97,16 +89,10 @@ namespace Sleak {
         bool HasParent() const { return m_parent != nullptr; }
         bool HasChildren() const { return m_children.GetSize() > 0; }
 
-        // --- Type queries ---
-
         virtual bool IsLight() const { return false; }
-
-        // --- Deferred destruction ---
 
         void MarkForDestroy() { m_pendingDestroy = true; }
         bool IsPendingDestroy() const { return m_pendingDestroy; }
-
-        // --- Factory methods ---
 
         static GameObject* CreatePlane(Math::Vector3D position, int width = 100, int height = 100);
         static GameObject* CreateCube(Math::Vector3D position);

@@ -81,10 +81,6 @@ layout(binding = 4) uniform sampler2D metallicTexture;
 layout(binding = 5) uniform sampler2D aoTexture;
 layout(binding = 6) uniform sampler2D emissiveTexture;
 
-// ============================================================
-// PBR Helper Functions
-// ============================================================
-
 const float PI = 3.14159265359;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -133,17 +129,14 @@ void main() {
     // Apply UV tiling and offset
     vec2 uv = fragUV * matTiling + matOffset;
 
-    // --- Base Color ---
     vec4 baseColor = matDiffuseColor * fragColor;
     if (HasDiffuseMap != 0u)
         baseColor *= texture(diffuseTexture, uv);
 
-    // --- Alpha Cutoff ---
     float alpha = baseColor.a * matOpacity;
     if (matAlphaCutoff > 0.0 && alpha < matAlphaCutoff)
         discard;
 
-    // --- Normal ---
     vec3 N = normalize(fragWorldNorm);
     if (HasNormalMap != 0u) {
         vec3 tangentNormal =
@@ -157,7 +150,6 @@ void main() {
         N = normalize(TBN * tangentNormal);
     }
 
-    // --- Material Properties ---
     float roughness = matRoughness;
     if (HasRoughnessMap != 0u)
         roughness *= texture(roughnessTexture, uv).r;
@@ -171,14 +163,12 @@ void main() {
     if (HasAOMap != 0u)
         ao *= texture(aoTexture, uv).r;
 
-    // --- PBR Setup ---
     vec3 albedo = baseColor.rgb;
     vec3 V = normalize(CameraPos - fragWorldPos);
 
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo, metallic);
 
-    // --- Accumulate Light Contributions ---
     vec3 Lo = vec3(0.0);
 
     for (uint i = 0u; i < NumActiveLights; i++) {
@@ -242,16 +232,13 @@ void main() {
         }
     }
 
-    // --- Ambient ---
     vec3 ambient = AmbientColor * AmbientIntensity
                  * albedo * ao;
 
-    // --- Emissive ---
     vec3 emissive = matEmissiveColor * matEmissiveIntensity;
     if (HasEmissiveMap != 0u)
         emissive *= texture(emissiveTexture, uv).rgb;
 
-    // --- Final Composition ---
     vec3 finalColor = ambient + Lo + emissive;
 
     outColor = vec4(finalColor, alpha);

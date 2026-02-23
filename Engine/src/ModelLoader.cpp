@@ -35,9 +35,6 @@ static void InitializeRecursive(GameObject* obj) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ConvertMatrix — Assimp aiMatrix4x4 to engine Matrix4
-// ---------------------------------------------------------------------------
 Math::Matrix4 ModelLoader::ConvertMatrix(const void* aiMatPtr) {
     const auto& m = *static_cast<const aiMatrix4x4*>(
         static_cast<const void*>(aiMatPtr));
@@ -52,9 +49,6 @@ Math::Matrix4 ModelLoader::ConvertMatrix(const void* aiMatPtr) {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// Load
-// ---------------------------------------------------------------------------
 GameObject* ModelLoader::Load(const std::string& filePath,
                               const ModelLoadOptions& options) {
     Assimp::Importer importer;
@@ -117,9 +111,6 @@ GameObject* ModelLoader::Load(const std::string& filePath,
     return root;
 }
 
-// ---------------------------------------------------------------------------
-// ExtractSkeleton
-// ---------------------------------------------------------------------------
 Skeleton* ModelLoader::ExtractSkeleton(const aiScene* scene) {
     auto* skeleton = new Skeleton();
 
@@ -155,9 +146,6 @@ Skeleton* ModelLoader::ExtractSkeleton(const aiScene* scene) {
     return skeleton;
 }
 
-// ---------------------------------------------------------------------------
-// BuildNodeTree — store the full scene node hierarchy in the skeleton
-// ---------------------------------------------------------------------------
 int ModelLoader::BuildNodeTree(const aiNode* node, Skeleton* skeleton) {
     NodeData nodeData;
     nodeData.name = node->mName.C_Str();
@@ -174,9 +162,6 @@ int ModelLoader::BuildNodeTree(const aiNode* node, Skeleton* skeleton) {
     return nodeIdx;
 }
 
-// ---------------------------------------------------------------------------
-// BuildBoneHierarchy — walk scene nodes, set parent IDs for bones
-// ---------------------------------------------------------------------------
 void ModelLoader::BuildBoneHierarchy(const aiNode* node, Skeleton* skeleton,
                                      int parentId) {
     std::string nodeName = node->mName.C_Str();
@@ -194,9 +179,6 @@ void ModelLoader::BuildBoneHierarchy(const aiNode* node, Skeleton* skeleton,
     }
 }
 
-// ---------------------------------------------------------------------------
-// ExtractAnimations
-// ---------------------------------------------------------------------------
 std::vector<AnimationClip*> ModelLoader::ExtractAnimations(
     const aiScene* scene, Skeleton* skeleton) {
     std::vector<AnimationClip*> clips;
@@ -264,9 +246,6 @@ std::vector<AnimationClip*> ModelLoader::ExtractAnimations(
     return clips;
 }
 
-// ---------------------------------------------------------------------------
-// ProcessNode (static — with PreTransformVertices, same as before)
-// ---------------------------------------------------------------------------
 void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
                               GameObject* parent, const std::string& directory,
                               const ModelLoadOptions& options,
@@ -307,9 +286,6 @@ void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
     }
 }
 
-// ---------------------------------------------------------------------------
-// ProcessNodeAnimated (without PreTransformVertices)
-// ---------------------------------------------------------------------------
 void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
                                        GameObject* parent, const std::string& directory,
                                        const ModelLoadOptions& options,
@@ -362,9 +338,6 @@ void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
     }
 }
 
-// ---------------------------------------------------------------------------
-// ProcessMesh
-// ---------------------------------------------------------------------------
 MeshData ModelLoader::ProcessMesh(aiMesh* mesh, const ModelLoadOptions& options,
                                   Skeleton* skeleton) {
     MeshData data;
@@ -466,9 +439,6 @@ MeshData ModelLoader::ProcessMesh(aiMesh* mesh, const ModelLoadOptions& options,
     return data;
 }
 
-// ---------------------------------------------------------------------------
-// ProcessMaterial
-// ---------------------------------------------------------------------------
 RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
                                              const aiScene* scene,
                                              const std::string& directory,
@@ -478,7 +448,6 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     material->SetShader(skinned ? "assets/shaders/skinned_shader.hlsl"
                                 : "assets/shaders/default_shader.hlsl");
 
-    // --- Colors ---
     aiColor4D color;
     if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
         material->SetDiffuseColor(color.r, color.g, color.b, color.a);
@@ -493,7 +462,6 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
         material->SetEmissiveColor(color.r, color.g, color.b);
     }
 
-    // --- Scalars ---
     float val;
     if (mat->Get(AI_MATKEY_SHININESS, val) == AI_SUCCESS)
         material->SetShininess(val);
@@ -504,7 +472,6 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, val) == AI_SUCCESS)
         material->SetRoughness(val);
 
-    // --- Textures ---
     Texture* tex = nullptr;
 
     tex = LoadMaterialTexture(mat, aiTextureType_DIFFUSE, scene, directory, textureCache);
@@ -529,9 +496,6 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     return RefPtr<Material>(material);
 }
 
-// ---------------------------------------------------------------------------
-// LoadMaterialTexture
-// ---------------------------------------------------------------------------
 ::Sleak::Texture* ModelLoader::LoadMaterialTexture(aiMaterial* mat, int type,
                                                    const aiScene* scene,
                                                    const std::string& directory,
@@ -623,9 +587,6 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     return tex;
 }
 
-// ---------------------------------------------------------------------------
-// LoadAnimationsOnly — load animations from FBX, reuse existing skeleton
-// ---------------------------------------------------------------------------
 std::vector<AnimationClip*> ModelLoader::LoadAnimationsOnly(
     const std::string& filePath, Skeleton* skeleton) {
     std::vector<AnimationClip*> result;

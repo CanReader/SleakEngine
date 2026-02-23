@@ -57,8 +57,6 @@ namespace Sleak {
             m_globalInverseTransform = mat;
         }
 
-        // --- Full node tree ---
-
         int AddNode(const NodeData& node) {
             int idx = static_cast<int>(m_nodes.size());
             m_nodes.push_back(node);

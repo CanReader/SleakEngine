@@ -34,9 +34,6 @@ cbuffer TransformCB : register(b0) {
 Texture2D diffuseTexture : register(t0);
 SamplerState mainSampler : register(s0);
 
-// ============================================================
-// Vertex Shader
-// ============================================================
 VS_OUTPUT VS_Main(VS_INPUT input)
 {
     VS_OUTPUT output;
@@ -59,12 +56,8 @@ VS_OUTPUT VS_Main(VS_INPUT input)
     return output;
 }
 
-// ============================================================
-// Pixel Shader
-// ============================================================
 float4 PS_Main(VS_OUTPUT input) : SV_Target
 {
-    // Sample texture
     float4 texColor = diffuseTexture.Sample(mainSampler,
                                              input.TexCoord);
     float4 baseColor = texColor * input.Color;

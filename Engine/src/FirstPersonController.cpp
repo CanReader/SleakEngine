@@ -71,7 +71,6 @@ void FirstPersonController::UpdateInput(float deltaTime) {
 void FirstPersonController::UpdateCamera(float deltaTime) {
     if (!camera) return;
 
-    // --- Look direction ---
     Math::Quaternion yawRotation = Math::Quaternion(Math::Vector3D::Up(), m_yaw);
     Math::Quaternion pitchRotation = Math::Quaternion(Math::Vector3D::Right(), m_pitch);
     Math::Quaternion combinedRotation = yawRotation * pitchRotation;
@@ -87,7 +86,6 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
     }
     Math::Vector3D right = flatForward.Cross(Math::Vector3D::Up()).Normalized();
 
-    // --- Build input direction ---
     Math::Vector3D inputDir = right * translationInput.GetX() + flatForward * translationInput.GetZ();
     bool hasInput = inputDir.Magnitude() > 0.001f;
     if (hasInput) {
@@ -96,11 +94,9 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
 
     bool isGrounded = m_rigidbody && m_rigidbody->IsGrounded();
 
-    // --- UE-style acceleration/braking ---
     float speed = m_velocity.Magnitude();
 
     if (hasInput) {
-        // Acceleration: add velocity in input direction
         float accel = m_maxAcceleration;
         if (!isGrounded) {
             accel *= m_airControl; // Greatly reduced in air
@@ -115,14 +111,12 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
             m_velocity = m_velocity * (currentMaxSpeed / newSpeed);
         }
     } else {
-        // Braking: decelerate to stop
         if (speed > 0.01f) {
             // UE applies: braking = brakingDeceleration * groundFriction
             float braking = m_brakingDeceleration;
             if (isGrounded) {
                 braking *= m_groundFriction;
             }
-            // But cap so we don't overshoot zero
             float drop = braking * deltaTime;
             float newSpeed = speed - drop;
             if (newSpeed < 0.0f) newSpeed = 0.0f;
@@ -141,18 +135,14 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
         }
     }
 
-    // Apply horizontal movement
     camera->AddPosition(m_velocity * deltaTime);
 
-    // --- Jump ---
     if (m_rigidbody && isGrounded) {
-        // Check if jump was requested (translationInput.Y is set by Space key)
         if (translationInput.GetY() > 0.0f) {
             Math::Vector3D vel = m_rigidbody->GetVelocity();
             vel = Math::Vector3D(vel.GetX(), m_jumpZVelocity, vel.GetZ());
             m_rigidbody->SetVelocity(vel);
             m_rigidbody->SetGrounded(false);
-            // Consume the jump input
             translationInput.SetY(0.0f);
         }
     }

@@ -15,10 +15,6 @@
 namespace Sleak {
 namespace RenderEngine {
 
-// -----------------------------------------------------------------------
-// Constructor / Destructor
-// -----------------------------------------------------------------------
-
 DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (fenceEvent == nullptr) {
@@ -55,10 +51,6 @@ DirectX12Renderer::~DirectX12Renderer() {
         fenceEvent = nullptr;
     }
 }
-
-// -----------------------------------------------------------------------
-// Initialization
-// -----------------------------------------------------------------------
 
 bool DirectX12Renderer::Initialize() {
     if (m_Initialized) return true;
@@ -474,10 +466,6 @@ bool DirectX12Renderer::CreatePipelineStateFromShader(
     return true;
 }
 
-// -----------------------------------------------------------------------
-// Render Loop
-// -----------------------------------------------------------------------
-
 void DirectX12Renderer::BeginRender() {
     frameIndex = swapChain->GetCurrentBackBufferIndex();
 
@@ -665,10 +653,6 @@ void DirectX12Renderer::Resize(uint32_t width, uint32_t height) {
     SLEAK_INFO("DirectX 12 resized to {}x{}", width, height);
 }
 
-// -----------------------------------------------------------------------
-// RenderContext: Draw Commands
-// -----------------------------------------------------------------------
-
 void DirectX12Renderer::Draw(uint32_t vertexCount) {
     commandList->DrawInstanced(vertexCount, 1, 0, 0);
 }
@@ -687,10 +671,6 @@ void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
     commandList->DrawIndexedInstanced(indexPerInstance, instanceCount, 0,
                                       0, 0);
 }
-
-// -----------------------------------------------------------------------
-// RenderContext: State Management
-// -----------------------------------------------------------------------
 
 void DirectX12Renderer::SetRenderFace(RenderFace face) {
     Face = face;
@@ -751,10 +731,6 @@ void DirectX12Renderer::ClearDepthStencil(bool clearDepth,
     }
 }
 
-// -----------------------------------------------------------------------
-// RenderContext: Buffer Binding
-// -----------------------------------------------------------------------
-
 void DirectX12Renderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                           uint32_t slot) {
     auto* dx12Buf = dynamic_cast<DirectX12Buffer*>(buffer.get());
@@ -791,10 +767,6 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     commandList->SetGraphicsRootConstantBufferView(
         slot, dx12Buf->GetD3DBuffer()->GetGPUVirtualAddress());
 }
-
-// -----------------------------------------------------------------------
-// RenderContext: Resource Creation
-// -----------------------------------------------------------------------
 
 BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
                                              void* data) {
@@ -1142,10 +1114,6 @@ void DirectX12Renderer::EndDebugLinePass() {
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
-// -----------------------------------------------------------------------
-// Pipeline State Configuration (DX12 requires PSO recreation)
-// -----------------------------------------------------------------------
-
 void DirectX12Renderer::ConfigureRenderMode() {
     // In DX12, fill mode and topology are baked into the PSO.
     // For now, we only support the default solid fill + triangle list.
@@ -1156,10 +1124,6 @@ void DirectX12Renderer::ConfigureRenderFace() {
     // In DX12, cull mode is baked into the PSO.
     // A full implementation would cache multiple PSO variants.
 }
-
-// -----------------------------------------------------------------------
-// Device Enumeration
-// -----------------------------------------------------------------------
 
 void DirectX12Renderer::EnumerateDevices(
     Microsoft::WRL::ComPtr<IDXGIFactory4> factory) {

@@ -10,10 +10,6 @@
 namespace Sleak {
 namespace RenderEngine {
 
-//------------------------------------------------------------------------------
-// Drawing
-//------------------------------------------------------------------------------
-
 DrawCommand::DrawCommand(RefPtr<BufferBase> buffer,
                          List<RefPtr<BufferBase>> constantBuffers,
                          uint32_t vertexCount, uint32_t vertexLocation)
@@ -36,10 +32,6 @@ void DrawCommand::ExecuteShadow(RenderContext* context) {
     // Transform buffer (slot 0) is bound by ExecuteShadowPass before this call
     context->Draw(m_vertexCount);
 }
-
-//------------------------------------------------------------------------------
-// Indexed Drawing
-//------------------------------------------------------------------------------
 
 DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
                                        RefPtr<BufferBase> indexBuffer,
@@ -90,10 +82,6 @@ void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
     context->DrawIndexed(m_indexCount);
 }
 
-//------------------------------------------------------------------------------
-// Update Constant Buffer
-//------------------------------------------------------------------------------
-
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
     void* Data,
     uint16_t Size) : 
@@ -113,10 +101,6 @@ void UpdateConstantBufferCommand::Execute(RenderContext* context) {
     constantBuffer->Update(Data,Size);
 }
 
-//------------------------------------------------------------------------------
-// Bind Constant Buffer
-//------------------------------------------------------------------------------
-
 BindConstantBufferCommand::BindConstantBufferCommand(RefPtr<BufferBase> buffer, int slot) : 
       constantBuffer(buffer), slot(slot) {}
 
@@ -124,29 +108,17 @@ void BindConstantBufferCommand::Execute(RenderContext* context) {
     context->BindConstantBuffer(constantBuffer, slot);
 }
 
-//------------------------------------------------------------------------------
-// Set Render Mode
-//------------------------------------------------------------------------------
-
 SetRenderModeCommand::SetRenderModeCommand(RenderMode mode) : mode(mode) {}
 
 void SetRenderModeCommand::Execute(RenderContext* context) {
     context->SetRenderMode(mode);
 }
 
-//------------------------------------------------------------------------------
-// Set Render Face
-//------------------------------------------------------------------------------
-
 SetRenderFaceCommand::SetRenderFaceCommand(RenderFace face) : face(face) {}
 
 void SetRenderFaceCommand::Execute(RenderContext* context) {
     context->SetRenderFace(face);
 }
-
-//------------------------------------------------------------------------------
-// Bind Material
-//------------------------------------------------------------------------------
 
 BindMaterialCommand::BindMaterialCommand(::Sleak::Material* material)
     : m_material(material) {}
@@ -163,10 +135,6 @@ void BindMaterialCommand::Execute(RenderContext* context) {
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// Custom Command
-//------------------------------------------------------------------------------
 
 CustomCommand::CustomCommand(ExecuteFunction function)
     : m_executeFunction(function) {}

@@ -23,8 +23,6 @@ struct VS_OUTPUT
     float2 TexCoord  : TEXCOORD4;
 };
 
-// --- Constant Buffers ---
-
 cbuffer TransformCB : register(b0) {
     row_major float4x4 WVP;
     row_major float4x4 World;
@@ -87,8 +85,6 @@ cbuffer LightCB : register(b2) {
     LightData Lights[16];
 };
 
-// --- Textures & Samplers ---
-
 Texture2D diffuseTexture   : register(t0);
 Texture2D normalTexture    : register(t1);
 Texture2D specularTexture  : register(t2);
@@ -99,9 +95,6 @@ Texture2D emissiveTexture  : register(t6);
 
 SamplerState mainSampler : register(s0);
 
-// ============================================================
-// Vertex Shader
-// ============================================================
 VS_OUTPUT VS_Main(VS_INPUT input)
 {
     VS_OUTPUT output;
@@ -124,10 +117,6 @@ VS_OUTPUT VS_Main(VS_INPUT input)
 
     return output;
 }
-
-// ============================================================
-// PBR Helper Functions
-// ============================================================
 
 static const float PI = 3.14159265359;
 
@@ -179,25 +168,19 @@ float AttenuateUE4(float distance, float range) {
     return (falloff * falloff) / (distance * distance + 1.0);
 }
 
-// ============================================================
-// Pixel Shader
-// ============================================================
 float4 PS_Main(VS_OUTPUT input) : SV_Target
 {
     // Apply UV tiling and offset
     float2 uv = input.TexCoord * matTiling + matOffset;
 
-    // --- Base Color ---
     float4 baseColor = matDiffuseColor * input.Color;
     if (HasDiffuseMap)
         baseColor *= diffuseTexture.Sample(mainSampler, uv);
 
-    // --- Alpha Cutoff ---
     float alpha = baseColor.a * matOpacity;
     if (matAlphaCutoff > 0.0 && alpha < matAlphaCutoff)
         discard;
 
-    // --- Normal ---
     float3 N = normalize(input.WorldNorm);
     if (HasNormalMap) {
         float3 tangentNormal =
@@ -211,7 +194,6 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
         N = normalize(mul(tangentNormal, TBN));
     }
 
-    // --- Material Properties ---
     float roughness = matRoughness;
     if (HasRoughnessMap)
         roughness *= roughnessTexture.Sample(mainSampler, uv).r;
@@ -225,7 +207,6 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
     if (HasAOMap)
         ao *= aoTexture.Sample(mainSampler, uv).r;
 
-    // --- PBR Setup ---
     float3 albedo = baseColor.rgb;
     float3 V = normalize(CameraPos - input.WorldPos);
 
@@ -233,7 +214,6 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
     float3 F0 = float3(0.04, 0.04, 0.04);
     F0 = lerp(F0, albedo, metallic);
 
-    // --- Accumulate Light Contributions ---
     float3 Lo = float3(0.0, 0.0, 0.0);
 
     for (uint i = 0; i < NumActiveLights; i++) {
@@ -304,16 +284,13 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
         }
     }
 
-    // --- Ambient ---
     float3 ambient = AmbientColor * AmbientIntensity
                    * albedo * ao;
 
-    // --- Emissive ---
     float3 emissive = matEmissiveColor * matEmissiveIntensity;
     if (HasEmissiveMap)
         emissive *= emissiveTexture.Sample(mainSampler, uv).rgb;
 
-    // --- Final Composition ---
     float3 finalColor = ambient + Lo + emissive;
 
     return float4(finalColor, alpha);

@@ -13,9 +13,6 @@ namespace Sleak {
 namespace Math {
 class Color {
    public:
-    // ==============
-    // Static Presets
-    // ==============
     static const Color Red;
     static const Color Green;
     static const Color Blue;
@@ -23,16 +20,10 @@ class Color {
     static const Color Black;
     static const Color Transparent;
 
-    // ==============
-    // Constexpr Core
-    // ==============
     constexpr Color() = default;
     constexpr Color(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) noexcept
         : r(r), g(g), b(b), a(a) {}
 
-    // ================
-    // Color Operations
-    // ================
     [[nodiscard]] constexpr Color clamped() const noexcept {
         return {static_cast<uint8_t>(Clamp<float>(r, 0, 255)),
                 static_cast<uint8_t>(Clamp<float>(g, 0, 255)),
@@ -46,22 +37,13 @@ class Color {
 
     [[nodiscard]] Color premultiplied() const noexcept;
 
-    // =================
-    // Color Transforms
-    // =================
     [[nodiscard]] Color linearToSrgb() const noexcept;
     [[nodiscard]] Color srgbToLinear() const noexcept;
 
-    // ==============
-    // Factory Methods
-    // ==============
     [[nodiscard]] static Color fromHSV(float h, float s, float v,
                                        uint8_t a = 255) noexcept;
     [[nodiscard]] static Color fromHex(uint32_t hex) noexcept;
 
-    // ==============
-    // String Representation
-    // ==============
     [[nodiscard]] std::string toString() const {
         std::ostringstream ss;
         ss << "Color(" << static_cast<int>(r) << ", " << static_cast<int>(g)
@@ -69,9 +51,6 @@ class Color {
         return ss.str();
     }
 
-    // ==============
-    // Operators
-    // ==============
     constexpr bool operator==(const Color& other) const noexcept {
         return r == other.r && g == other.g && b == other.b && a == other.a;
     }
@@ -109,9 +88,6 @@ class Color {
     }
 
    private:
-    // =====================
-    // Fundamental Components
-    // =====================
     uint8_t r{0};
     uint8_t g{0};
     uint8_t b{0};

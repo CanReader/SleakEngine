@@ -6,8 +6,6 @@
 namespace Sleak {
 namespace Physics {
 
-// --- Utilities ---
-
 Vector3D ClosestPointOnSegment(const Vector3D& point, const Vector3D& a, const Vector3D& b) {
     Vector3D ab = b - a;
     float t = (point - a).Dot(ab);
@@ -78,8 +76,6 @@ static Vector3D ClosestPointOnAABB(const AABB& aabb, const Vector3D& point) {
     );
 }
 
-// --- AABB vs AABB ---
-
 CollisionManifold TestAABBvsAABB(const AABB& a, const AABB& b) {
     CollisionManifold result;
 
@@ -109,8 +105,6 @@ CollisionManifold TestAABBvsAABB(const AABB& a, const AABB& b) {
     return result;
 }
 
-// --- Sphere vs Sphere ---
-
 CollisionManifold TestSphereVsSphere(const BoundingSphere& a, const BoundingSphere& b) {
     CollisionManifold result;
 
@@ -130,8 +124,6 @@ CollisionManifold TestSphereVsSphere(const BoundingSphere& a, const BoundingSphe
     result.contact.point = a.center + result.contact.normal * a.radius;
     return result;
 }
-
-// --- AABB vs Sphere ---
 
 CollisionManifold TestAABBvsSphere(const AABB& a, const BoundingSphere& b) {
     CollisionManifold result;
@@ -154,8 +146,6 @@ CollisionManifold TestAABBvsSphere(const AABB& a, const BoundingSphere& b) {
     return result;
 }
 
-// --- Sphere vs Capsule ---
-
 CollisionManifold TestSphereVsCapsule(const BoundingSphere& a, const BoundingCapsule& b) {
     Vector3D capA = b.GetPointA();
     Vector3D capB = b.GetPointB();
@@ -165,8 +155,6 @@ CollisionManifold TestSphereVsCapsule(const BoundingSphere& a, const BoundingCap
     BoundingSphere capSphere(closest, b.radius);
     return TestSphereVsSphere(a, capSphere);
 }
-
-// --- AABB vs Capsule ---
 
 CollisionManifold TestAABBvsCapsule(const AABB& a, const BoundingCapsule& b) {
     Vector3D capA = b.GetPointA();
@@ -180,8 +168,6 @@ CollisionManifold TestAABBvsCapsule(const AABB& a, const BoundingCapsule& b) {
     return TestAABBvsSphere(a, testSphere);
 }
 
-// --- Capsule vs Capsule ---
-
 CollisionManifold TestCapsuleVsCapsule(const BoundingCapsule& a, const BoundingCapsule& b) {
     Vector3D a1 = a.GetPointA(), a2 = a.GetPointB();
     Vector3D b1 = b.GetPointA(), b2 = b.GetPointB();
@@ -193,8 +179,6 @@ CollisionManifold TestCapsuleVsCapsule(const BoundingCapsule& a, const BoundingC
     BoundingSphere sB(closestB, b.radius);
     return TestSphereVsSphere(sA, sB);
 }
-
-// --- Sphere vs Triangle ---
 
 CollisionManifold TestSphereVsTriangle(const BoundingSphere& sphere,
                                        const Vector3D& v0, const Vector3D& v1, const Vector3D& v2) {
@@ -264,8 +248,6 @@ CollisionManifold TestSphereVsTriangle(const BoundingSphere& sphere,
     return result;
 }
 
-// --- Sphere vs Mesh ---
-
 CollisionManifold TestSphereVsMesh(const BoundingSphere& a, const TriangleMesh& b) {
     CollisionManifold deepest;
 
@@ -283,15 +265,11 @@ CollisionManifold TestSphereVsMesh(const BoundingSphere& a, const TriangleMesh& 
     return deepest;
 }
 
-// --- AABB vs Mesh ---
-
 CollisionManifold TestAABBvsMesh(const AABB& a, const TriangleMesh& b) {
     // Approximate: use sphere enclosing AABB, test against mesh
     BoundingSphere approx = BoundingSphere::FromAABB(a);
     return TestSphereVsMesh(approx, b);
 }
-
-// --- Transform helpers for dispatch ---
 
 static AABB TransformAABB(const AABB& aabb, const Vector3D& pos, const Vector3D& scale) {
     Vector3D sMin = aabb.min * scale + pos;
@@ -331,8 +309,6 @@ static TriangleMesh TransformMesh(const TriangleMesh& m, const Vector3D& pos, co
     result.bounds = TransformAABB(m.bounds, pos, scale);
     return result;
 }
-
-// --- Dispatcher ---
 
 CollisionManifold TestCollision(const ColliderShape& shapeA, const Vector3D& posA, const Vector3D& scaleA,
                                 const ColliderShape& shapeB, const Vector3D& posB, const Vector3D& scaleB) {

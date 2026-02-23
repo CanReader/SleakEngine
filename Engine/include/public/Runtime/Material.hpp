@@ -43,13 +43,9 @@ namespace Sleak {
         void Initialize();
         void Bind();
 
-        // --- Shader ---
-
         void SetShader(RenderEngine::Shader* shader);
         void SetShader(const std::string& shaderPath);
         RenderEngine::Shader* GetShader() const;
-
-        // --- Texture Maps ---
 
         void SetDiffuseTexture(Texture* texture);
         void SetDiffuseTexture(const std::string& path);
@@ -86,8 +82,6 @@ namespace Sleak {
         Texture* GetEmissiveTexture() const;
         bool HasEmissiveTexture() const;
 
-        // --- Color Properties ---
-
         void SetDiffuseColor(Math::Color color);
         void SetDiffuseColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         void SetDiffuseColor(float r, float g, float b, float a = 1.0f);
@@ -101,8 +95,6 @@ namespace Sleak {
         void SetEmissiveColor(uint8_t r, uint8_t g, uint8_t b);
         void SetEmissiveColor(float r, float g, float b);
         Math::Color GetEmissiveColor() const;
-
-        // --- Scalar Properties ---
 
         void SetShininess(float shininess);
         float GetShininess() const;
@@ -128,8 +120,6 @@ namespace Sleak {
         void SetAlphaCutoff(float cutoff);
         float GetAlphaCutoff() const;
 
-        // --- UV Transform ---
-
         void SetTiling(float x, float y);
         void SetTiling(Math::Vector2D tiling);
         Math::Vector2D GetTiling() const;
@@ -137,8 +127,6 @@ namespace Sleak {
         void SetOffset(float x, float y);
         void SetOffset(Math::Vector2D offset);
         Math::Vector2D GetOffset() const;
-
-        // --- Rendering Mode ---
 
         void SetRenderMode(MaterialRenderMode mode);
         MaterialRenderMode GetRenderMode() const;
