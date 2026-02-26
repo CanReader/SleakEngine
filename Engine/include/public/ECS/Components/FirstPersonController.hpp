@@ -32,6 +32,8 @@ namespace Sleak {
 
         float GetPitch() const { return m_pitch; }
         float GetYaw() const { return m_yaw; }
+        void SetPitch(float pitch) { m_pitch = pitch; }
+        void SetYaw(float yaw) { m_yaw = yaw; }
 
         void OnKeyPressed(const Events::Input::KeyPressedEvent& e);
         void OnKeyReleased(const Events::Input::KeyReleasedEvent& e);
