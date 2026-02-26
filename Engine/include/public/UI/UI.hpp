@@ -22,5 +22,6 @@ ENGINE_API void BeginPanel(const char* name, float x, float y,
                                        PanelFlags_NoFocusOnAppear);
 ENGINE_API void EndPanel();
 ENGINE_API void Text(const char* fmt, ...);
+ENGINE_API bool Checkbox(const char* label, bool* value);
 
 }  // namespace Sleak::UI

@@ -29,4 +29,8 @@ void Text(const char* fmt, ...) {
     va_end(args);
 }
 
+bool Checkbox(const char* label, bool* value) {
+    return ImGui::Checkbox(label, value);
+}
+
 }  // namespace Sleak::UI
