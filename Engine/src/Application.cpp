@@ -118,6 +118,11 @@ namespace Sleak {
 
             m_DebugOverlay = new DebugOverlay();
             m_DebugOverlay->Initialize(renderer, game);
+            {
+                auto& cfg = m_DebugOverlay->GetConfig();
+                cfg.ShowCameraPanel = false;
+                cfg.ShowPerformancePanel = false;
+            }
 
             auto context = renderer->GetContext();
             auto queue = RenderEngine::RenderCommandQueue::GetInstance();
@@ -220,20 +225,13 @@ namespace Sleak {
         switch(e.GetKeyCode())
         {
             case Input::KEY_CODE::KEY__ESCAPE:
-              renderer->SetImGUI(false); 
               GetWindow().Close();
             break;
 
             case Input::KEY_CODE::KEY__F1:
-                if (m_DebugOverlay)
-                    m_DebugOverlay->ToggleVisible();
             break;
 
             case Input::KEY_CODE::KEY__F3:
-                if (renderer->GetRenderMode() == RenderEngine::RenderMode::Wireframe)
-                    renderer->SetRenderDrawMode(RenderEngine::RenderMode::Fill);
-                else
-                    renderer->SetRenderDrawMode(RenderEngine::RenderMode::Wireframe);
             break;
 
             case Input::KEY_CODE::KEY__F4:
@@ -268,5 +266,25 @@ namespace Sleak {
     Window& Application::GetWindow() {
         return *CoreWindow;
     }
+
+    int Application::GetFPS() const { return renderer->GetFrameRate(); }
+    float Application::GetFrameTime() const { return renderer->GetFrameTime(); }
+    int Application::GetVertices() const { return renderer->GetVertices(); }
+    int Application::GetTriangles() const { return renderer->GetTriangles(); }
+    const char* Application::GetRendererTypeStr() const { return renderer->GetTypeStr(); }
+
+    void Application::GetRendererTypeColor(float& r, float& g, float& b) const {
+        switch (renderer->GetType()) {
+            case RenderEngine::RendererType::DirectX12: r = 0.0f; g = 0.5f; b = 1.0f; break;
+            case RenderEngine::RendererType::DirectX11: r = 0.2f; g = 0.6f; b = 0.8f; break;
+            case RenderEngine::RendererType::Vulkan:    r = 0.8f; g = 0.2f; b = 0.0f; break;
+            case RenderEngine::RendererType::OpenGL:    r = 0.0f; g = 0.8f; b = 0.2f; break;
+            default:                                    r = 0.5f; g = 0.5f; b = 0.5f; break;
+        }
+    }
+
+    uint32_t Application::GetMSAASampleCount() const { return renderer->GetMSAASampleCount(); }
+    uint32_t Application::GetMaxMSAASampleCount() const { return renderer->GetMaxMSAASampleCount(); }
+    void Application::SetMSAASampleCount(uint32_t samples) { renderer->SetMSAASampleCount(samples); }
 
 }

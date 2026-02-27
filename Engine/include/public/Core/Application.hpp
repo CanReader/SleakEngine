@@ -68,6 +68,17 @@ class ENGINE_API Application {
 
     static Application* GetInstance() { return Instance; }
 
+    // Public renderer stat accessors for Game
+    int GetFPS() const;
+    float GetFrameTime() const;
+    int GetVertices() const;
+    int GetTriangles() const;
+    const char* GetRendererTypeStr() const;
+    void GetRendererTypeColor(float& r, float& g, float& b) const;
+    uint32_t GetMSAASampleCount() const;
+    uint32_t GetMaxMSAASampleCount() const;
+    void SetMSAASampleCount(uint32_t samples);
+
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
     void OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e);
 
