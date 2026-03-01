@@ -82,12 +82,10 @@ void main() {
 
     vec3 N = normalize(fragWorldNorm);
     vec3 lightDir = normalize(uLightDir.xyz);
-    vec3 viewDir = normalize(uCameraPos.xyz - fragWorldPos);
     vec3 lightColor = uLightColor.rgb;
     float lightIntensity = uLightColor.a;
 
     vec3 ambientColor = uAmbient.rgb * uAmbient.a;
-    // Subtle hemisphere: ground bounce slightly warmer/darker than sky
     vec3 groundColor = ambientColor * vec3(0.7, 0.65, 0.6);
     float hemisphere = N.y * 0.5 + 0.5;
     vec3 ambient = mix(groundColor, ambientColor, hemisphere);
@@ -96,16 +94,9 @@ void main() {
     float diffuseTerm = max(NdotL, 0.0);
     vec3 diffuse = lightColor * lightIntensity * diffuseTerm;
 
-    vec3 halfDir = normalize(-lightDir + viewDir);
-    float shininess = 32.0;
-    float normFactor = (shininess + 8.0) / 25.1327;
-    float spec = normFactor * pow(max(dot(N, halfDir), 0.0), shininess);
-    vec3 specular = lightColor * spec * 0.5 * max(NdotL, 0.0);
-
     float shadow = CalcShadow(fragShadowCoord);
 
-    vec3 lit = baseColor.rgb * (ambient + shadow * diffuse)
-             + shadow * specular;
+    vec3 lit = baseColor.rgb * (ambient + shadow * diffuse);
 
     lit = lit / (lit + vec3(1.0));
 
