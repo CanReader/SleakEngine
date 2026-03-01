@@ -69,6 +69,7 @@ namespace Sleak {
             static RenderCommandQueue* Instance;
             Queue<RefPtr<RenderCommandBase>> commands;
             List<ShadowDrawEntry> cachedShadowDraws;
+            List<ShadowDrawEntry> m_retiredShadowDraws;
         };
     }
 }
