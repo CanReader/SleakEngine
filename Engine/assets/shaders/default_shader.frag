@@ -118,7 +118,7 @@ float CalcShadow(vec4 sc) {
     mat2 rotation = mat2(ca, sa, -sa, ca);
 
     // PCSS: Blocker search with wide radius
-    float searchRadius = uShadowTexelSize * uLightSize * 20.0;
+    float searchRadius = uShadowTexelSize * uLightSize * 40.0;
     float blockerDepth = FindBlockerDepth(projCoords.xy, biasedDepth, searchRadius);
 
     // Determine filter radius based on blocker distance
@@ -129,9 +129,9 @@ float CalcShadow(vec4 sc) {
     } else {
         // PCSS penumbra estimation
         float penumbra = EstimatePenumbraWidth(biasedDepth, blockerDepth);
-        filterRadius = max(penumbra * uShadowTexelSize * 40.0, uShadowTexelSize * 1.5);
+        filterRadius = max(penumbra * uShadowTexelSize * 80.0, uShadowTexelSize * 8.0);
         // Clamp to reasonable max to prevent artifacts
-        filterRadius = min(filterRadius, uShadowTexelSize * uLightSize * 12.0);
+        filterRadius = min(filterRadius, uShadowTexelSize * uLightSize * 30.0);
     }
 
     // PCF filtering with 32 samples at computed radius
