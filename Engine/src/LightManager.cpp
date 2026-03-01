@@ -145,8 +145,10 @@ void LightManager::UpdateShadowData() {
         float nearP       = shadowLight->GetShadowNearPlane();
         float farP        = shadowLight->GetShadowFarPlane();
 
-        // Light position: offset from scene center along negative light direction
-        Math::Vector3D lightPos = dir * (-shadowDist);
+        // Light position: offset from camera along negative light direction
+        const auto& camPos = Camera::GetMainCameraPosition();
+        Math::Vector3D lightPos = Math::Vector3D(camPos.GetX(), camPos.GetY(), camPos.GetZ())
+                                + dir * (-shadowDist);
 
         // Convert to Vector<float,3> for Matrix methods
         Math::Vector<float, 3> lp({lightPos.GetX(), lightPos.GetY(), lightPos.GetZ()});
