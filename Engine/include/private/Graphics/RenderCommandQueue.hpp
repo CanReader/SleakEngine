@@ -66,10 +66,12 @@ namespace Sleak {
         };
 
         private:
+            static constexpr int RETIRE_FRAMES = 3;
             static RenderCommandQueue* Instance;
             Queue<RefPtr<RenderCommandBase>> commands;
             List<ShadowDrawEntry> cachedShadowDraws;
-            List<ShadowDrawEntry> m_retiredShadowDraws;
+            List<ShadowDrawEntry> m_retiredShadowDraws[RETIRE_FRAMES];
+            int m_retireIndex = 0;
         };
     }
 }

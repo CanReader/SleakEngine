@@ -66,7 +66,9 @@ namespace Sleak {
 
             // Cache draw commands for shadow pass replay next frame,
             // pairing each with the last-bound slot-0 (transform) buffer
-            m_retiredShadowDraws = std::move(cachedShadowDraws);
+            m_retiredShadowDraws[m_retireIndex].clear();
+            m_retiredShadowDraws[m_retireIndex] = std::move(cachedShadowDraws);
+            m_retireIndex = (m_retireIndex + 1) % RETIRE_FRAMES;
             cachedShadowDraws.clear();
             RefPtr<BufferBase> lastSlot0Buffer;
             for (auto& cmd : commands) {
