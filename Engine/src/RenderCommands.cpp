@@ -29,7 +29,12 @@ void DrawCommand::Execute(RenderContext* context) {
 
 void DrawCommand::ExecuteShadow(RenderContext* context) {
     context->BindVertexBuffer(m_vertexBuffer, m_startVertexLocation);
-    // Transform buffer (slot 0) is bound by ExecuteShadowPass before this call
+    for (const auto& b : m_constantBuffers) {
+        if (b && b->GetSlot() == 0) {
+            context->BindConstantBuffer(b, 0);
+            break;
+        }
+    }
     context->Draw(m_vertexCount);
 }
 
@@ -78,7 +83,12 @@ void DrawIndexedCommand::Execute(RenderContext* context) {
 void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
     context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
     context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
-    // Transform buffer (slot 0) is bound by ExecuteShadowPass before this call
+    for (const auto& b : m_constantBuffers) {
+        if (b && b->GetSlot() == 0) {
+            context->BindConstantBuffer(b, 0);
+            break;
+        }
+    }
     context->DrawIndexed(m_indexCount);
 }
 
