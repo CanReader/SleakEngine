@@ -191,6 +191,8 @@ void VulkanRenderer::BeginRender() {
         return;
     }
 
+    bFrameStarted = true;
+
     if (m_shadowResourcesCreated) {
         VkClearValue shadowClear{};
         shadowClear.depthStencil = {1.0f, 0};
@@ -303,8 +305,6 @@ void VulkanRenderer::BeginRender() {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
     }
-
-    bFrameStarted = true;
 }
 
 // EndRender: end render pass, end command buffer, submit, present.
