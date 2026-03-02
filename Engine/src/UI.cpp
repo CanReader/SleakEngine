@@ -92,4 +92,10 @@ float GetViewportHeight() {
     return ImGui::GetMainViewport()->Size.y;
 }
 
+void DrawLine(float x1, float y1, float x2, float y2,
+              float r, float g, float b, float a, float thickness) {
+    ImGui::GetForegroundDrawList()->AddLine(
+        ImVec2(x1, y1), ImVec2(x2, y2), ImColor(r, g, b, a), thickness);
+}
+
 }  // namespace Sleak::UI

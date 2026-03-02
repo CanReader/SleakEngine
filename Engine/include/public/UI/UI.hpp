@@ -41,4 +41,7 @@ ENGINE_API void EndChild();
 ENGINE_API float GetViewportWidth();
 ENGINE_API float GetViewportHeight();
 
+ENGINE_API void DrawLine(float x1, float y1, float x2, float y2,
+                         float r, float g, float b, float a = 1.0f, float thickness = 1.0f);
+
 }  // namespace Sleak::UI
