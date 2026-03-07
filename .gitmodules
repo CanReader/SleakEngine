@@ -29,3 +29,6 @@
 [submodule "Engine/vendors/yaml-cpp"]
 	path = Engine/vendors/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp
+[submodule "Engine/vendors/assimp"]
+	path = Engine/vendors/assimp
+	url = https://github.com/assimp/assimp.git

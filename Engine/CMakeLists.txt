@@ -13,6 +13,17 @@ set(YAML_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# --- Assimp build options ---
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_FBX_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+
 # --- Build all vendor dependencies ---
 add_subdirectory(vendors/glm)
 add_subdirectory(vendors/freeglut)
@@ -22,10 +33,10 @@ add_subdirectory(vendors/SDL3)
 add_subdirectory(vendors/spdlog)
 add_subdirectory(vendors/json)
 add_subdirectory(vendors/yaml-cpp)
+add_subdirectory(vendors/assimp)
 
 # --- Find system packages ---
 find_package(OpenGL REQUIRED)
-find_package(assimp REQUIRED)
 
 # --- Vulkan SDK (vendored) ---
 set(VULKAN_SDK "${VENDOR_DIR}/VulkanSdk")
