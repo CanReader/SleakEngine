@@ -193,7 +193,7 @@ void VulkanRenderer::BeginRender() {
 
     bFrameStarted = true;
 
-    if (m_shadowResourcesCreated) {
+    if (m_shadowResourcesCreated && m_shadowPassEnabled) {
         VkClearValue shadowClear{};
         shadowClear.depthStencil = {1.0f, 0};
 

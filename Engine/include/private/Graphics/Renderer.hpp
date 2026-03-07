@@ -99,6 +99,8 @@ public:
     // Shadow mapping support (overridden by VulkanRenderer)
     virtual void UpdateShadowLightUBO(const void* data, uint32_t size) { (void)data; (void)size; }
     virtual void SetLightVP(const float* lightVP) { (void)lightVP; }
+    void SetShadowPassEnabled(bool enabled) { m_shadowPassEnabled = enabled; }
+    bool IsShadowPassEnabled() const { return m_shadowPassEnabled; }
 
     // Anti-aliasing (MSAA)
     virtual void SetMSAASampleCount(uint32_t samples) {
@@ -156,6 +158,9 @@ public:
     RendererType Type;
     RenderMode Mode;
     RenderFace Face;
+
+    // Shadow pass
+    bool m_shadowPassEnabled = false;
 
     // MSAA state
     uint32_t m_msaaSampleCount = 1;

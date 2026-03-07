@@ -123,6 +123,9 @@ void LightManager::UpdateShadowData() {
         }
     }
 
+    // Tell the renderer whether the shadow pass should run
+    renderer->SetShadowPassEnabled(shadowLight != nullptr);
+
     // Use shadow light if available, otherwise fall back to any directional light
     DirectionalLight* activeLight = shadowLight ? shadowLight : anyDirLight;
 
