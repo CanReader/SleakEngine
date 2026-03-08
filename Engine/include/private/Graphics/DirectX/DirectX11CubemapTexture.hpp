@@ -1,11 +1,14 @@
 #ifndef DIRECTX11CUBEMAPTEXTURE_HPP_
 #define DIRECTX11CUBEMAPTEXTURE_HPP_
 
+#include <Core/OSDef.hpp>
 #include <Runtime/Texture.hpp>
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <array>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
