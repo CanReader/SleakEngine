@@ -912,8 +912,23 @@ bool VulkanRenderer::InitVulkan() {
         };
 
         #ifdef PLATFORM_LINUX
-            requiredExtensions.push_back("VK_KHR_wayland_surface");
-            requiredExtensions.push_back("VK_KHR_xlib_surface");
+        {
+            // Only request surface extensions actually available
+            // (blindly requesting both breaks capture tools like RenderDoc)
+            uint32_t surfExtCount = 0;
+            vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount, nullptr);
+            std::vector<VkExtensionProperties> surfExts(surfExtCount);
+            vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount, surfExts.data());
+            auto hasSurfExt = [&](const char* name) {
+                for (auto& e : surfExts)
+                    if (strcmp(e.extensionName, name) == 0) return true;
+                return false;
+            };
+            if (hasSurfExt("VK_KHR_wayland_surface"))
+                requiredExtensions.push_back("VK_KHR_wayland_surface");
+            if (hasSurfExt("VK_KHR_xlib_surface"))
+                requiredExtensions.push_back("VK_KHR_xlib_surface");
+        }
         #elif defined(PLATFORM_WIN)
             requiredExtensions.push_back(
                 VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
