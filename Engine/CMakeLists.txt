@@ -112,18 +112,10 @@ target_link_libraries(Engine PRIVATE
 
 # --- DirectX SDK (Windows only) ---
 if(WIN32 OR USE_MINGW)
-    set(DX_SDK_DIR ${VENDOR_DIR}/DirectX-SDK)
-    set(DirectX_INCLUDE_DIR ${DX_SDK_DIR}/Include)
-    set(DirectX_LIB_DIR ${DX_SDK_DIR}/Lib)
-
-    if(NOT EXISTS ${DX_SDK_DIR})
-        message(FATAL_ERROR "DirectX SDK not found at: ${DX_SDK_DIR}")
-    endif()
-
     target_link_libraries(Engine PRIVATE
-        "${DirectX_LIB_DIR}/d3d11.lib"
-        "${DirectX_LIB_DIR}/dxgi.lib"
-        "${DirectX_LIB_DIR}/dxguid.lib"
+        d3d11.lib
+        dxgi.lib
+        dxguid.lib
         d3d12.lib
         d3dcompiler.lib
         pdh.lib
