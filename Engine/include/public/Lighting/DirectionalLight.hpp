@@ -26,10 +26,10 @@ namespace Sleak {
         void SetShadowDistance(float dist) { m_shadowDistance = dist; }
         float GetShadowDistance() const { return m_shadowDistance; }
 
-        void SetShadowNearPlane(float near) { m_shadowNear = near; }
+        void SetShadowNearPlane(float nearPlane) { m_shadowNear = nearPlane; }
         float GetShadowNearPlane() const { return m_shadowNear; }
 
-        void SetShadowFarPlane(float far) { m_shadowFar = far; }
+        void SetShadowFarPlane(float farPlane) { m_shadowFar = farPlane; }
         float GetShadowFarPlane() const { return m_shadowFar; }
 
     private:
