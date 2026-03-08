@@ -32,7 +32,7 @@ public:
     bool Map() override;
     void Unmap() override;
     void Update(void* data, size_t size) override;
-    bool Initialize(const void* data, uint16_t size);
+    bool Initialize(const void* data, size_t size);
    
     void* GetData() override;
 

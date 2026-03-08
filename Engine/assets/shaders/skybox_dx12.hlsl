@@ -1,5 +1,5 @@
 TextureCube skyboxTexture : register(t0);
-SamplerState samplerState : register(s0);
+SamplerState samplerState : register(s1);
 
 cbuffer SkyboxCB : register(b0) {
     row_major float4x4 ViewProjection;

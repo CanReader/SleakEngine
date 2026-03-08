@@ -77,6 +77,7 @@ public:
 
     // Skybox state management
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+    virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) override;
     virtual void BeginSkyboxPass() override;
     virtual void EndSkyboxPass() override;
     virtual void BeginDebugLinePass() override;

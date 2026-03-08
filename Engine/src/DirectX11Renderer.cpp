@@ -117,9 +117,9 @@ bool DirectX11Renderer::Initialize() {
             infoQueue->Release();
         }
 
-        SetPerformanceCounter(true);
 #endif
 
+        SetPerformanceCounter(true);
         SetRenderMode(RenderMode::Fill);
         SetRenderFace(RenderFace::Front);
 

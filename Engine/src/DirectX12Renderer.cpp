@@ -93,6 +93,8 @@ bool DirectX12Renderer::Initialize() {
     scissorRect.right = w;
     scissorRect.bottom = h;
 
+    SetPerformanceCounter(true);
+
     m_Initialized = true;
     SLEAK_INFO("DirectX 12 has been initialized successfully!");
 
@@ -318,28 +320,46 @@ bool DirectX12Renderer::CreateRootSignature() {
     rootParams[2].DescriptorTable.pDescriptorRanges = &srvRange;
     rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    // Static sampler at register(s0), pixel shader
-    D3D12_STATIC_SAMPLER_DESC staticSampler = {};
-    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    staticSampler.MipLODBias = 0.0f;
-    staticSampler.MaxAnisotropy = 1;
-    staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    staticSampler.BorderColor =
+    // Static samplers
+    D3D12_STATIC_SAMPLER_DESC staticSamplers[2] = {};
+
+    // s0: POINT/CLAMP — block textures (nearest-neighbor for pixel art)
+    staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSamplers[0].MipLODBias = 0.0f;
+    staticSamplers[0].MaxAnisotropy = 1;
+    staticSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    staticSamplers[0].BorderColor =
         D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
-    staticSampler.MinLOD = 0.0f;
-    staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
-    staticSampler.ShaderRegister = 0;
-    staticSampler.RegisterSpace = 0;
-    staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    staticSamplers[0].MinLOD = 0.0f;
+    staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+    staticSamplers[0].ShaderRegister = 0;
+    staticSamplers[0].RegisterSpace = 0;
+    staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    // s1: LINEAR/WRAP — skybox cubemap (smooth filtering)
+    staticSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    staticSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].MipLODBias = 0.0f;
+    staticSamplers[1].MaxAnisotropy = 1;
+    staticSamplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    staticSamplers[1].BorderColor =
+        D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+    staticSamplers[1].MinLOD = 0.0f;
+    staticSamplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+    staticSamplers[1].ShaderRegister = 1;
+    staticSamplers[1].RegisterSpace = 0;
+    staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
     rootSigDesc.NumParameters = 3;
     rootSigDesc.pParameters = rootParams;
-    rootSigDesc.NumStaticSamplers = 1;
-    rootSigDesc.pStaticSamplers = &staticSampler;
+    rootSigDesc.NumStaticSamplers = 2;
+    rootSigDesc.pStaticSamplers = staticSamplers;
     rootSigDesc.Flags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -566,6 +586,8 @@ void DirectX12Renderer::EndRender() {
         fence->SetEventOnCompletion(currentFenceValue, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
+
+    UpdateFrameMetrics();
 }
 
 void DirectX12Renderer::WaitForGPU() {
@@ -942,35 +964,21 @@ bool DirectX12Renderer::CreateSkyboxPipelineState() {
     psoDesc.VS = {vsBlob->GetBufferPointer(), vsBlob->GetBufferSize()};
     psoDesc.PS = {psBlob->GetBufferPointer(), psBlob->GetBufferSize()};
 
-    // Rasterizer: no culling for skybox
+    // Rasterizer: no culling for skybox, depth clip OFF to avoid
+    // clipping at the z=1.0 boundary produced by the .xyww trick
     D3D12_RASTERIZER_DESC rasterDesc = {};
     rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
     rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
     rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthBias = 0;
-    rasterDesc.DepthBiasClamp = 0.0f;
-    rasterDesc.SlopeScaledDepthBias = 0.0f;
-    rasterDesc.DepthClipEnable = TRUE;
-    rasterDesc.MultisampleEnable = FALSE;
-    rasterDesc.AntialiasedLineEnable = FALSE;
-    rasterDesc.ForcedSampleCount = 0;
-    rasterDesc.ConservativeRaster =
-        D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+    rasterDesc.DepthClipEnable = FALSE;
     psoDesc.RasterizerState = rasterDesc;
 
-    // Blend state (same as main)
+    // Blend state — opaque (skybox is fully opaque)
     D3D12_BLEND_DESC blendDesc = {};
     blendDesc.AlphaToCoverageEnable = FALSE;
     blendDesc.IndependentBlendEnable = FALSE;
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-    rtBlendDesc.BlendEnable = TRUE;
-    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
-    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
-    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+    rtBlendDesc.BlendEnable = FALSE;
     rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
         blendDesc.RenderTarget[i] = rtBlendDesc;

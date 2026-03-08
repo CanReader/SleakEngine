@@ -113,10 +113,10 @@ D3D12_RESOURCE_DESC DirectX12Buffer::CreateBufferDesc() const
 }
 
 bool DirectX12Buffer::Initialize(void* data) {
-    return Initialize(data, static_cast<uint16_t>(Size));
+    return Initialize(data, Size);
 }
 
-bool DirectX12Buffer::Initialize(const void* data, uint16_t size)
+bool DirectX12Buffer::Initialize(const void* data, size_t size)
 {
     if (!m_device || Size == 0)
         return false;
@@ -159,7 +159,7 @@ bool DirectX12Buffer::Initialize(const void* data, uint16_t size)
             CreateUploadBuffer(data, size);
         } else {
             // For CPU-accessible buffers, we can directly map and update
-            //Update(data, size);
+            Update(const_cast<void*>(data), size);
         }
     }
 
