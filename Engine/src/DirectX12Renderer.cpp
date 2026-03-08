@@ -314,10 +314,10 @@ bool DirectX12Renderer::CreateRootSignature() {
 
     // Static sampler at register(s0), pixel shader
     D3D12_STATIC_SAMPLER_DESC staticSampler = {};
-    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     staticSampler.MipLODBias = 0.0f;
     staticSampler.MaxAnisotropy = 1;
     staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
@@ -523,9 +523,6 @@ void DirectX12Renderer::BeginRender() {
     }
 
     if (bImInitialized) {
-        ID3D12DescriptorHeap* heaps[] = {imguiSrvHeap.Get()};
-        commandList->SetDescriptorHeaps(1, heaps);
-
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -535,6 +532,8 @@ void DirectX12Renderer::BeginRender() {
 void DirectX12Renderer::EndRender() {
     if (bImInitialized) {
         ImGui::Render();
+        ID3D12DescriptorHeap* heaps[] = {imguiSrvHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(),
                                        commandList.Get());
     }
@@ -788,8 +787,9 @@ BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
 Shader* DirectX12Renderer::CreateShader(const std::string& shaderSource) {
     auto* shader = new DirectX12Shader(device.Get());
     if (shader->compile(shaderSource)) {
-        // Create/update the PSO with this shader's compiled blobs
-        if (!pipelineState && shader->getVertexShaderBlob()) {
+        // Always (re)create the main PSO from the latest shader compiled.
+        // Specialised passes (skybox, debug lines) use their own PSOs.
+        if (shader->getVertexShaderBlob()) {
             CreatePipelineStateFromShader(
                 shader->getVertexShaderBlob(),
                 shader->getPixelShaderBlob());
@@ -862,6 +862,21 @@ void DirectX12Renderer::BindTexture(RefPtr<Sleak::Texture> texture,
 
     // Try regular DX12 texture
     auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture.get());
+    if (dx12Tex) {
+        dx12Tex->BindToCommandList(commandList.Get(), 1);
+    }
+}
+
+void DirectX12Renderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
+    if (!texture || !commandList) return;
+
+    auto* cubemap = dynamic_cast<DirectX12CubemapTexture*>(texture);
+    if (cubemap) {
+        cubemap->BindToCommandList(commandList.Get(), 1);
+        return;
+    }
+
+    auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture);
     if (dx12Tex) {
         dx12Tex->BindToCommandList(commandList.Get(), 1);
     }
