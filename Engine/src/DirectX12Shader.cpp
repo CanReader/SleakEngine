@@ -53,8 +53,9 @@ bool DirectX12Shader::compile(const std::string& vertPath,
 }
 
 void DirectX12Shader::bind() {
-    // In DX12, the PSO and root signature are set by the renderer's
-    // BeginRender(). The shader is just a blob container.
+    if (m_pipelineState && m_commandList) {
+        m_commandList->SetPipelineState(m_pipelineState.Get());
+    }
 }
 
 ID3DBlob* DirectX12Shader::getVertexShaderBlob() const {
@@ -63,6 +64,18 @@ ID3DBlob* DirectX12Shader::getVertexShaderBlob() const {
 
 ID3DBlob* DirectX12Shader::getPixelShaderBlob() const {
     return m_pixelShaderBlob.Get();
+}
+
+void DirectX12Shader::SetPipelineState(Microsoft::WRL::ComPtr<ID3D12PipelineState> pso) {
+    m_pipelineState = pso;
+}
+
+ID3D12PipelineState* DirectX12Shader::GetPipelineState() const {
+    return m_pipelineState.Get();
+}
+
+void DirectX12Shader::SetCommandList(ID3D12GraphicsCommandList* cmdList) {
+    m_commandList = cmdList;
 }
 
 bool DirectX12Shader::compileShader(const std::string& filePath,

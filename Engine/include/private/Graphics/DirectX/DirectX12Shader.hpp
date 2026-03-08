@@ -27,6 +27,11 @@ public:
     ID3DBlob* getVertexShaderBlob() const;
     ID3DBlob* getPixelShaderBlob() const;
 
+    // Per-shader PSO
+    void SetPipelineState(Microsoft::WRL::ComPtr<ID3D12PipelineState> pso);
+    ID3D12PipelineState* GetPipelineState() const;
+    void SetCommandList(ID3D12GraphicsCommandList* cmdList);
+
 private:
     bool compileShader(const std::string& filePath,
                       const std::string& entryPoint,
@@ -37,6 +42,8 @@ private:
 
     Microsoft::WRL::ComPtr<ID3DBlob> m_vertexShaderBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShaderBlob;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pipelineState;
+    ID3D12GraphicsCommandList* m_commandList = nullptr;
 };
 
 }  // namespace RenderEngine

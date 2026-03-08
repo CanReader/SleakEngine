@@ -793,13 +793,16 @@ BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
 Shader* DirectX12Renderer::CreateShader(const std::string& shaderSource) {
     auto* shader = new DirectX12Shader(device.Get());
     if (shader->compile(shaderSource)) {
-        // Always (re)create the main PSO from the latest shader compiled.
-        // Specialised passes (skybox, debug lines) use their own PSOs.
+        // Create a per-shader PSO so each shader gets its own pipeline
         if (shader->getVertexShaderBlob()) {
             CreatePipelineStateFromShader(
                 shader->getVertexShaderBlob(),
                 shader->getPixelShaderBlob());
+            // Store the newly created PSO on this shader
+            shader->SetPipelineState(pipelineState);
         }
+        // Give the shader access to the command list for bind()
+        shader->SetCommandList(commandList.Get());
         return shader;
     }
     delete shader;
