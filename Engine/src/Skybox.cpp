@@ -146,16 +146,17 @@ void Skybox::Render() {
 
     RenderEngine::RenderCommandQueue::GetInstance()->SubmitCustomCommand(
         [shader, vb, ib, cb, cubemap](RenderEngine::RenderContext* ctx) {
-            // Switch to skybox pipeline/state (handles Vulkan pipeline swap)
+            // Bind shader first (sets per-shader PSO in DX12)
+            shader->bind();
+
+            // Switch to skybox pipeline/state AFTER bind so the
+            // specialised skybox PSO is not overwritten by the generic one
             ctx->BeginSkyboxPass();
 
             // Set depth state: write disabled, test LEQUAL, no culling
             ctx->SetDepthWrite(false);
             ctx->SetDepthCompare(RenderEngine::DepthCompare::LessEqual);
             ctx->SetCullEnabled(false);
-
-            // Bind shader (no-op for Vulkan, used by OpenGL)
-            shader->bind();
 
             // Bind cubemap texture to slot 0
             ctx->BindTexture(cubemap, 0);

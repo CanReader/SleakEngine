@@ -426,19 +426,12 @@ bool DirectX12Renderer::CreatePipelineStateFromShader(
         D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
     psoDesc.RasterizerState = rasterDesc;
 
-    // Blend state
+    // Blend state — opaque (no blending)
     D3D12_BLEND_DESC blendDesc = {};
     blendDesc.AlphaToCoverageEnable = FALSE;
     blendDesc.IndependentBlendEnable = FALSE;
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-    rtBlendDesc.BlendEnable = TRUE;
-    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
-    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
-    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+    rtBlendDesc.BlendEnable = FALSE;
     rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
         blendDesc.RenderTarget[i] = rtBlendDesc;
