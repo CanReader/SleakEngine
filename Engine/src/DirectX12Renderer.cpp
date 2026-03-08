@@ -290,14 +290,20 @@ bool DirectX12Renderer::CreateFence() {
 }
 
 bool DirectX12Renderer::CreateRootSignature() {
-    // Parameter 0: CBV at register(b0), vertex shader
-    D3D12_ROOT_PARAMETER rootParams[2] = {};
+    // Parameter 0: CBV at register(b0) — transform (vertex shader)
+    // Parameter 1: CBV at register(b1) — material  (all shaders)
+    // Parameter 2: SRV descriptor table at register(t0) — texture (pixel shader)
+    D3D12_ROOT_PARAMETER rootParams[3] = {};
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
     rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
-    // Parameter 1: SRV descriptor table at register(t0), pixel shader
+    rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[1].Descriptor.ShaderRegister = 1;
+    rootParams[1].Descriptor.RegisterSpace = 0;
+    rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
     D3D12_DESCRIPTOR_RANGE srvRange = {};
     srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     srvRange.NumDescriptors = 1;
@@ -306,11 +312,11 @@ bool DirectX12Renderer::CreateRootSignature() {
     srvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    rootParams[1].ParameterType =
+    rootParams[2].ParameterType =
         D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[1].DescriptorTable.pDescriptorRanges = &srvRange;
-    rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[2].DescriptorTable.pDescriptorRanges = &srvRange;
+    rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     // Static sampler at register(s0), pixel shader
     D3D12_STATIC_SAMPLER_DESC staticSampler = {};
@@ -330,7 +336,7 @@ bool DirectX12Renderer::CreateRootSignature() {
     staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
-    rootSigDesc.NumParameters = 2;
+    rootSigDesc.NumParameters = 3;
     rootSigDesc.pParameters = rootParams;
     rootSigDesc.NumStaticSamplers = 1;
     rootSigDesc.pStaticSamplers = &staticSampler;
@@ -856,14 +862,14 @@ void DirectX12Renderer::BindTexture(RefPtr<Sleak::Texture> texture,
     auto* cubemap =
         dynamic_cast<DirectX12CubemapTexture*>(texture.get());
     if (cubemap) {
-        cubemap->BindToCommandList(commandList.Get(), 1);
+        cubemap->BindToCommandList(commandList.Get(), 2);
         return;
     }
 
     // Try regular DX12 texture
     auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture.get());
     if (dx12Tex) {
-        dx12Tex->BindToCommandList(commandList.Get(), 1);
+        dx12Tex->BindToCommandList(commandList.Get(), 2);
     }
 }
 
@@ -872,13 +878,13 @@ void DirectX12Renderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
 
     auto* cubemap = dynamic_cast<DirectX12CubemapTexture*>(texture);
     if (cubemap) {
-        cubemap->BindToCommandList(commandList.Get(), 1);
+        cubemap->BindToCommandList(commandList.Get(), 2);
         return;
     }
 
     auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture);
     if (dx12Tex) {
-        dx12Tex->BindToCommandList(commandList.Get(), 1);
+        dx12Tex->BindToCommandList(commandList.Get(), 2);
     }
 }
 

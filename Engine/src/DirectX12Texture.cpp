@@ -58,7 +58,7 @@ bool DirectX12Texture::LoadFromFile(const std::string& filePath) {
 
 void DirectX12Texture::Bind(uint32_t slot) const {
     if (m_commandList && m_srvHeap) {
-        BindToCommandList(m_commandList, 1);  // root param 1 = SRV table
+        BindToCommandList(m_commandList, 2);  // root param 2 = SRV table
     }
 }
 
