@@ -22,7 +22,7 @@ namespace Sleak {
      * retrieving the transform properties, as well as calculating transformation
      * matrices for rendering and physics calculations.
      */
-    class TransformComponent : public Component {
+    class ENGINE_API TransformComponent : public Component {
     public:
             // Constructors
          TransformComponent(GameObject* object, const Vector3D& position);

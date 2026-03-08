@@ -9,7 +9,7 @@
 
 namespace Sleak {
     enum class ProjectionType {Perspective, Orthographic};
-    class Camera : public GameObject {
+    class ENGINE_API Camera : public GameObject {
     public:
         Camera(std::string name = "Camera",
                Math::Vector3D Position = Math::Vector3D(0, 0, -3.5),

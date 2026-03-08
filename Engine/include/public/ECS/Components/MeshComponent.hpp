@@ -18,7 +18,7 @@ namespace Sleak {
         void* data;
     };
 
-    class MeshComponent : public Component {
+    class ENGINE_API MeshComponent : public Component {
     public:
         MeshComponent(GameObject* object) : Component(object) {}
         MeshComponent(GameObject*, MeshData data);
