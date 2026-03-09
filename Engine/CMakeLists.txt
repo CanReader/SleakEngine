@@ -70,6 +70,7 @@ file(GLOB_RECURSE IMGUI_SOURCES
     ${VENDOR_DIR}/imgui/backends/imgui_impl_sdl3.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_vulkan.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_opengl3.cpp
+    ${VENDOR_DIR}/imgui/misc/cpp/imgui_stdlib.cpp
 )
 
 # --- DirectX ImGui backends (Windows only) ---

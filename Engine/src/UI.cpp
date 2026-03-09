@@ -1,12 +1,20 @@
 #include <UI/UI.hpp>
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include "../../include/private/Graphics/ResourceManager.hpp"
+#include <Runtime/Texture.hpp>
 #include <cstdarg>
+#include <unordered_map>
 
 namespace Sleak::UI {
 
 void BeginPanel(const char* name, float x, float y, float bgAlpha, int flags) {
-    ImGuiCond posCond = (flags & PanelFlags_NoMove) ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
-    ImGui::SetNextWindowPos(ImVec2(x, y), posCond);
+    // Only set position if explicitly provided (non-zero),
+    // so SetNextWindowPos() called before BeginPanel is not overridden
+    if (x != 0.0f || y != 0.0f) {
+        ImGuiCond posCond = (flags & PanelFlags_NoMove) ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
+        ImGui::SetNextWindowPos(ImVec2(x, y), posCond);
+    }
     ImGui::SetNextWindowBgAlpha(bgAlpha);
 
     ImGuiWindowFlags imFlags = 0;
@@ -80,6 +88,10 @@ void BeginChild(const char* name) {
     ImGui::BeginChild(name, {0, 0}, ImGuiChildFlags_AutoResizeY);
 }
 
+void BeginChildSized(const char* name, float width, float height) {
+    ImGui::BeginChild(name, {width, height}, ImGuiChildFlags_AutoResizeY);
+}
+
 void EndChild() {
     ImGui::EndChild();
 }
@@ -96,6 +108,120 @@ void DrawLine(float x1, float y1, float x2, float y2,
               float r, float g, float b, float a, float thickness) {
     ImGui::GetForegroundDrawList()->AddLine(
         ImVec2(x1, y1), ImVec2(x2, y2), ImColor(r, g, b, a), thickness);
+}
+
+bool InputText(const char* label, char* buf, size_t bufSize) {
+    return ImGui::InputText(label, buf, bufSize);
+}
+
+bool InputTextString(const char* label, std::string* str) {
+    return ImGui::InputText(label, str);
+}
+
+bool ButtonSized(const char* label, float width, float height) {
+    return ImGui::Button(label, ImVec2(width, height));
+}
+
+bool Selectable(const char* label, bool selected) {
+    return ImGui::Selectable(label, selected);
+}
+
+void SetNextItemWidth(float width) {
+    ImGui::SetNextItemWidth(width);
+}
+
+void Spacing() {
+    ImGui::Spacing();
+}
+
+void Dummy(float width, float height) {
+    ImGui::Dummy(ImVec2(width, height));
+}
+
+void PushStyleColor(int idx, float r, float g, float b, float a) {
+    ImGui::PushStyleColor(static_cast<ImGuiCol>(idx), ImVec4(r, g, b, a));
+}
+
+void PopStyleColor(int count) {
+    ImGui::PopStyleColor(count);
+}
+
+void PushStyleVar(int idx, float val) {
+    ImGui::PushStyleVar(static_cast<ImGuiStyleVar>(idx), val);
+}
+
+void PushStyleVarVec(int idx, float x, float y) {
+    ImGui::PushStyleVar(static_cast<ImGuiStyleVar>(idx), ImVec2(x, y));
+}
+
+void PopStyleVar(int count) {
+    ImGui::PopStyleVar(count);
+}
+
+bool BeginListBox(const char* label, float width, float height) {
+    return ImGui::BeginListBox(label, ImVec2(width, height));
+}
+
+void EndListBox() {
+    ImGui::EndListBox();
+}
+
+void SetCursorPosX(float x) {
+    ImGui::SetCursorPosX(x);
+}
+
+void SetCursorPosY(float y) {
+    ImGui::SetCursorPosY(y);
+}
+
+float GetCursorPosY() {
+    return ImGui::GetCursorPosY();
+}
+
+float GetContentRegionAvailWidth() {
+    return ImGui::GetContentRegionAvail().x;
+}
+
+void SetNextWindowPos(float x, float y, bool always) {
+    ImGui::SetNextWindowPos(ImVec2(x, y), always ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+}
+
+void SetNextWindowSize(float w, float h, bool always) {
+    ImGui::SetNextWindowSize(ImVec2(w, h), always ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+}
+
+void ProgressBar(float fraction, float width, float height, const char* overlay) {
+    ImGui::ProgressBar(fraction, ImVec2(width, height), overlay);
+}
+
+void TextWrapped(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    ImGui::TextWrappedV(fmt, args);
+    va_end(args);
+}
+
+void Image(uint64_t textureID, float width, float height) {
+    ImGui::Image(static_cast<ImTextureID>(textureID), ImVec2(width, height));
+}
+
+static std::unordered_map<std::string, Sleak::Texture*> s_uiTextures;
+
+uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth, float* outHeight) {
+    auto it = s_uiTextures.find(filePath);
+    if (it != s_uiTextures.end()) {
+        if (outWidth) *outWidth = static_cast<float>(it->second->GetWidth());
+        if (outHeight) *outHeight = static_cast<float>(it->second->GetHeight());
+        return it->second->GetImGuiTextureID();
+    }
+
+    auto* tex = RenderEngine::ResourceManager::CreateTexture(filePath);
+    if (!tex) return 0;
+
+    s_uiTextures[filePath] = tex;
+    if (outWidth) *outWidth = static_cast<float>(tex->GetWidth());
+    if (outHeight) *outHeight = static_cast<float>(tex->GetHeight());
+    return tex->GetImGuiTextureID();
 }
 
 }  // namespace Sleak::UI
