@@ -2,6 +2,8 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include "../../include/private/Graphics/ResourceManager.hpp"
+#include "../../include/private/Graphics/Renderer.hpp"
+#include <Core/Application.hpp>
 #include <Runtime/Texture.hpp>
 #include <cstdarg>
 #include <unordered_map>
@@ -202,7 +204,16 @@ void TextWrapped(const char* fmt, ...) {
 }
 
 void Image(uint64_t textureID, float width, float height) {
-    ImGui::Image(static_cast<ImTextureID>(textureID), ImVec2(width, height));
+    // OpenGL textures are vertically flipped relative to ImGui's expectation
+    bool flipY = false;
+    auto* app = Application::GetInstance();
+    if (app && app->GetRenderer() &&
+        app->GetRenderer()->GetType() == RenderEngine::RendererType::OpenGL)
+        flipY = true;
+
+    ImVec2 uv0 = flipY ? ImVec2(0, 1) : ImVec2(0, 0);
+    ImVec2 uv1 = flipY ? ImVec2(1, 0) : ImVec2(1, 1);
+    ImGui::Image(static_cast<ImTextureID>(textureID), ImVec2(width, height), uv0, uv1);
 }
 
 static std::unordered_map<std::string, Sleak::Texture*> s_uiTextures;

@@ -2392,15 +2392,15 @@ bool VulkanRenderer::CreateImGUI() {
     if (!device || !instance || !graphicsQueue || !renderPass)
         return false;
 
-    // Create a dedicated descriptor pool for ImGUI
+    // Create a dedicated descriptor pool for ImGUI (extra sets for user textures)
     VkDescriptorPoolSize poolSizes[] = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
     };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.maxSets = 1;
+    poolInfo.maxSets = 64;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = poolSizes;
 
