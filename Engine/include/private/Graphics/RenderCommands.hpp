@@ -103,18 +103,25 @@ namespace Sleak {
         class UpdateConstantBufferCommand : public RenderCommandBase {
             public:
                 UpdateConstantBufferCommand(RefPtr<BufferBase> buffer, void* Data, uint16_t Size);
-                ~UpdateConstantBufferCommand() override { free(Data); }
+                ~UpdateConstantBufferCommand() override {
+                    if (m_heapData) free(m_heapData);
+                }
 
                 RENDER_COMMAND(UpdateConstantBuffer)
 
                 void* GetData() const
                 {
-                    return Data;
+                    return m_heapData ? m_heapData
+                                      : const_cast<void*>(static_cast<const void*>(m_inlineData));
                 }
 
             private:
                 RefPtr<BufferBase> constantBuffer;
-                void* Data;
+                // Inline storage avoids malloc/free for small buffers (≤256 bytes).
+                // TransformBuffer=128B, MaterialBuffer=128B — both fit inline.
+                static constexpr uint16_t INLINE_CAPACITY = 256;
+                alignas(16) uint8_t m_inlineData[INLINE_CAPACITY];
+                void* m_heapData = nullptr;
                 uint16_t Size;
         };
 

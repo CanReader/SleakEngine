@@ -94,21 +94,26 @@ void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
 
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
     void* Data,
-    uint16_t Size) : 
-      constantBuffer(buffer), 
-      Data(nullptr),
+    uint16_t Size) :
+      constantBuffer(buffer),
       Size(Size) {
-    this->Data = malloc(Size);
-
-    if (this->Data) {
-        memcpy(this->Data,Data,Size);
+    if (Size <= INLINE_CAPACITY) {
+        // Fast path: no heap allocation for small buffers
+        memcpy(m_inlineData, Data, Size);
     } else {
-        SLEAK_ERROR("Failed to allocate memory at UpdateConstantBufferCommand!");
+        // Fallback for large buffers
+        m_heapData = malloc(Size);
+        if (m_heapData) {
+            memcpy(m_heapData, Data, Size);
+        } else {
+            SLEAK_ERROR("Failed to allocate memory at UpdateConstantBufferCommand!");
+        }
     }
 }
 
 void UpdateConstantBufferCommand::Execute(RenderContext* context) {
-    constantBuffer->Update(Data,Size);
+    void* data = m_heapData ? m_heapData : static_cast<void*>(m_inlineData);
+    constantBuffer->Update(data, Size);
 }
 
 BindConstantBufferCommand::BindConstantBufferCommand(RefPtr<BufferBase> buffer, int slot) : 
