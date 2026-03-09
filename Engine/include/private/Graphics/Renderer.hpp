@@ -153,6 +153,7 @@ public:
 
     // ImGUI
     bool bImInitialized = false;
+    bool bImFrameActive = false;  // true when ImGui::NewFrame was called this frame
 
     // Renderer
     RendererType Type;
