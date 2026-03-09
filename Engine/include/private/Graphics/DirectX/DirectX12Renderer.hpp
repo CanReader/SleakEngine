@@ -102,14 +102,17 @@ private:
     void WaitForGPU();
     void EnumerateDevices(Microsoft::WRL::ComPtr<IDXGIFactory4> factory);
 
+    // Frame count (must be declared before arrays that use it)
+    static constexpr UINT FrameCount = 2;
+
     // Device and swap chain
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain;
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
 
-    // Command objects
+    // Command objects (per-frame allocators for CPU/GPU overlap)
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> commandQueue;
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocator;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocators[FrameCount];
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList;
 
     // Descriptor heaps
@@ -117,7 +120,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dsvHeap;
 
     // Render targets and depth
-    static constexpr UINT FrameCount = 2;
     Microsoft::WRL::ComPtr<ID3D12Resource> renderTargets[FrameCount];
     Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilBuffer;
 
@@ -125,10 +127,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState;
 
-    // Synchronization
+    // Synchronization (per-frame fence values for non-blocking overlap)
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     HANDLE fenceEvent = nullptr;
-    UINT64 fenceValue = 0;
+    UINT64 fenceValues[FrameCount] = {};
 
     // Descriptor sizes
     UINT rtvDescriptorSize = 0;
@@ -156,6 +158,20 @@ private:
 
     // ImGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiSrvHeap;
+
+    // Shared SRV descriptor heap (all textures live here — set once per frame)
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_sharedSrvHeap;
+    UINT m_srvDescriptorSize = 0;
+    UINT m_nextSrvSlot = 1; // slot 0 reserved for imgui/default
+    static constexpr UINT MAX_SRV_DESCRIPTORS = 512;
+
+    bool CreateSharedSrvHeap();
+public:
+    // Allocate a slot in the shared SRV heap; returns the slot index
+    UINT AllocateSRVSlot();
+    D3D12_CPU_DESCRIPTOR_HANDLE GetSharedSrvCPUHandle(UINT slot) const;
+    D3D12_GPU_DESCRIPTOR_HANDLE GetSharedSrvGPUHandle(UINT slot) const;
+    ID3D12DescriptorHeap* GetSharedSrvHeap() const { return m_sharedSrvHeap.Get(); }
 };
 
 }  // namespace RenderEngine

@@ -35,9 +35,12 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     ResourceManager::RegisterCreateTextureFromMemory(
         [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
             auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(), commandList.Get());
-            if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
-            delete tex;
-            return nullptr;
+            if (!tex->LoadFromMemory(data, w, h, fmt)) { delete tex; return nullptr; }
+            UINT slot = AllocateSRVSlot();
+            tex->CreateSRVIntoHandle(DXGI_FORMAT_R8G8B8A8_UNORM,
+                GetSharedSrvCPUHandle(slot));
+            tex->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
+            return tex;
         });
 }
 
@@ -63,6 +66,7 @@ bool DirectX12Renderer::Initialize() {
     if (!CreateDepthStencilView()) return false;
     if (!CreateFence()) return false;
     if (!CreateRootSignature()) return false;
+    if (!CreateSharedSrvHeap()) return false;
     // PSO is created lazily when CreateShader() is called
 
     // Create a 1x1 white default texture so the SRV table is always valid
@@ -75,6 +79,11 @@ bool DirectX12Renderer::Initialize() {
             SLEAK_WARN("Failed to create default white texture for DX12");
             delete m_defaultTexture;
             m_defaultTexture = nullptr;
+        } else {
+            UINT slot = AllocateSRVSlot();
+            m_defaultTexture->CreateSRVIntoHandle(DXGI_FORMAT_R8G8B8A8_UNORM,
+                GetSharedSrvCPUHandle(slot));
+            m_defaultTexture->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
         }
     }
 
@@ -134,15 +143,19 @@ bool DirectX12Renderer::CreateCommandQueue() {
 }
 
 bool DirectX12Renderer::CreateCommandAllocatorAndList() {
-    if (FAILED(device->CreateCommandAllocator(
-            D3D12_COMMAND_LIST_TYPE_DIRECT,
-            IID_PPV_ARGS(&commandAllocator)))) {
-        SLEAK_ERROR("Failed to create command allocator!");
-        return false;
+    // Create one command allocator per frame-in-flight so the CPU can
+    // record frame N+1 while the GPU is still executing frame N.
+    for (UINT i = 0; i < FrameCount; i++) {
+        if (FAILED(device->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                IID_PPV_ARGS(&commandAllocators[i])))) {
+            SLEAK_ERROR("Failed to create command allocator {}!", i);
+            return false;
+        }
     }
 
     if (FAILED(device->CreateCommandList(
-            0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(),
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocators[0].Get(),
             nullptr, IID_PPV_ARGS(&commandList)))) {
         SLEAK_ERROR("Failed to create command list!");
         return false;
@@ -287,7 +300,8 @@ bool DirectX12Renderer::CreateFence() {
         SLEAK_ERROR("Failed to create fence!");
         return false;
     }
-    fenceValue = 1;
+    for (UINT i = 0; i < FrameCount; i++)
+        fenceValues[i] = 0;
     return true;
 }
 
@@ -488,9 +502,16 @@ bool DirectX12Renderer::CreatePipelineStateFromShader(
 void DirectX12Renderer::BeginRender() {
     frameIndex = swapChain->GetCurrentBackBufferIndex();
 
-    // Reset the command allocator and command list
-    commandAllocator->Reset();
-    commandList->Reset(commandAllocator.Get(),
+    // Wait only for the specific frame that used this allocator to finish,
+    // allowing the other frame to still be in-flight on the GPU.
+    if (fence->GetCompletedValue() < fenceValues[frameIndex]) {
+        fence->SetEventOnCompletion(fenceValues[frameIndex], fenceEvent);
+        WaitForSingleObject(fenceEvent, INFINITE);
+    }
+
+    // Reset the command allocator and command list for this frame
+    commandAllocators[frameIndex]->Reset();
+    commandList->Reset(commandAllocators[frameIndex].Get(),
                        pipelineState ? pipelineState.Get() : nullptr);
 
     // Set PSO if available (created by CreateShader)
@@ -502,6 +523,11 @@ void DirectX12Renderer::BeginRender() {
 
     // Set root signature and viewport/scissor
     commandList->SetGraphicsRootSignature(rootSignature.Get());
+
+    // Bind the shared SRV heap ONCE for the entire frame — never switch heaps
+    ID3D12DescriptorHeap* srvHeaps[] = {m_sharedSrvHeap.Get()};
+    commandList->SetDescriptorHeaps(1, srvHeaps);
+
     commandList->RSSetViewports(1, &viewport);
     commandList->RSSetScissorRects(1, &scissorRect);
 
@@ -541,18 +567,23 @@ void DirectX12Renderer::BeginRender() {
         m_defaultTexture->Bind(0);
     }
 
+    bImFrameActive = false;
     if (bImInitialized) {
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
+        // Guard against first frames before SDL has reported a valid window size
+        auto& io = ImGui::GetIO();
+        if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f) {
+            ImGui::NewFrame();
+            bImFrameActive = true;
+        }
     }
 }
 
 void DirectX12Renderer::EndRender() {
-    if (bImInitialized) {
+    if (bImFrameActive) {
         ImGui::Render();
-        ID3D12DescriptorHeap* heaps[] = {imguiSrvHeap.Get()};
-        commandList->SetDescriptorHeaps(1, heaps);
+        // Shared SRV heap is already bound from BeginRender — no heap switch needed
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(),
                                        commandList.Get());
     }
@@ -574,18 +605,14 @@ void DirectX12Renderer::EndRender() {
     commandQueue->ExecuteCommandLists(_countof(ppCommandLists),
                                       ppCommandLists);
 
-    // Present the frame
-    swapChain->Present(1, 0);
+    // Present the frame (0 = no VSync, uncapped FPS)
+    swapChain->Present(0, 0);
 
-    // Wait for the frame to finish
-    const UINT64 currentFenceValue = fenceValue;
-    commandQueue->Signal(fence.Get(), currentFenceValue);
-    fenceValue++;
-
-    if (fence->GetCompletedValue() < currentFenceValue) {
-        fence->SetEventOnCompletion(currentFenceValue, fenceEvent);
-        WaitForSingleObject(fenceEvent, INFINITE);
-    }
+    // Signal the fence for this frame — do NOT wait here.
+    // The wait happens in BeginRender() when we need to reuse this
+    // frame's command allocator, allowing CPU/GPU overlap.
+    fenceValues[frameIndex]++;
+    commandQueue->Signal(fence.Get(), fenceValues[frameIndex]);
 
     UpdateFrameMetrics();
 }
@@ -593,14 +620,58 @@ void DirectX12Renderer::EndRender() {
 void DirectX12Renderer::WaitForGPU() {
     if (!commandQueue || !fence || !fenceEvent) return;
 
-    const UINT64 currentFenceValue = fenceValue;
-    commandQueue->Signal(fence.Get(), currentFenceValue);
-    fenceValue++;
+    // Find the highest fence value across all frames and wait for it
+    UINT64 maxFence = 0;
+    for (UINT i = 0; i < FrameCount; i++) {
+        if (fenceValues[i] > maxFence) maxFence = fenceValues[i];
+    }
+    const UINT64 waitValue = maxFence + 1;
+    commandQueue->Signal(fence.Get(), waitValue);
+    for (UINT i = 0; i < FrameCount; i++)
+        fenceValues[i] = waitValue;
 
-    if (fence->GetCompletedValue() < currentFenceValue) {
-        fence->SetEventOnCompletion(currentFenceValue, fenceEvent);
+    if (fence->GetCompletedValue() < waitValue) {
+        fence->SetEventOnCompletion(waitValue, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
+}
+
+bool DirectX12Renderer::CreateSharedSrvHeap() {
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.NumDescriptors = MAX_SRV_DESCRIPTORS;
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    HRESULT hr = device->CreateDescriptorHeap(
+        &heapDesc, IID_PPV_ARGS(&m_sharedSrvHeap));
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shared SRV descriptor heap!");
+        return false;
+    }
+    m_srvDescriptorSize = device->GetDescriptorHandleIncrementSize(
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_nextSrvSlot = 0;
+    return true;
+}
+
+UINT DirectX12Renderer::AllocateSRVSlot() {
+    if (m_nextSrvSlot >= MAX_SRV_DESCRIPTORS) {
+        SLEAK_ERROR("Shared SRV heap full! Increase MAX_SRV_DESCRIPTORS.");
+        return 0;
+    }
+    return m_nextSrvSlot++;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE DirectX12Renderer::GetSharedSrvCPUHandle(UINT slot) const {
+    D3D12_CPU_DESCRIPTOR_HANDLE handle = m_sharedSrvHeap->GetCPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<SIZE_T>(slot) * m_srvDescriptorSize;
+    return handle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE DirectX12Renderer::GetSharedSrvGPUHandle(UINT slot) const {
+    D3D12_GPU_DESCRIPTOR_HANDLE handle = m_sharedSrvHeap->GetGPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<UINT64>(slot) * m_srvDescriptorSize;
+    return handle;
 }
 
 void DirectX12Renderer::Cleanup() {
@@ -615,6 +686,7 @@ void DirectX12Renderer::Cleanup() {
         bImInitialized = false;
     }
     imguiSrvHeap.Reset();
+    m_sharedSrvHeap.Reset();
 
     m_skyboxPipelineState.Reset();
     pipelineState.Reset();
@@ -627,7 +699,8 @@ void DirectX12Renderer::Cleanup() {
     rtvHeap.Reset();
     fence.Reset();
     commandList.Reset();
-    commandAllocator.Reset();
+    for (UINT i = 0; i < FrameCount; i++)
+        commandAllocators[i].Reset();
     commandQueue.Reset();
     swapChain.Reset();
     device.Reset();
@@ -753,7 +826,7 @@ void DirectX12Renderer::ClearDepthStencil(bool clearDepth,
 
 void DirectX12Renderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                           uint32_t slot) {
-    auto* dx12Buf = dynamic_cast<DirectX12Buffer*>(buffer.get());
+    auto* dx12Buf = static_cast<DirectX12Buffer*>(buffer.get());
     if (!dx12Buf) return;
 
     D3D12_VERTEX_BUFFER_VIEW vbView = {};
@@ -767,7 +840,7 @@ void DirectX12Renderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
 void DirectX12Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
-    auto* dx12Buf = dynamic_cast<DirectX12Buffer*>(buffer.get());
+    auto* dx12Buf = static_cast<DirectX12Buffer*>(buffer.get());
     if (!dx12Buf) return;
 
     D3D12_INDEX_BUFFER_VIEW ibView = {};
@@ -781,7 +854,7 @@ void DirectX12Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
 
 void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                             uint32_t slot) {
-    auto* dx12Buf = dynamic_cast<DirectX12Buffer*>(buffer.get());
+    auto* dx12Buf = static_cast<DirectX12Buffer*>(buffer.get());
     if (!dx12Buf) return;
 
     commandList->SetGraphicsRootConstantBufferView(
@@ -796,10 +869,12 @@ BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
 
     // Execute the buffer's upload command list if it recorded any
     // copy commands (DEFAULT heap buffers with initial data).
+    // Do NOT call WaitForGPU() here — the upload runs on the same
+    // command queue, so GPU FIFO ordering guarantees the copy
+    // completes before subsequent render commands execute.
     if (buffer->HasPendingCommands()) {
         ID3D12CommandList* ppCmdLists[] = {buffer->GetCommandList()};
         commandQueue->ExecuteCommandLists(1, ppCmdLists);
-        WaitForGPU();
     }
 
     return buffer;
@@ -833,6 +908,12 @@ Texture* DirectX12Renderer::CreateTexture(
         delete texture;
         return nullptr;
     }
+    // Place the SRV into the shared heap so we never switch heaps at draw time
+    UINT slot = AllocateSRVSlot();
+    texture->CreateSRVIntoHandle(
+        texture->GetFormat() == TextureFormat::RGBA8 ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM,
+        GetSharedSrvCPUHandle(slot));
+    texture->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
     return texture;
 }
 
@@ -847,6 +928,11 @@ Texture* DirectX12Renderer::CreateTextureFromData(uint32_t width,
         delete texture;
         return nullptr;
     }
+    // Place the SRV into the shared heap
+    UINT slot = AllocateSRVSlot();
+    texture->CreateSRVIntoHandle(DXGI_FORMAT_R8G8B8A8_UNORM,
+        GetSharedSrvCPUHandle(slot));
+    texture->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
     return texture;
 }
 
@@ -854,53 +940,53 @@ Texture* DirectX12Renderer::CreateCubemapTexture(
     const std::array<std::string, 6>& facePaths) {
     auto* texture = new DirectX12CubemapTexture(device.Get(),
                                                  commandQueue.Get());
-    if (texture->LoadCubemap(facePaths)) {
-        return texture;
+    if (!texture->LoadCubemap(facePaths)) {
+        delete texture;
+        return nullptr;
     }
-    delete texture;
-    return nullptr;
+    UINT slot = AllocateSRVSlot();
+    texture->CreateSRVIntoHandle(GetSharedSrvCPUHandle(slot));
+    texture->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
+    return texture;
 }
 
 Texture* DirectX12Renderer::CreateCubemapTextureFromPanorama(
     const std::string& panoramaPath) {
     auto* texture = new DirectX12CubemapTexture(device.Get(),
                                                  commandQueue.Get());
-    if (texture->LoadEquirectangular(panoramaPath)) {
-        return texture;
+    if (!texture->LoadEquirectangular(panoramaPath)) {
+        delete texture;
+        return nullptr;
     }
-    delete texture;
-    return nullptr;
+    UINT slot = AllocateSRVSlot();
+    texture->CreateSRVIntoHandle(GetSharedSrvCPUHandle(slot));
+    texture->SetSharedSrvGPUHandle(GetSharedSrvGPUHandle(slot));
+    return texture;
 }
 
 void DirectX12Renderer::BindTexture(RefPtr<Sleak::Texture> texture,
                                      uint32_t slot) {
     if (!texture.IsValid() || !commandList) return;
 
-    // Try DX12 cubemap texture first
-    auto* cubemap =
-        dynamic_cast<DirectX12CubemapTexture*>(texture.get());
-    if (cubemap) {
-        cubemap->BindToCommandList(commandList.Get(), 2);
-        return;
-    }
-
-    // Try regular DX12 texture
-    auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture.get());
-    if (dx12Tex) {
-        dx12Tex->BindToCommandList(commandList.Get(), 2);
+    if (texture->GetType() == TextureType::TextureCube) {
+        static_cast<DirectX12CubemapTexture*>(texture.get())
+            ->BindToCommandList(commandList.Get(), 2);
+    } else {
+        static_cast<DirectX12Texture*>(texture.get())
+            ->BindToCommandList(commandList.Get(), 2);
     }
 }
 
 void DirectX12Renderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     if (!texture || !commandList) return;
 
-    auto* cubemap = dynamic_cast<DirectX12CubemapTexture*>(texture);
-    if (cubemap) {
-        cubemap->BindToCommandList(commandList.Get(), 2);
+    if (texture->GetType() == TextureType::TextureCube) {
+        static_cast<DirectX12CubemapTexture*>(texture)
+            ->BindToCommandList(commandList.Get(), 2);
         return;
     }
 
-    auto* dx12Tex = dynamic_cast<DirectX12Texture*>(texture);
+    auto* dx12Tex = static_cast<DirectX12Texture*>(texture);
     if (dx12Tex) {
         dx12Tex->BindToCommandList(commandList.Get(), 2);
     }
@@ -1188,20 +1274,13 @@ bool DirectX12Renderer::IsSupport() {
 }
 
 bool DirectX12Renderer::CreateImGUI() {
-    if (!device || !commandQueue)
+    if (!device || !commandQueue || !m_sharedSrvHeap)
         return false;
 
-    // Create a dedicated SRV descriptor heap for ImGUI
-    D3D12_DESCRIPTOR_HEAP_DESC desc{};
-    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = 1;
-    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-    if (FAILED(device->CreateDescriptorHeap(
-            &desc, IID_PPV_ARGS(&imguiSrvHeap)))) {
-        SLEAK_ERROR("Failed to create ImGUI SRV heap!");
-        return false;
-    }
+    // Allocate a slot in the shared SRV heap for ImGui's font texture
+    UINT imguiSlot = AllocateSRVSlot();
+    D3D12_CPU_DESCRIPTOR_HANDLE imguiCpuHandle = GetSharedSrvCPUHandle(imguiSlot);
+    D3D12_GPU_DESCRIPTOR_HANDLE imguiGpuHandle = GetSharedSrvGPUHandle(imguiSlot);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1213,9 +1292,9 @@ bool DirectX12Renderer::CreateImGUI() {
 
     if (!ImGui_ImplDX12_Init(
             device.Get(), FrameCount, DXGI_FORMAT_R8G8B8A8_UNORM,
-            imguiSrvHeap.Get(),
-            imguiSrvHeap->GetCPUDescriptorHandleForHeapStart(),
-            imguiSrvHeap->GetGPUDescriptorHandleForHeapStart()))
+            m_sharedSrvHeap.Get(),
+            imguiCpuHandle,
+            imguiGpuHandle))
         return false;
 
     bImInitialized = true;
