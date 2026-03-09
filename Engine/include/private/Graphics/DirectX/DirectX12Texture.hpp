@@ -34,12 +34,17 @@ public:
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
 
-    ID3D12DescriptorHeap* GetSRVHeap() const { return m_srvHeap.Get(); }
     ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
-    // Bind SRV heap and table to a command list for rendering
+    // Bind SRV table to a command list for rendering (heap already set)
     void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
                            UINT rootParameterIndex) const;
+
+    // Set shared SRV heap slot (called by renderer during creation)
+    void SetSharedSrvGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle) { m_srvGpuHandle = handle; m_usesSharedHeap = true; }
+
+    // Create SRV directly into an externally-provided CPU handle (shared heap)
+    bool CreateSRVIntoHandle(DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
 private:
     bool CreateTextureResource(uint32_t width, uint32_t height,
@@ -56,7 +61,9 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> m_texture;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap; // fallback per-texture heap
+    D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHandle = {};
+    bool m_usesSharedHeap = false;
 
     uint32_t m_width = 0;
     uint32_t m_height = 0;

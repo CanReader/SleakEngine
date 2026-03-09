@@ -40,11 +40,15 @@ public:
     TextureFormat GetFormat() const override { return TextureFormat::RGBA8; }
     TextureType GetType() const override { return TextureType::TextureCube; }
 
-    ID3D12DescriptorHeap* GetSRVHeap() const { return m_srvHeap.Get(); }
     ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
     void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
                            UINT rootParameterIndex) const;
+
+    // Set shared SRV heap slot (called by renderer during creation)
+    void SetSharedSrvGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle) { m_srvGpuHandle = handle; m_usesSharedHeap = true; }
+    // Create SRV directly into an externally-provided CPU handle (cube SRV)
+    void CreateSRVIntoHandle(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
 private:
     bool CreateCubemapFromFaces(const std::vector<unsigned char*>& faceData,
@@ -56,7 +60,9 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> m_texture;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap; // fallback
+    D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHandle = {};
+    bool m_usesSharedHeap = false;
 
     uint32_t m_width = 0;
     uint32_t m_height = 0;

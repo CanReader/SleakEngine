@@ -78,13 +78,19 @@ void DirectX12Texture::SetWrapMode(TextureWrapMode wrapMode) {
 
 void DirectX12Texture::BindToCommandList(
     ID3D12GraphicsCommandList* cmdList, UINT rootParameterIndex) const {
-    if (!m_srvHeap || !cmdList) return;
+    if (!cmdList) return;
 
-    ID3D12DescriptorHeap* heaps[] = {m_srvHeap.Get()};
-    cmdList->SetDescriptorHeaps(1, heaps);
-    cmdList->SetGraphicsRootDescriptorTable(
-        rootParameterIndex,
-        m_srvHeap->GetGPUDescriptorHandleForHeapStart());
+    if (m_usesSharedHeap) {
+        // Fast path: shared heap already bound by BeginRender, just set the table
+        cmdList->SetGraphicsRootDescriptorTable(rootParameterIndex, m_srvGpuHandle);
+    } else if (m_srvHeap) {
+        // Legacy fallback: per-texture heap (should not happen in normal flow)
+        ID3D12DescriptorHeap* heaps[] = {m_srvHeap.Get()};
+        cmdList->SetDescriptorHeaps(1, heaps);
+        cmdList->SetGraphicsRootDescriptorTable(
+            rootParameterIndex,
+            m_srvHeap->GetGPUDescriptorHandleForHeapStart());
+    }
 }
 
 bool DirectX12Texture::CreateTextureResource(uint32_t width,
@@ -267,6 +273,17 @@ bool DirectX12Texture::CreateSRV(DXGI_FORMAT format) {
         m_texture.Get(), &srvDesc,
         m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
+    return true;
+}
+
+bool DirectX12Texture::CreateSRVIntoHandle(DXGI_FORMAT format,
+                                            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle) {
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    m_device->CreateShaderResourceView(m_texture.Get(), &srvDesc, cpuHandle);
     return true;
 }
 

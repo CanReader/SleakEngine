@@ -398,13 +398,31 @@ void DirectX12CubemapTexture::SetWrapMode(TextureWrapMode wrapMode) {
 
 void DirectX12CubemapTexture::BindToCommandList(
     ID3D12GraphicsCommandList* cmdList, UINT rootParameterIndex) const {
-    if (!m_srvHeap || !cmdList) return;
+    if (!cmdList) return;
 
-    ID3D12DescriptorHeap* heaps[] = {m_srvHeap.Get()};
-    cmdList->SetDescriptorHeaps(1, heaps);
-    cmdList->SetGraphicsRootDescriptorTable(
-        rootParameterIndex,
-        m_srvHeap->GetGPUDescriptorHandleForHeapStart());
+    if (m_usesSharedHeap) {
+        // Fast path: shared heap already bound by BeginRender
+        cmdList->SetGraphicsRootDescriptorTable(rootParameterIndex, m_srvGpuHandle);
+    } else if (m_srvHeap) {
+        // Legacy fallback
+        ID3D12DescriptorHeap* heaps[] = {m_srvHeap.Get()};
+        cmdList->SetDescriptorHeaps(1, heaps);
+        cmdList->SetGraphicsRootDescriptorTable(
+            rootParameterIndex,
+            m_srvHeap->GetGPUDescriptorHandleForHeapStart());
+    }
+}
+
+void DirectX12CubemapTexture::CreateSRVIntoHandle(
+    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle) {
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    srvDesc.TextureCube.MipLevels = 1;
+    srvDesc.TextureCube.MostDetailedMip = 0;
+    srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+    m_device->CreateShaderResourceView(m_texture.Get(), &srvDesc, cpuHandle);
 }
 
 }  // namespace RenderEngine
