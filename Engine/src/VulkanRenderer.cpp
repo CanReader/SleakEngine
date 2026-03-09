@@ -300,10 +300,15 @@ void VulkanRenderer::BeginRender() {
     // RenderCommandQueue will now call Draw/DrawIndexed/Bind* methods
     // via the RenderContext interface on this object
 
+    bImFrameActive = false;
     if (bImInitialized) {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
+        auto& io = ImGui::GetIO();
+        if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f) {
+            ImGui::NewFrame();
+            bImFrameActive = true;
+        }
     }
 }
 
@@ -312,7 +317,7 @@ void VulkanRenderer::EndRender() {
     if (!bRender || !bFrameStarted)
         return;
 
-    if (bImInitialized) {
+    if (bImFrameActive) {
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
     }
@@ -338,7 +343,9 @@ void VulkanRenderer::EndRender() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &command;
 
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[CurrentFrameIndex]};
+    // Use currentFrame (frame-in-flight index) for signal semaphore,
+    // matching the fence and wait semaphore indices for correct sync.
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -436,7 +443,7 @@ void VulkanRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
 void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
     if (!bFrameStarted) return;
-    auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
+    auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
     VkBuffer buffers[] = {vkBuf->GetVkBuffer()};
     VkDeviceSize offsets[] = {0};
@@ -446,7 +453,7 @@ void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                                       uint32_t slot) {
     if (!bFrameStarted) return;
-    auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
+    auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
     vkCmdBindIndexBuffer(command, vkBuf->GetVkBuffer(), 0,
                          VK_INDEX_TYPE_UINT32);
@@ -455,7 +462,7 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
     if (!bFrameStarted) return;
-    auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
+    auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
 
     // Use push constants — recorded into the command buffer per draw call
@@ -632,8 +639,11 @@ void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
     if (!texture.IsValid() || slot != 0)
         return;
 
-    // Cast to VulkanTexture to access its per-texture descriptor sets
-    auto* vkTex = dynamic_cast<VulkanTexture*>(texture.get());
+    // Cubemap textures are bound via skybox pass, skip here
+    if (texture->GetType() == TextureType::TextureCube)
+        return;
+
+    auto* vkTex = static_cast<VulkanTexture*>(texture.get());
     if (!vkTex || !vkTex->HasDescriptorSets())
         return;
 
@@ -650,7 +660,11 @@ void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     if (!texture || slot != 0)
         return;
 
-    auto* vkTex = dynamic_cast<VulkanTexture*>(texture);
+    // Cubemap textures are bound via skybox pass, skip here
+    if (texture->GetType() == TextureType::TextureCube)
+        return;
+
+    auto* vkTex = static_cast<VulkanTexture*>(texture);
     if (!vkTex || !vkTex->HasDescriptorSets())
         return;
 
@@ -1320,6 +1334,9 @@ bool VulkanRenderer::RecreateSwapChain() {
         SLEAK_ERROR("Failed to recreate framebuffers!");
         return false;
     }
+
+    // Resize imagesInFlight in case swapchain image count changed
+    imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
 
     return true;
 }
@@ -2215,8 +2232,10 @@ bool VulkanRenderer::CreateCommandPool() {
 }
 
 bool VulkanRenderer::CreateSyncObjects() {
+    // All sync objects indexed by frame-in-flight (currentFrame),
+    // not by swapchain image index, for consistent synchronization.
     imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    renderFinishedSemaphores.resize(swapChainImages.size());
+    renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
     imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
 
@@ -2230,16 +2249,11 @@ bool VulkanRenderer::CreateSyncObjects() {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                                &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+                               &renderFinishedSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(device, &fenceInfo, nullptr,
                            &inFlightFences[i]) != VK_SUCCESS) {
             SLEAK_RETURN_ERR("Failed to create synchronization objects!");
-        }
-    }
-
-    for (size_t i = 0; i < swapChainImages.size(); i++) {
-        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &renderFinishedSemaphores[i]) != VK_SUCCESS) {
-            SLEAK_RETURN_ERR("Failed to create render finished semaphore!");
         }
     }
 
@@ -2299,8 +2313,13 @@ VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
 
 VkPresentModeKHR VulkanRenderer::ChoosePresentMode(
     const std::vector<VkPresentModeKHR>& modes) {
+    // Prefer MAILBOX (triple-buffered, no tearing, lowest latency without VSync cap).
+    // Fall back to IMMEDIATE (uncapped, may tear) before FIFO (VSync-locked).
     for (auto& mode : modes)
         if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
+            return mode;
+    for (auto& mode : modes)
+        if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
             return mode;
 
     return VK_PRESENT_MODE_FIFO_KHR;
@@ -3074,7 +3093,7 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
         if (!CreateBoneUBOResources()) return;
     }
 
-    auto* vkBuf = dynamic_cast<VulkanBuffer*>(buffer.get());
+    auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
 
     void* data = vkBuf->GetData();
@@ -3238,7 +3257,61 @@ bool VulkanRenderer::CreateShadowResources() {
         return false;
     }
 
-    // 6. Create shadow pipeline
+    // 6. Transition shadow image to SHADER_READ_ONLY_OPTIMAL so the
+    //    descriptor is valid even before the first shadow pass runs.
+    {
+        VkCommandBufferAllocateInfo cmdAllocInfo{};
+        cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmdAllocInfo.commandPool = commands;
+        cmdAllocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer cmdBuf;
+        vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmdBuf);
+
+        VkCommandBufferBeginInfo cmdBeginInfo{};
+        cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmdBuf, &cmdBeginInfo);
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_shadowImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(cmdBuf,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(cmdBuf);
+
+        VkSubmitInfo layoutSubmit{};
+        layoutSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        layoutSubmit.commandBufferCount = 1;
+        layoutSubmit.pCommandBuffers = &cmdBuf;
+
+        VkFenceCreateInfo layoutFenceInfo{};
+        layoutFenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence layoutFence;
+        vkCreateFence(device, &layoutFenceInfo, nullptr, &layoutFence);
+        vkQueueSubmit(graphicsQueue, 1, &layoutSubmit, layoutFence);
+        vkWaitForFences(device, 1, &layoutFence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(device, layoutFence, nullptr);
+        vkFreeCommandBuffers(device, commands, 1, &cmdBuf);
+    }
+
+    // 7. Create shadow pipeline
     if (!CreateShadowPipeline()) {
         SLEAK_ERROR("Failed to create shadow pipeline!");
         return false;
