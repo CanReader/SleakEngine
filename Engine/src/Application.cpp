@@ -274,6 +274,10 @@ namespace Sleak {
         CoreWindow->Close();
     }
 
+    void Application::WaitGPUIdle() {
+        if (renderer) renderer->WaitIdle();
+    }
+
     int Application::GetFPS() const { return renderer->GetFrameRate(); }
     float Application::GetFrameTime() const { return renderer->GetFrameTime(); }
     int Application::GetVertices() const { return renderer->GetVertices(); }

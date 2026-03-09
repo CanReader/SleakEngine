@@ -49,6 +49,7 @@ public:
     virtual void BeginRender() override;
     virtual void EndRender() override;
     virtual void Cleanup() override;
+    virtual void WaitIdle() override;
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 

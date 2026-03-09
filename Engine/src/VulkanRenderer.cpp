@@ -721,6 +721,10 @@ bool VulkanRenderer::CreateCommandBuffer() {
     return true;
 }
 
+void VulkanRenderer::WaitIdle() {
+    if (device) vkDeviceWaitIdle(device);
+}
+
 void VulkanRenderer::Cleanup() {
     SLEAK_INFO("Cleaning Vulkan...");
 

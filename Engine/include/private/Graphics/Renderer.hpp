@@ -24,6 +24,7 @@ public:
     virtual void BeginRender() = 0;
     virtual void EndRender() = 0;
     virtual void Cleanup() = 0;
+    virtual void WaitIdle() {}
 
     virtual void Resize(uint32_t width, uint32_t height) = 0;
 

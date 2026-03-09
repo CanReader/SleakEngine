@@ -64,6 +64,7 @@ class ENGINE_API Application {
 
     Window& GetWindow();
     void CloseApplication();
+    void WaitGPUIdle();
 
     RenderEngine::Renderer* GetRenderer() { return renderer; }
     GameBase* GetGame() { return Game; }
