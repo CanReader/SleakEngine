@@ -5,6 +5,7 @@
 #include "../../include/private/Graphics/Renderer.hpp"
 #include <Core/Application.hpp>
 #include <Runtime/Texture.hpp>
+#include <stb_image.h>
 #include <cstdarg>
 #include <unordered_map>
 
@@ -233,6 +234,20 @@ uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth, float* o
     if (outWidth) *outWidth = static_cast<float>(tex->GetWidth());
     if (outHeight) *outHeight = static_cast<float>(tex->GetHeight());
     return tex->GetImGuiTextureID();
+}
+
+Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels) {
+    return RenderEngine::ResourceManager::CreateTextureFromMemory(
+        rgbaPixels, width, height, TextureFormat::RGBA8);
+}
+
+unsigned char* LoadImagePixels(const char* path, int* w, int* h) {
+    int channels;
+    return stbi_load(path, w, h, &channels, 4); // force RGBA
+}
+
+void FreeImagePixels(unsigned char* pixels) {
+    stbi_image_free(pixels);
 }
 
 }  // namespace Sleak::UI

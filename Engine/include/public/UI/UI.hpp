@@ -3,6 +3,8 @@
 #include <Core/OSDef.hpp>
 #include <string>
 
+namespace Sleak { class Texture; }
+
 namespace Sleak::UI {
 
 enum PanelFlags : int {
@@ -72,6 +74,13 @@ ENGINE_API void TextWrapped(const char* fmt, ...);
 // Texture display
 ENGINE_API void Image(uint64_t textureID, float width, float height);
 ENGINE_API uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth = nullptr, float* outHeight = nullptr);
+
+// Create a texture from raw RGBA pixel data (for runtime atlas building etc.)
+ENGINE_API Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels);
+
+// Load image file into RGBA pixels (caller must free with FreeImagePixels)
+ENGINE_API unsigned char* LoadImagePixels(const char* path, int* w, int* h);
+ENGINE_API void FreeImagePixels(unsigned char* pixels);
 
 // Style color indices (mirrors ImGuiCol_)
 enum StyleColor : int {
