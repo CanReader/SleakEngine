@@ -283,14 +283,23 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
 
     vkEndCommandBuffer(commandBuffer);
 
+    // Use a dedicated fence instead of vkQueueWaitIdle.
+    // vkQueueWaitIdle stalls ALL in-flight frames (kills FPS).
+    // A fence only waits for this tiny copy to finish.
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence copyFence;
+    vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(m_graphicsQueue);
+    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
+    vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
 
+    vkDestroyFence(m_device, copyFence, nullptr);
     vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
 }
 

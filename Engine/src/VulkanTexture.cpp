@@ -128,8 +128,13 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &cmdBuffer;
 
-        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(m_graphicsQueue);
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence copyFence;
+        vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
+        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
+        vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(m_device, copyFence, nullptr);
         vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
     }
 
@@ -431,8 +436,13 @@ void VulkanTexture::TransitionImageLayout(VkImage image,
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
 
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(m_graphicsQueue);
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence copyFence;
+    vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
+    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
+    vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(m_device, copyFence, nullptr);
     vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
 }
 
