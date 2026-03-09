@@ -225,7 +225,10 @@ namespace Sleak {
         switch(e.GetKeyCode())
         {
             case Input::KEY_CODE::KEY__ESCAPE:
-              GetWindow().Close();
+              // Let the game handle ESC (e.g. return to menu)
+              // Only close window if no game is running
+              if (!Game)
+                  GetWindow().Close();
             break;
 
             case Input::KEY_CODE::KEY__F1:
@@ -265,6 +268,10 @@ namespace Sleak {
 
     Window& Application::GetWindow() {
         return *CoreWindow;
+    }
+
+    void Application::CloseApplication() {
+        CoreWindow->Close();
     }
 
     int Application::GetFPS() const { return renderer->GetFrameRate(); }

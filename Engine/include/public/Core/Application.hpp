@@ -63,8 +63,10 @@ class ENGINE_API Application {
     int Run(GameBase* game);
 
     Window& GetWindow();
+    void CloseApplication();
 
     RenderEngine::Renderer* GetRenderer() { return renderer; }
+    GameBase* GetGame() { return Game; }
 
     static Application* GetInstance() { return Instance; }
 
