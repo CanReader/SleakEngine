@@ -87,8 +87,12 @@ namespace Sleak {
                 }
             }
 
-            while (!commands.isEmpty())
-                commands.pop()->Execute(context);
+            // Execute all commands using iteration (O(n)), then clear.
+            // Queue::pop() is O(n) per call due to erase(0) shifting, so
+            // popping in a loop would be O(n²).
+            for (auto& cmd : commands)
+                cmd->Execute(context);
+            commands.clear();
         }
 
         void RenderCommandQueue::ExecuteShadowPass(RenderContext* context) {
