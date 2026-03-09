@@ -29,6 +29,8 @@ public:
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
 
+    uint64_t GetImGuiTextureID() const override;
+
     VkImageView GetImageView() const { return m_imageView; }
     VkSampler GetSampler() const { return m_sampler; }
 
@@ -61,6 +63,7 @@ private:
     VkSampler m_sampler = VK_NULL_HANDLE;
 
     std::vector<VkDescriptorSet> m_descriptorSets;
+    mutable VkDescriptorSet m_imguiDescriptorSet = VK_NULL_HANDLE;
 
     uint32_t m_width = 0;
     uint32_t m_height = 0;

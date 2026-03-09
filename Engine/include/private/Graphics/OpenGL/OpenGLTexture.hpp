@@ -28,6 +28,8 @@ public:
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
 
+    uint64_t GetImGuiTextureID() const override { return static_cast<uint64_t>(m_texture); }
+
     GLuint GetGLTexture() const { return m_texture; }
 
 private:

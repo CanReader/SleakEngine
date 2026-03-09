@@ -1,4 +1,5 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
+#include <backends/imgui_impl_vulkan.h>
 #include <Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
@@ -221,9 +222,21 @@ void VulkanTexture::UpdateDescriptorSets() {
     }
 }
 
+uint64_t VulkanTexture::GetImGuiTextureID() const {
+    if (m_imguiDescriptorSet == VK_NULL_HANDLE && m_imageView != VK_NULL_HANDLE && m_sampler != VK_NULL_HANDLE) {
+        m_imguiDescriptorSet = ImGui_ImplVulkan_AddTexture(
+            m_sampler, m_imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return reinterpret_cast<uint64_t>(m_imguiDescriptorSet);
+}
+
 void VulkanTexture::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
+    if (m_imguiDescriptorSet != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(m_imguiDescriptorSet);
+        m_imguiDescriptorSet = VK_NULL_HANDLE;
+    }
     if (m_sampler != VK_NULL_HANDLE) {
         vkDestroySampler(m_device, m_sampler, nullptr);
         m_sampler = VK_NULL_HANDLE;

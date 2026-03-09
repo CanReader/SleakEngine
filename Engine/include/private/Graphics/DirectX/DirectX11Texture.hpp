@@ -42,6 +42,10 @@ public:
     // Get texture type
     TextureType GetType() const override;
 
+    uint64_t GetImGuiTextureID() const override {
+        return reinterpret_cast<uint64_t>(m_shaderResourceView.Get());
+    }
+
 private:
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_deviceContext;

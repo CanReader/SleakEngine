@@ -56,6 +56,8 @@ public:
     virtual TextureFormat GetFormat() const = 0;
 
     virtual TextureType GetType() const = 0;
+
+    virtual uint64_t GetImGuiTextureID() const { return 0; }
 };
 
 } // namespace Sleak

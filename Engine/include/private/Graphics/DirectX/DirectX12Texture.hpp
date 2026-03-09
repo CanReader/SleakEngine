@@ -34,6 +34,8 @@ public:
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
 
+    uint64_t GetImGuiTextureID() const override { return m_srvGpuHandle.ptr; }
+
     ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
     // Bind SRV table to a command list for rendering (heap already set)
