@@ -50,6 +50,7 @@ public:
     virtual void EndRender() override;
     virtual void Cleanup() override;
     virtual void WaitIdle() override;
+    virtual void FlushPendingTransfers() override;
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 

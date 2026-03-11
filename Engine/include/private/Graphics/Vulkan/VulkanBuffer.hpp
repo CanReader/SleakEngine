@@ -3,6 +3,7 @@
 
 #include "../BufferBase.hpp"
 #include <vulkan/vulkan.h>
+#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -25,6 +26,10 @@ public:
     void* GetData() override;
 
     VkBuffer GetVkBuffer() const { return m_buffer; }
+
+    // Flush all pending buffer copies in a single batched submission.
+    // Call this before draw commands to ensure all buffers are ready.
+    static void FlushPendingCopies();
 
 private:
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -49,6 +54,22 @@ private:
     VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;
 
     void* m_mappedData = nullptr;
+
+    // --- Batched transfer state ---
+    struct PendingStagingCleanup {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+    };
+
+    static bool s_batchActive;
+    static VkCommandBuffer s_batchCommandBuffer;
+    static VkDevice s_batchDevice;
+    static VkCommandPool s_batchCommandPool;
+    static VkQueue s_batchQueue;
+    static std::vector<PendingStagingCleanup> s_pendingCleanup;
+
+    static void EnsureBatchStarted(VkDevice device, VkCommandPool pool,
+                                   VkQueue queue);
 };
 
 }  // namespace RenderEngine

@@ -6,6 +6,14 @@
 namespace Sleak {
 namespace RenderEngine {
 
+// Static batch state
+bool VulkanBuffer::s_batchActive = false;
+VkCommandBuffer VulkanBuffer::s_batchCommandBuffer = VK_NULL_HANDLE;
+VkDevice VulkanBuffer::s_batchDevice = VK_NULL_HANDLE;
+VkCommandPool VulkanBuffer::s_batchCommandPool = VK_NULL_HANDLE;
+VkQueue VulkanBuffer::s_batchQueue = VK_NULL_HANDLE;
+std::vector<VulkanBuffer::PendingStagingCleanup> VulkanBuffer::s_pendingCleanup;
+
 VulkanBuffer::VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                            uint32_t size, BufferType type,
                            VkCommandPool commandPool, VkQueue graphicsQueue)
@@ -55,9 +63,13 @@ bool VulkanBuffer::Initialize(void* data) {
                 CopyBuffer(m_stagingBuffer, m_buffer, Size);
             }
 
-            // Clean up staging buffer
-            vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
-            vkFreeMemory(m_device, m_stagingMemory, nullptr);
+            // Defer staging cleanup if batch is active
+            if (s_batchActive) {
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory});
+            } else {
+                vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+                vkFreeMemory(m_device, m_stagingMemory, nullptr);
+            }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
             break;
@@ -88,8 +100,13 @@ bool VulkanBuffer::Initialize(void* data) {
                 CopyBuffer(m_stagingBuffer, m_buffer, Size);
             }
 
-            vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
-            vkFreeMemory(m_device, m_stagingMemory, nullptr);
+            // Defer staging cleanup if batch is active
+            if (s_batchActive) {
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory});
+            } else {
+                vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+                vkFreeMemory(m_device, m_stagingMemory, nullptr);
+            }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
             break;
@@ -163,8 +180,13 @@ void VulkanBuffer::Update(void* data, size_t size) {
 
         CopyBuffer(staging, m_buffer, size);
 
-        vkDestroyBuffer(m_device, staging, nullptr);
-        vkFreeMemory(m_device, stagingMem, nullptr);
+        // Defer staging cleanup if batch is active
+        if (s_batchActive) {
+            s_pendingCleanup.push_back({staging, stagingMem});
+        } else {
+            vkDestroyBuffer(m_device, staging, nullptr);
+            vkFreeMemory(m_device, stagingMem, nullptr);
+        }
     }
 }
 
@@ -262,6 +284,16 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
 
 void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
                                VkDeviceSize size) {
+    // If a batch is active, record into the shared command buffer
+    EnsureBatchStarted(m_device, m_commandPool, m_graphicsQueue);
+    if (s_batchActive) {
+        VkBufferCopy copyRegion{};
+        copyRegion.size = size;
+        vkCmdCopyBuffer(s_batchCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+        return;
+    }
+
+    // Fallback: immediate copy (used when no batch is active, e.g. texture uploads)
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -283,9 +315,6 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
 
     vkEndCommandBuffer(commandBuffer);
 
-    // Use a dedicated fence instead of vkQueueWaitIdle.
-    // vkQueueWaitIdle stalls ALL in-flight frames (kills FPS).
-    // A fence only waits for this tiny copy to finish.
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     VkFence copyFence;
@@ -301,6 +330,73 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
 
     vkDestroyFence(m_device, copyFence, nullptr);
     vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+}
+
+void VulkanBuffer::EnsureBatchStarted(VkDevice device, VkCommandPool pool,
+                                       VkQueue queue) {
+    if (s_batchActive) return;
+
+    s_batchDevice = device;
+    s_batchCommandPool = pool;
+    s_batchQueue = queue;
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = pool;
+    allocInfo.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(device, &allocInfo, &s_batchCommandBuffer) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate batch transfer command buffer!");
+        return;
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    if (vkBeginCommandBuffer(s_batchCommandBuffer, &beginInfo) != VK_SUCCESS) {
+        SLEAK_ERROR("Failed to begin batch transfer command buffer!");
+        vkFreeCommandBuffers(device, pool, 1, &s_batchCommandBuffer);
+        s_batchCommandBuffer = VK_NULL_HANDLE;
+        return;
+    }
+
+    s_batchActive = true;
+}
+
+void VulkanBuffer::FlushPendingCopies() {
+    if (!s_batchActive) return;
+
+    vkEndCommandBuffer(s_batchCommandBuffer);
+
+    // Single submit + single fence for ALL batched copies
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence batchFence;
+    vkCreateFence(s_batchDevice, &fenceInfo, nullptr, &batchFence);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &s_batchCommandBuffer;
+
+    vkQueueSubmit(s_batchQueue, 1, &submitInfo, batchFence);
+    vkWaitForFences(s_batchDevice, 1, &batchFence, VK_TRUE, UINT64_MAX);
+
+    // Cleanup
+    vkDestroyFence(s_batchDevice, batchFence, nullptr);
+    vkFreeCommandBuffers(s_batchDevice, s_batchCommandPool, 1, &s_batchCommandBuffer);
+
+    // Free all deferred staging buffers
+    for (auto& pending : s_pendingCleanup) {
+        vkDestroyBuffer(s_batchDevice, pending.buffer, nullptr);
+        vkFreeMemory(s_batchDevice, pending.memory, nullptr);
+    }
+    s_pendingCleanup.clear();
+
+    s_batchCommandBuffer = VK_NULL_HANDLE;
+    s_batchActive = false;
 }
 
 uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,

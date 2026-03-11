@@ -725,6 +725,10 @@ void VulkanRenderer::WaitIdle() {
     if (device) vkDeviceWaitIdle(device);
 }
 
+void VulkanRenderer::FlushPendingTransfers() {
+    VulkanBuffer::FlushPendingCopies();
+}
+
 void VulkanRenderer::Cleanup() {
     SLEAK_INFO("Cleaning Vulkan...");
 

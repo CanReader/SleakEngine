@@ -179,6 +179,8 @@ namespace Sleak {
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
 
+                renderer->FlushPendingTransfers();
+
                 if (queue && context)
                     queue->ExecuteCommands(context);
 
