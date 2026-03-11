@@ -68,7 +68,10 @@ layout(std140, binding = 2) uniform LightUBO {
     uint NumActiveLights;
     vec3 AmbientColor;
     float AmbientIntensity;
-    vec4 _reserved[2];
+    vec4 FogColor;
+    float FogStart;
+    float FogEnd;
+    float _pad0, _pad1;
     LightData Lights[16];
 };
 

@@ -47,8 +47,12 @@ namespace Sleak {
             float AmbientR, AmbientG, AmbientB;
             float AmbientIntensity;
 
-            // Header Row 2-3: reserved
-            float _reserved[8];
+            // Header Row 2: Fog color
+            float FogColorR, FogColorG, FogColorB, FogColorA;
+
+            // Header Row 3: Fog distances + reserved
+            float FogStart, FogEnd;
+            float _reserved[2];
 
             // Per-light array
             LightGPUEntry Lights[MAX_LIGHTS];
@@ -157,6 +161,10 @@ namespace Sleak {
             float ShadowStrength;
             float ShadowTexelSize;
             float LightSize;         // world-space light size for PCSS penumbra
+            float FogColor[4];       // rgb + alpha (matches sky color)
+            float FogStart;          // distance where fog begins
+            float FogEnd;            // distance where fog fully obscures
+            float _fogPad[2];        // padding to 16-byte alignment
         };
 
         struct alignas(16) LightBuffer : public ConstantBuffer {

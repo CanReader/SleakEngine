@@ -68,6 +68,19 @@ void LightManager::UpdateAndBind() {
     cbData.AmbientB = m_ambientB;
     cbData.AmbientIntensity = m_ambientIntensity;
 
+    // Fog
+    if (m_fogEnabled) {
+        cbData.FogColorR = m_fogR;
+        cbData.FogColorG = m_fogG;
+        cbData.FogColorB = m_fogB;
+        cbData.FogColorA = 1.0f;
+        cbData.FogStart = m_fogStart;
+        cbData.FogEnd = m_fogEnd;
+    } else {
+        cbData.FogStart = 0.0f;
+        cbData.FogEnd = 0.0f;
+    }
+
     // Collect active lights
     uint32_t count = 0;
     for (size_t i = 0;
@@ -211,6 +224,19 @@ void LightManager::UpdateShadowData() {
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
     ubo.ShadowTexelSize = 1.0f / 4096.0f;  // Match SHADOW_MAP_SIZE
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
+
+    // Fog
+    if (m_fogEnabled) {
+        ubo.FogColor[0] = m_fogR;
+        ubo.FogColor[1] = m_fogG;
+        ubo.FogColor[2] = m_fogB;
+        ubo.FogColor[3] = 1.0f;
+        ubo.FogStart = m_fogStart;
+        ubo.FogEnd = m_fogEnd;
+    } else {
+        ubo.FogStart = 0.0f;
+        ubo.FogEnd = 0.0f;
+    }
 
     renderer->UpdateShadowLightUBO(&ubo, sizeof(ubo));
 }

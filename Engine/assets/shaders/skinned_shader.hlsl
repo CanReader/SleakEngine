@@ -83,7 +83,10 @@ cbuffer LightCB : register(b2) {
     uint NumActiveLights;
     float3 AmbientColor;
     float AmbientIntensity;
-    float4 _reserved[2];
+    float4 FogColor;
+    float FogStart;
+    float FogEnd;
+    float2 _reserved;
     LightData Lights[16];
 };
 

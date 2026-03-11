@@ -27,6 +27,10 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     float uShadowStrength;
     float uShadowTexelSize;
     float uLightSize;
+    vec4  uFogColor;
+    float uFogStart;
+    float uFogEnd;
+    float _fogPad[2];
 };
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;
