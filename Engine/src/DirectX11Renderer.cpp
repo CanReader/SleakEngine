@@ -183,7 +183,7 @@ void DirectX11Renderer::EndRender() {
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
 
-    swapChain->Present(1, 0);
+    swapChain->Present(m_vsync ? 1 : 0, 0);
 
     UpdateFrameMetrics();
 }

@@ -118,6 +118,7 @@ public:
 
     // MSAA
     void ApplyMSAAChange() override;
+    void ApplyVSyncChange() override;
 
 private:
     bool CreateSkyboxPipeline();

@@ -605,8 +605,7 @@ void DirectX12Renderer::EndRender() {
     commandQueue->ExecuteCommandLists(_countof(ppCommandLists),
                                       ppCommandLists);
 
-    // Present the frame (0 = no VSync, uncapped FPS)
-    swapChain->Present(0, 0);
+    swapChain->Present(m_vsync ? 1 : 0, 0);
 
     // Signal the fence for this frame — do NOT wait here.
     // The wait happens in BeginRender() when we need to reuse this

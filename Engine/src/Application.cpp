@@ -300,4 +300,7 @@ namespace Sleak {
     uint32_t Application::GetMaxMSAASampleCount() const { return renderer->GetMaxMSAASampleCount(); }
     void Application::SetMSAASampleCount(uint32_t samples) { renderer->SetMSAASampleCount(samples); }
 
+    bool Application::GetVSync() const { return renderer->GetVSync(); }
+    void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
+
 }

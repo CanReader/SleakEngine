@@ -68,6 +68,9 @@ bool OpenGLRenderer::Initialize() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Apply initial VSync setting
+    SDL_GL_SetSwapInterval(m_vsync ? 1 : 0);
+
     // Query max MSAA samples
     GLint maxSamples = 1;
     glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
@@ -94,6 +97,8 @@ void OpenGLRenderer::SetupVertexLayout() {
 }
 
 void OpenGLRenderer::BeginRender() {
+    if (m_vsyncChangeRequested)
+        ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
@@ -425,6 +430,14 @@ void OpenGLRenderer::ApplyMSAAChange() {
     CreateMSAAFramebuffer();
 
     SLEAK_INFO("OpenGL MSAA changed to {}x", m_msaaSampleCount);
+}
+
+void OpenGLRenderer::ApplyVSyncChange() {
+    if (!m_vsyncChangeRequested)
+        return;
+    m_vsyncChangeRequested = false;
+    SDL_GL_SetSwapInterval(m_vsync ? 1 : 0);
+    SLEAK_INFO("OpenGL VSync {}", m_vsync ? "enabled" : "disabled");
 }
 
 void OpenGLRenderer::ConfigureRenderMode() {

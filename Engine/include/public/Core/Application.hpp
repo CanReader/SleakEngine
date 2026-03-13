@@ -82,6 +82,9 @@ class ENGINE_API Application {
     uint32_t GetMaxMSAASampleCount() const;
     void SetMSAASampleCount(uint32_t samples);
 
+    bool GetVSync() const;
+    void SetVSync(bool enabled);
+
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
     void OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e);
 

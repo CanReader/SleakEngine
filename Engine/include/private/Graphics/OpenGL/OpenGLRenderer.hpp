@@ -30,6 +30,7 @@ public:
     virtual bool CreateImGUI() override;
 
     void ApplyMSAAChange() override;
+    void ApplyVSyncChange() override;
 
     virtual RenderContext* GetContext() override { return this; }
 

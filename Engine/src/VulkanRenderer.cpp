@@ -142,7 +142,9 @@ void VulkanRenderer::BeginRender() {
     if (!bRender)
         return;
 
-    // Apply pending MSAA changes between frames
+    // Apply pending changes between frames
+    if (m_vsyncChangeRequested)
+        ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
@@ -1596,6 +1598,14 @@ void VulkanRenderer::ApplyMSAAChange() {
     SLEAK_INFO("MSAA change applied successfully");
 }
 
+void VulkanRenderer::ApplyVSyncChange() {
+    if (!m_vsyncChangeRequested)
+        return;
+    m_vsyncChangeRequested = false;
+    RecreateSwapChain();
+    SLEAK_INFO("VSync {}", m_vsync ? "enabled" : "disabled");
+}
+
 void VulkanRenderer::ConfigureRenderMode() {
     // Pipeline recreation needed for Vulkan polygon mode changes
 }
@@ -2377,8 +2387,12 @@ VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
 
 VkPresentModeKHR VulkanRenderer::ChoosePresentMode(
     const std::vector<VkPresentModeKHR>& modes) {
-    // Prefer MAILBOX (triple-buffered, no tearing, lowest latency without VSync cap).
-    // Fall back to IMMEDIATE (uncapped, may tear) before FIFO (VSync-locked).
+    if (m_vsync) {
+        // VSync ON: FIFO is guaranteed and provides VSync
+        return VK_PRESENT_MODE_FIFO_KHR;
+    }
+
+    // VSync OFF: prefer MAILBOX (no tearing, uncapped), then IMMEDIATE
     for (auto& mode : modes)
         if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
             return mode;

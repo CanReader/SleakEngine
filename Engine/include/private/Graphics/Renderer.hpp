@@ -104,6 +104,15 @@ public:
     void SetShadowPassEnabled(bool enabled) { m_shadowPassEnabled = enabled; }
     bool IsShadowPassEnabled() const { return m_shadowPassEnabled; }
 
+    // VSync
+    virtual void SetVSync(bool enabled) {
+        if (enabled == m_vsync) return;
+        m_vsync = enabled;
+        m_vsyncChangeRequested = true;
+    }
+    bool GetVSync() const { return m_vsync; }
+    virtual void ApplyVSyncChange() {}
+
     // Anti-aliasing (MSAA)
     virtual void SetMSAASampleCount(uint32_t samples) {
         // Validate: must be 1, 2, 4, or 8
@@ -164,6 +173,10 @@ public:
 
     // Shadow pass
     bool m_shadowPassEnabled = false;
+
+    // VSync state
+    bool m_vsync = false;
+    bool m_vsyncChangeRequested = false;
 
     // MSAA state
     uint32_t m_msaaSampleCount = 1;
