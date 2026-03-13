@@ -47,6 +47,14 @@ ENGINE_API float GetViewportHeight();
 
 ENGINE_API void DrawLine(float x1, float y1, float x2, float y2,
                          float r, float g, float b, float a = 1.0f, float thickness = 1.0f);
+ENGINE_API void DrawRect(float x, float y, float w, float h,
+                         float r, float g, float b, float a = 1.0f, float thickness = 1.0f,
+                         float rounding = 0.0f);
+ENGINE_API void DrawFilledRect(float x, float y, float w, float h,
+                               float r, float g, float b, float a = 1.0f,
+                               float rounding = 0.0f);
+ENGINE_API void DrawText(const char* text, float x, float y,
+                         float r, float g, float b, float a = 1.0f);
 
 ENGINE_API bool InputText(const char* label, char* buf, size_t bufSize);
 ENGINE_API bool InputTextString(const char* label, std::string* str);
@@ -73,6 +81,7 @@ ENGINE_API void TextWrapped(const char* fmt, ...);
 
 // Texture display
 ENGINE_API void Image(uint64_t textureID, float width, float height);
+ENGINE_API void DrawImage(uint64_t textureID, float x, float y, float width, float height);
 ENGINE_API uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth = nullptr, float* outHeight = nullptr);
 
 // Create a texture from raw RGBA pixel data (for runtime atlas building etc.)

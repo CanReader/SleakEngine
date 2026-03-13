@@ -113,6 +113,26 @@ void DrawLine(float x1, float y1, float x2, float y2,
         ImVec2(x1, y1), ImVec2(x2, y2), ImColor(r, g, b, a), thickness);
 }
 
+void DrawRect(float x, float y, float w, float h,
+              float r, float g, float b, float a, float thickness,
+              float rounding) {
+    ImGui::GetForegroundDrawList()->AddRect(
+        ImVec2(x, y), ImVec2(x + w, y + h), ImColor(r, g, b, a), rounding, 0, thickness);
+}
+
+void DrawFilledRect(float x, float y, float w, float h,
+                    float r, float g, float b, float a,
+                    float rounding) {
+    ImGui::GetForegroundDrawList()->AddRectFilled(
+        ImVec2(x, y), ImVec2(x + w, y + h), ImColor(r, g, b, a), rounding);
+}
+
+void DrawText(const char* text, float x, float y,
+              float r, float g, float b, float a) {
+    ImGui::GetForegroundDrawList()->AddText(
+        ImVec2(x, y), ImColor(r, g, b, a), text);
+}
+
 bool InputText(const char* label, char* buf, size_t bufSize) {
     return ImGui::InputText(label, buf, bufSize);
 }
@@ -215,6 +235,20 @@ void Image(uint64_t textureID, float width, float height) {
     ImVec2 uv0 = flipY ? ImVec2(0, 1) : ImVec2(0, 0);
     ImVec2 uv1 = flipY ? ImVec2(1, 0) : ImVec2(1, 1);
     ImGui::Image(static_cast<ImTextureID>(textureID), ImVec2(width, height), uv0, uv1);
+}
+
+void DrawImage(uint64_t textureID, float x, float y, float width, float height) {
+    bool flipY = false;
+    auto* app = Application::GetInstance();
+    if (app && app->GetRenderer() &&
+        app->GetRenderer()->GetType() == RenderEngine::RendererType::OpenGL)
+        flipY = true;
+
+    ImVec2 uv0 = flipY ? ImVec2(0, 1) : ImVec2(0, 0);
+    ImVec2 uv1 = flipY ? ImVec2(1, 0) : ImVec2(1, 1);
+    ImGui::GetForegroundDrawList()->AddImage(
+        static_cast<ImTextureID>(textureID),
+        ImVec2(x, y), ImVec2(x + width, y + height), uv0, uv1);
 }
 
 static std::unordered_map<std::string, Sleak::Texture*> s_uiTextures;
