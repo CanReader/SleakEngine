@@ -363,6 +363,12 @@ void DirectX11Renderer::Resize(uint32_t width, uint32_t height) {
         return;
     }
 
+    // Recreate MSAA targets if MSAA is active
+    if (msaaSampleCount > 1) {
+        CreateMSAARenderTarget();
+        CreateMSAADepthStencil();
+    }
+
     // Update the viewport
     SetViewport(0, 0, width, height);
 
@@ -405,8 +411,10 @@ void DirectX11Renderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
     if (clearDepth) clearFlags |= D3D11_CLEAR_DEPTH;
     if (clearStencil) clearFlags |= D3D11_CLEAR_STENCIL;
 
-    if (depthStencilView) {
-        deviceContext->ClearDepthStencilView(depthStencilView, clearFlags,depth, stencil);
+    ID3D11DepthStencilView* target = (msaaSampleCount > 1 && msaaDepthStencilView)
+                                      ? msaaDepthStencilView : depthStencilView;
+    if (target) {
+        deviceContext->ClearDepthStencilView(target, clearFlags, depth, stencil);
     }
 }
 
@@ -868,6 +876,9 @@ void DirectX11Renderer::ApplyMSAAChange() {
     if (msaaSampleCount > 1) {
         CreateMSAARenderTarget();
         CreateMSAADepthStencil();
+    } else {
+        // Re-bind non-MSAA render targets since pipeline still references released MSAA views
+        deviceContext->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
     }
 
     SLEAK_INFO("DX11 MSAA changed to {}x", msaaSampleCount);
