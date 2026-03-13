@@ -60,6 +60,8 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
 {
     float4 texColor = diffuseTexture.Sample(mainSampler,
                                              input.TexCoord);
+    if (texColor.a < 0.5)
+        discard;
     float4 baseColor = texColor * input.Color;
 
     // Hardcoded directional light (sun-like)
