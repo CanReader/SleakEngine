@@ -72,6 +72,7 @@ private:
     VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;
 
     void* m_mappedData = nullptr;
+    bool m_pendingInBatch = false;
 
     // --- Batched transfer state ---
     static bool s_batchingEnabled;

@@ -194,11 +194,12 @@ void VulkanBuffer::Update(void* data, size_t size) {
 void VulkanBuffer::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
-    // If this buffer has pending copies in the active batch, flush synchronously
-    // to avoid invalidating the batch command buffer. This only happens during
-    // scene transitions, not normal chunk loading.
-    if (s_batchActive && (Type == BufferType::Vertex || Type == BufferType::Index)) {
+    // Only flush if THIS buffer has a pending copy in the active batch.
+    // Normally old buffers are destroyed before the batch starts (two-pass
+    // column rebuild), so this only triggers during scene transitions.
+    if (m_pendingInBatch && s_batchActive) {
         FlushPendingCopies();
+        m_pendingInBatch = false;
     }
 
     if (Type == BufferType::Constant && m_mappedData) {
@@ -298,6 +299,7 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
         VkBufferCopy copyRegion{};
         copyRegion.size = size;
         vkCmdCopyBuffer(s_batchCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+        m_pendingInBatch = true;
         return;
     }
 
