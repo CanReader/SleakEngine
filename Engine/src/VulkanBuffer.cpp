@@ -7,6 +7,7 @@ namespace Sleak {
 namespace RenderEngine {
 
 // Static batch state
+bool VulkanBuffer::s_batchingEnabled = false;
 bool VulkanBuffer::s_batchActive = false;
 VkCommandBuffer VulkanBuffer::s_batchCommandBuffer = VK_NULL_HANDLE;
 VkDevice VulkanBuffer::s_batchDevice = VK_NULL_HANDLE;
@@ -193,6 +194,13 @@ void VulkanBuffer::Update(void* data, size_t size) {
 void VulkanBuffer::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
+    // If this buffer has pending copies in the active batch, flush synchronously
+    // to avoid invalidating the batch command buffer. This only happens during
+    // scene transitions, not normal chunk loading.
+    if (s_batchActive && (Type == BufferType::Vertex || Type == BufferType::Index)) {
+        FlushPendingCopies();
+    }
+
     if (Type == BufferType::Constant && m_mappedData) {
         vkUnmapMemory(m_device, m_memory);
         m_mappedData = nullptr;
@@ -334,7 +342,7 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
 
 void VulkanBuffer::EnsureBatchStarted(VkDevice device, VkCommandPool pool,
                                        VkQueue queue) {
-    if (s_batchActive) return;
+    if (s_batchActive || !s_batchingEnabled) return;
 
     s_batchDevice = device;
     s_batchCommandPool = pool;
@@ -397,6 +405,38 @@ void VulkanBuffer::FlushPendingCopies() {
 
     s_batchCommandBuffer = VK_NULL_HANDLE;
     s_batchActive = false;
+}
+
+VulkanBuffer::AsyncFlushResult
+VulkanBuffer::FlushPendingCopiesAsync(VkSemaphore signalSemaphore) {
+    AsyncFlushResult result;
+
+    if (!s_batchActive) return result;
+
+    vkEndCommandBuffer(s_batchCommandBuffer);
+
+    // Submit with semaphore signal — NO fence wait (zero CPU blocking)
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &s_batchCommandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &signalSemaphore;
+
+    vkQueueSubmit(s_batchQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    // Return everything the caller needs for per-frame deferred cleanup
+    result.submitted = true;
+    result.stagingBuffers = std::move(s_pendingCleanup);
+    result.commandBuffer = s_batchCommandBuffer;
+    result.commandPool = s_batchCommandPool;
+    result.device = s_batchDevice;
+
+    s_pendingCleanup.clear();
+    s_batchCommandBuffer = VK_NULL_HANDLE;
+    s_batchActive = false;
+
+    return result;
 }
 
 uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,

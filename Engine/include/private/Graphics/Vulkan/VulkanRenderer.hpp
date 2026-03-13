@@ -7,6 +7,7 @@
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 #include "Logger.hpp"
 #include <vulkan/vulkan.h>
+#include "Graphics/Vulkan/VulkanBuffer.hpp"
 #include <cstdint>
 #include <vector>
 #include <set>
@@ -307,6 +308,10 @@ private:
     VkDescriptorPool m_shadowSamplerDescriptorPool = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_shadowSamplerDescriptorSets = {};
     bool m_lightUBOCreated = false;
+
+    // Async buffer transfer (zero-CPU-blocking GPU uploads)
+    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_transferSemaphores = {};
+    std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 };
 
 }  // namespace RenderEngine

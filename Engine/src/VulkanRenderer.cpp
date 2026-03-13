@@ -153,6 +153,28 @@ void VulkanRenderer::BeginRender() {
                         VK_TRUE, UINT64_MAX);
     }
 
+    // Clean up staging buffers from the previous use of this frame slot.
+    // The fence wait above guarantees the GPU finished both the transfer
+    // (waited on by the render submit) and the render itself.
+    auto& flush = m_asyncFlush[currentFrame];
+    if (flush.submitted) {
+        // Free command buffer FIRST to release references to staging buffers
+        if (flush.commandBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(flush.device, flush.commandPool, 1,
+                                 &flush.commandBuffer);
+        }
+        for (auto& pending : flush.stagingBuffers) {
+            vkDestroyBuffer(device, pending.buffer, nullptr);
+            vkFreeMemory(device, pending.memory, nullptr);
+        }
+        flush = {};
+    }
+
+    // Enable batched buffer uploads for this frame (async, zero CPU blocking).
+    // This is disabled during init/scene transitions where buffers may be
+    // created and destroyed before a flush.
+    VulkanBuffer::SetBatchingEnabled(true);
+
     // Acquire the next image from the swapchain
     result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
                                     imageAvailableSemaphores[currentFrame],
@@ -333,10 +355,22 @@ void VulkanRenderer::EndRender() {
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-    VkPipelineStageFlags waitStages[] = {
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.waitSemaphoreCount = 1;
+    // Wait on image-available; also wait on transfer semaphore if uploads happened
+    VkSemaphore waitSemaphores[2];
+    VkPipelineStageFlags waitStages[2];
+    uint32_t waitCount = 0;
+
+    waitSemaphores[waitCount] = imageAvailableSemaphores[currentFrame];
+    waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    waitCount++;
+
+    if (m_asyncFlush[currentFrame].submitted) {
+        waitSemaphores[waitCount] = m_transferSemaphores[currentFrame];
+        waitStages[waitCount] = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        waitCount++;
+    }
+
+    submitInfo.waitSemaphoreCount = waitCount;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
 
@@ -726,7 +760,8 @@ void VulkanRenderer::WaitIdle() {
 }
 
 void VulkanRenderer::FlushPendingTransfers() {
-    VulkanBuffer::FlushPendingCopies();
+    m_asyncFlush[currentFrame] = VulkanBuffer::FlushPendingCopiesAsync(
+        m_transferSemaphores[currentFrame]);
 }
 
 void VulkanRenderer::Cleanup() {
@@ -856,6 +891,24 @@ void VulkanRenderer::Cleanup() {
         if (fence) vkDestroyFence(device, fence, nullptr);
     }
     inFlightFences.clear();
+
+    // Destroy transfer semaphores and free any pending staging buffers
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (m_transferSemaphores[i]) {
+            vkDestroySemaphore(device, m_transferSemaphores[i], nullptr);
+            m_transferSemaphores[i] = VK_NULL_HANDLE;
+        }
+        auto& af = m_asyncFlush[i];
+        if (af.commandBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(af.device, af.commandPool, 1,
+                                 &af.commandBuffer);
+        }
+        for (auto& pending : af.stagingBuffers) {
+            vkDestroyBuffer(device, pending.buffer, nullptr);
+            vkFreeMemory(device, pending.memory, nullptr);
+        }
+        af = {};
+    }
 
     // Destroy shader
     if (simpleShader) {
@@ -2259,10 +2312,13 @@ bool VulkanRenderer::CreateSyncObjects() {
                                &imageAvailableSemaphores[i]) != VK_SUCCESS ||
             vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                                &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+                               &m_transferSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(device, &fenceInfo, nullptr,
                            &inFlightFences[i]) != VK_SUCCESS) {
             SLEAK_RETURN_ERR("Failed to create synchronization objects!");
         }
+        m_asyncFlush[i] = {};
     }
 
     return true;

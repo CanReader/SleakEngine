@@ -27,9 +27,27 @@ public:
 
     VkBuffer GetVkBuffer() const { return m_buffer; }
 
-    // Flush all pending buffer copies in a single batched submission.
-    // Call this before draw commands to ensure all buffers are ready.
+    // Flush all pending buffer copies in a single batched submission (synchronous).
     static void FlushPendingCopies();
+
+    // Async flush: submit pending copies signaling the given semaphore.
+    // No CPU wait — the caller must wait on the semaphore before using data.
+    struct PendingStagingCleanup {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+    };
+    struct AsyncFlushResult {
+        bool submitted = false;
+        std::vector<PendingStagingCleanup> stagingBuffers;
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VkCommandPool commandPool = VK_NULL_HANDLE;
+        VkDevice device = VK_NULL_HANDLE;
+    };
+    static AsyncFlushResult FlushPendingCopiesAsync(VkSemaphore signalSemaphore);
+
+    // Enable/disable batching mode. When disabled, CopyBuffer uses
+    // immediate per-buffer submissions (safe during init/scene transitions).
+    static void SetBatchingEnabled(bool enabled) { s_batchingEnabled = enabled; }
 
 private:
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -56,11 +74,7 @@ private:
     void* m_mappedData = nullptr;
 
     // --- Batched transfer state ---
-    struct PendingStagingCleanup {
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-    };
-
+    static bool s_batchingEnabled;
     static bool s_batchActive;
     static VkCommandBuffer s_batchCommandBuffer;
     static VkDevice s_batchDevice;
