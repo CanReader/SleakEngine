@@ -183,5 +183,12 @@ void main() {
     // Reinhard tone mapping
     lit = lit / (lit + vec3(1.0));
 
+    // Distance fog
+    if (uFogEnd > 0.0) {
+        float dist = length(fragWorldPos - uCameraPos.xyz);
+        float fogFactor = clamp((uFogEnd - dist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        lit = mix(uFogColor.rgb, lit, fogFactor);
+    }
+
     outColor = vec4(lit, baseColor.a);
 }
