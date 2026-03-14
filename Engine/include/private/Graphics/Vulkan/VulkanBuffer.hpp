@@ -67,6 +67,9 @@ private:
 
     VkBuffer m_buffer = VK_NULL_HANDLE;
     VkDeviceMemory m_memory = VK_NULL_HANDLE;
+    VkDeviceSize m_allocSize = 0;
+    VkBufferUsageFlags m_usage = 0;
+    uint32_t m_memoryTypeIndex = 0;
 
     VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;
@@ -91,10 +94,29 @@ private:
         VkBuffer buffer;
         VkDeviceMemory memory;
         VkDevice device;
+        VkDeviceSize allocSize;
+        VkBufferUsageFlags usage;
+        uint32_t memoryTypeIndex;
         uint64_t frameNumber;
     };
     static std::vector<DeferredBufferDelete> s_deferredDeletions;
     static uint64_t s_frameNumber;
+
+    // --- Buffer recycling pool ---
+    struct PooledBuffer {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        VkDevice device;
+        VkDeviceSize allocSize;
+        VkBufferUsageFlags usage;
+        uint32_t memoryTypeIndex;
+    };
+    static std::vector<PooledBuffer> s_bufferPool;
+    static constexpr size_t MAX_POOL_SIZE = 64;
+
+    bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                          VkMemoryPropertyFlags properties,
+                          VkBuffer& buffer, VkDeviceMemory& memory);
 
 public:
     // Called by the renderer each frame after fence wait to safely

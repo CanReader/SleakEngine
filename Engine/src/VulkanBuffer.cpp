@@ -19,6 +19,9 @@ std::vector<VulkanBuffer::PendingStagingCleanup> VulkanBuffer::s_pendingCleanup;
 std::vector<VulkanBuffer::DeferredBufferDelete> VulkanBuffer::s_deferredDeletions;
 uint64_t VulkanBuffer::s_frameNumber = 0;
 
+// Buffer recycling pool
+std::vector<VulkanBuffer::PooledBuffer> VulkanBuffer::s_bufferPool;
+
 VulkanBuffer::VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                            uint32_t size, BufferType type,
                            VkCommandPool commandPool, VkQueue graphicsQueue)
@@ -221,11 +224,14 @@ void VulkanBuffer::Cleanup() {
         m_stagingMemory = VK_NULL_HANDLE;
     }
     // Defer GPU buffer destruction — may still be referenced by in-flight
-    // command buffers. Will be cleaned up after fence wait.
+    // command buffers. Will be recycled or cleaned up after fence wait.
     if (m_buffer != VK_NULL_HANDLE) {
-        s_deferredDeletions.push_back({m_buffer, m_memory, m_device, s_frameNumber});
+        s_deferredDeletions.push_back({m_buffer, m_memory, m_device,
+                                       m_allocSize, m_usage, m_memoryTypeIndex,
+                                       s_frameNumber});
         m_buffer = VK_NULL_HANDLE;
         m_memory = VK_NULL_HANDLE;
+        m_allocSize = 0;
     }
 
     bIsInitialized = false;
@@ -265,6 +271,16 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
                                 VkMemoryPropertyFlags properties,
                                 VkBuffer& buffer,
                                 VkDeviceMemory& memory) {
+    // Try to recycle a pooled buffer to avoid expensive vkAllocateMemory
+    if (TryRecycleBuffer(size, usage, properties, buffer, memory)) {
+        // Track the recycled buffer's info (keep existing alloc metadata)
+        if (&buffer == &m_buffer) {
+            m_usage = usage;
+            // m_allocSize and m_memoryTypeIndex stay from pool
+        }
+        return;
+    }
+
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = size;
@@ -280,11 +296,12 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     VkMemoryRequirements memRequirements;
     vkGetBufferMemoryRequirements(m_device, buffer, &memRequirements);
 
+    uint32_t memTypeIdx = FindMemoryType(memRequirements.memoryTypeBits, properties);
+
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex =
-        FindMemoryType(memRequirements.memoryTypeBits, properties);
+    allocInfo.memoryTypeIndex = memTypeIdx;
 
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) !=
         VK_SUCCESS) {
@@ -293,6 +310,13 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     }
 
     vkBindBufferMemory(m_device, buffer, memory, 0);
+
+    // Track allocation metadata for recycling
+    if (&buffer == &m_buffer) {
+        m_allocSize = memRequirements.size;
+        m_usage = usage;
+        m_memoryTypeIndex = memTypeIdx;
+    }
 }
 
 void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
@@ -463,17 +487,58 @@ uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,
 }
 
 void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
+    // Rate-limit processing to avoid vkFreeMemory spikes
+    constexpr int MAX_PER_FRAME = 8;
+    int processed = 0;
     auto it = s_deferredDeletions.begin();
-    while (it != s_deferredDeletions.end()) {
+    while (it != s_deferredDeletions.end() && processed < MAX_PER_FRAME) {
         if (s_frameNumber - it->frameNumber >= maxFramesInFlight) {
-            vkDestroyBuffer(it->device, it->buffer, nullptr);
-            if (it->memory != VK_NULL_HANDLE)
-                vkFreeMemory(it->device, it->memory, nullptr);
+            // Recycle into pool if there's room, otherwise destroy
+            if (s_bufferPool.size() < MAX_POOL_SIZE && it->allocSize > 0) {
+                s_bufferPool.push_back({it->buffer, it->memory, it->device,
+                                        it->allocSize, it->usage, it->memoryTypeIndex});
+            } else {
+                vkDestroyBuffer(it->device, it->buffer, nullptr);
+                if (it->memory != VK_NULL_HANDLE)
+                    vkFreeMemory(it->device, it->memory, nullptr);
+            }
             it = s_deferredDeletions.erase(it);
+            ++processed;
         } else {
             ++it;
         }
     }
+}
+
+bool VulkanBuffer::TryRecycleBuffer(VkDeviceSize size,
+                                     VkBufferUsageFlags usage,
+                                     VkMemoryPropertyFlags properties,
+                                     VkBuffer& buffer,
+                                     VkDeviceMemory& memory) {
+    // Find a pooled buffer with matching usage and sufficient size.
+    // Prefer smallest fitting buffer to minimize waste.
+    int bestIdx = -1;
+    VkDeviceSize bestSize = UINT64_MAX;
+    for (size_t i = 0; i < s_bufferPool.size(); ++i) {
+        auto& p = s_bufferPool[i];
+        if (p.device == m_device && p.usage == usage &&
+            p.allocSize >= size && p.allocSize < bestSize) {
+            // Don't recycle if way too large (>4x waste)
+            if (p.allocSize <= size * 4) {
+                bestIdx = static_cast<int>(i);
+                bestSize = p.allocSize;
+            }
+        }
+    }
+    if (bestIdx >= 0) {
+        buffer = s_bufferPool[bestIdx].buffer;
+        memory = s_bufferPool[bestIdx].memory;
+        // Remove from pool (swap with last for O(1))
+        s_bufferPool[bestIdx] = s_bufferPool.back();
+        s_bufferPool.pop_back();
+        return true;
+    }
+    return false;
 }
 
 void VulkanBuffer::FlushAllDeferredDeletions() {
@@ -483,6 +548,14 @@ void VulkanBuffer::FlushAllDeferredDeletions() {
             vkFreeMemory(entry.device, entry.memory, nullptr);
     }
     s_deferredDeletions.clear();
+
+    // Also drain the recycling pool
+    for (auto& entry : s_bufferPool) {
+        vkDestroyBuffer(entry.device, entry.buffer, nullptr);
+        if (entry.memory != VK_NULL_HANDLE)
+            vkFreeMemory(entry.device, entry.memory, nullptr);
+    }
+    s_bufferPool.clear();
 }
 
 }  // namespace RenderEngine
