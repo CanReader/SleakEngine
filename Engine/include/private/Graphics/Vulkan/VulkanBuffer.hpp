@@ -85,6 +85,23 @@ private:
 
     static void EnsureBatchStarted(VkDevice device, VkCommandPool pool,
                                    VkQueue queue);
+
+    // --- Deferred buffer deletion ---
+    struct DeferredBufferDelete {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        VkDevice device;
+        uint64_t frameNumber;
+    };
+    static std::vector<DeferredBufferDelete> s_deferredDeletions;
+    static uint64_t s_frameNumber;
+
+public:
+    // Called by the renderer each frame after fence wait to safely
+    // destroy buffers that are no longer referenced by the GPU.
+    static void ProcessDeferredDeletions(uint32_t maxFramesInFlight);
+    static void FlushAllDeferredDeletions();
+    static void AdvanceDeletionFrame() { s_frameNumber++; }
 };
 
 }  // namespace RenderEngine

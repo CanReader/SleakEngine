@@ -191,6 +191,7 @@ private:
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     uint32_t currentFrame = 0;
     uint32_t CurrentFrameIndex = 0;
+    uint32_t m_semaphoreIndex = 0;  // cycles through swapchain image count
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;

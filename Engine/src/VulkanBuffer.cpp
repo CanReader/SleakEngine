@@ -15,6 +15,10 @@ VkCommandPool VulkanBuffer::s_batchCommandPool = VK_NULL_HANDLE;
 VkQueue VulkanBuffer::s_batchQueue = VK_NULL_HANDLE;
 std::vector<VulkanBuffer::PendingStagingCleanup> VulkanBuffer::s_pendingCleanup;
 
+// Static deferred deletion state
+std::vector<VulkanBuffer::DeferredBufferDelete> VulkanBuffer::s_deferredDeletions;
+uint64_t VulkanBuffer::s_frameNumber = 0;
+
 VulkanBuffer::VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                            uint32_t size, BufferType type,
                            VkCommandPool commandPool, VkQueue graphicsQueue)
@@ -207,6 +211,7 @@ void VulkanBuffer::Cleanup() {
         m_mappedData = nullptr;
     }
 
+    // Staging buffers can be destroyed immediately (not GPU-visible after copy)
     if (m_stagingBuffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
         m_stagingBuffer = VK_NULL_HANDLE;
@@ -215,12 +220,11 @@ void VulkanBuffer::Cleanup() {
         vkFreeMemory(m_device, m_stagingMemory, nullptr);
         m_stagingMemory = VK_NULL_HANDLE;
     }
+    // Defer GPU buffer destruction — may still be referenced by in-flight
+    // command buffers. Will be cleaned up after fence wait.
     if (m_buffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device, m_buffer, nullptr);
+        s_deferredDeletions.push_back({m_buffer, m_memory, m_device, s_frameNumber});
         m_buffer = VK_NULL_HANDLE;
-    }
-    if (m_memory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device, m_memory, nullptr);
         m_memory = VK_NULL_HANDLE;
     }
 
@@ -456,6 +460,29 @@ uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,
 
     SLEAK_ERROR("Failed to find suitable memory type!");
     return 0;
+}
+
+void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
+    auto it = s_deferredDeletions.begin();
+    while (it != s_deferredDeletions.end()) {
+        if (s_frameNumber - it->frameNumber >= maxFramesInFlight) {
+            vkDestroyBuffer(it->device, it->buffer, nullptr);
+            if (it->memory != VK_NULL_HANDLE)
+                vkFreeMemory(it->device, it->memory, nullptr);
+            it = s_deferredDeletions.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void VulkanBuffer::FlushAllDeferredDeletions() {
+    for (auto& entry : s_deferredDeletions) {
+        vkDestroyBuffer(entry.device, entry.buffer, nullptr);
+        if (entry.memory != VK_NULL_HANDLE)
+            vkFreeMemory(entry.device, entry.memory, nullptr);
+    }
+    s_deferredDeletions.clear();
 }
 
 }  // namespace RenderEngine

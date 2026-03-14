@@ -172,6 +172,11 @@ void VulkanRenderer::BeginRender() {
         flush = {};
     }
 
+    // Process deferred buffer deletions — safe now that the fence
+    // guarantees the previous use of this frame slot is complete.
+    VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
+    VulkanBuffer::AdvanceDeletionFrame();
+
     // Enable batched buffer uploads for this frame (async, zero CPU blocking).
     // This is disabled during init/scene transitions where buffers may be
     // created and destroyed before a flush.
@@ -179,7 +184,7 @@ void VulkanRenderer::BeginRender() {
 
     // Acquire the next image from the swapchain
     result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
-                                    imageAvailableSemaphores[currentFrame],
+                                    imageAvailableSemaphores[m_semaphoreIndex],
                                     VK_NULL_HANDLE, &CurrentFrameIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         RecreateSwapChain();
@@ -362,7 +367,7 @@ void VulkanRenderer::EndRender() {
     VkPipelineStageFlags waitStages[2];
     uint32_t waitCount = 0;
 
-    waitSemaphores[waitCount] = imageAvailableSemaphores[currentFrame];
+    waitSemaphores[waitCount] = imageAvailableSemaphores[m_semaphoreIndex];
     waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     waitCount++;
 
@@ -379,9 +384,10 @@ void VulkanRenderer::EndRender() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &command;
 
-    // Use currentFrame (frame-in-flight index) for signal semaphore,
-    // matching the fence and wait semaphore indices for correct sync.
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+    // Index renderFinished semaphore by acquired image index: when image N
+    // is re-acquired, the previous present of image N is guaranteed complete,
+    // so renderFinishedSemaphores[N] is safe to reuse.
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[CurrentFrameIndex]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -411,6 +417,8 @@ void VulkanRenderer::EndRender() {
     }
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    m_semaphoreIndex = (m_semaphoreIndex + 1) %
+        static_cast<uint32_t>(imageAvailableSemaphores.size());
 
     UpdateFrameMetrics();
 }
@@ -775,6 +783,9 @@ void VulkanRenderer::Cleanup() {
     if (device) {
         vkDeviceWaitIdle(device);
     }
+
+    // Flush all deferred buffer deletions now that GPU is idle
+    VulkanBuffer::FlushAllDeferredDeletions();
 
     // Shutdown ImGUI before destroying Vulkan resources
     if (bImInitialized) {
@@ -2303,12 +2314,14 @@ bool VulkanRenderer::CreateCommandPool() {
 }
 
 bool VulkanRenderer::CreateSyncObjects() {
-    // All sync objects indexed by frame-in-flight (currentFrame),
-    // not by swapchain image index, for consistent synchronization.
-    imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    uint32_t imageCount = static_cast<uint32_t>(swapChainImages.size());
+
+    // Semaphores sized to swapchain image count to prevent reuse
+    // while the presentation engine still holds a reference.
+    imageAvailableSemaphores.resize(imageCount);
+    renderFinishedSemaphores.resize(imageCount);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-    imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
+    imagesInFlight.resize(imageCount, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -2317,12 +2330,19 @@ bool VulkanRenderer::CreateSyncObjects() {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    // Create per-swapchain-image semaphores
+    for (uint32_t i = 0; i < imageCount; i++) {
         if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                                &imageAvailableSemaphores[i]) != VK_SUCCESS ||
             vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &renderFinishedSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+                               &renderFinishedSemaphores[i]) != VK_SUCCESS) {
+            SLEAK_RETURN_ERR("Failed to create synchronization objects!");
+        }
+    }
+
+    // Create per-frame-in-flight fences and transfer semaphores
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                                &m_transferSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(device, &fenceInfo, nullptr,
                            &inFlightFences[i]) != VK_SUCCESS) {
@@ -2331,6 +2351,7 @@ bool VulkanRenderer::CreateSyncObjects() {
         m_asyncFlush[i] = {};
     }
 
+    m_semaphoreIndex = 0;
     return true;
 }
 
