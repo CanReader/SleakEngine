@@ -87,6 +87,9 @@ namespace Sleak {
         size_t GetSize() const { return vertices.GetSize(); }
         size_t GetSizeInBytes() const { return vertices.GetSize() * sizeof(Vertex); }
 
+        void clear() { vertices.clear(); }
+        void release() { vertices.release(); }
+
     private:
         Sleak::List<Vertex> vertices;
     };

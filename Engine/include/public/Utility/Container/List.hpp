@@ -163,6 +163,13 @@ class List {
     // Modifiers
     void clear() { size = 0; }
 
+    void release() {
+        delete[] data;
+        data = nullptr;
+        size = 0;
+        capacity = 0;
+    }
+
     void resize() {
         size_t newCapacity = (capacity == 0) ? 1 : capacity * 2;
         resize(newCapacity);
