@@ -5,11 +5,12 @@
 namespace Sleak {
 namespace RenderEngine {
 
-DirectX12Buffer::DirectX12Buffer(ID3D12Device* device, size_t size, BufferType type)
+DirectX12Buffer::DirectX12Buffer(ID3D12Device* device, ID3D12CommandQueue* queue, size_t size, BufferType type)
     : BufferBase()
 {
     assert(device != nullptr);
     m_device = device;
+    m_commandQueue = queue;
     Size = size;
     Type = type;  // Set the buffer type in the base class
     ConfigureFromBufferType(type);
@@ -29,14 +30,17 @@ DirectX12Buffer::DirectX12Buffer(ID3D12Device* device, size_t size,
 DirectX12Buffer::DirectX12Buffer(DirectX12Buffer&& other) noexcept
     : BufferBase(std::move(other)),
       m_device(std::move(other.m_device)),
+      m_commandQueue(other.m_commandQueue),
       m_buffer(std::move(other.m_buffer)),
-      m_uploadBuffer(std::move(other.m_uploadBuffer)),  // Add upload buffer
+      m_uploadBuffer(std::move(other.m_uploadBuffer)),
       m_commandAllocator(std::move(other.m_commandAllocator)),
       m_commandList(std::move(other.m_commandList)),
       m_heapType(other.m_heapType),
       m_resourceState(other.m_resourceState),
+      m_currentState(other.m_currentState),
       m_mappedData(other.m_mappedData)
 {
+    other.m_commandQueue = nullptr;
     other.m_mappedData = nullptr;
 }
 
@@ -47,14 +51,17 @@ DirectX12Buffer& DirectX12Buffer::operator=(DirectX12Buffer&& other) noexcept
         
         BufferBase::operator=(std::move(other));
         m_device = std::move(other.m_device);
+        m_commandQueue = other.m_commandQueue;
         m_buffer = std::move(other.m_buffer);
-        m_uploadBuffer = std::move(other.m_uploadBuffer);  // Add upload buffer
+        m_uploadBuffer = std::move(other.m_uploadBuffer);
         m_commandAllocator = std::move(other.m_commandAllocator);
         m_commandList = std::move(other.m_commandList);
         m_heapType = other.m_heapType;
         m_resourceState = other.m_resourceState;
+        m_currentState = other.m_currentState;
         m_mappedData = other.m_mappedData;
-        
+
+        other.m_commandQueue = nullptr;
         other.m_mappedData = nullptr;
     }
     return *this;
@@ -139,6 +146,7 @@ bool DirectX12Buffer::Initialize(const void* data, size_t size)
         (data && m_heapType == D3D12_HEAP_TYPE_DEFAULT)
             ? D3D12_RESOURCE_STATE_COPY_DEST
             : m_resourceState;
+    m_currentState = initialState;
     HRESULT hr = m_device->CreateCommittedResource(
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
@@ -176,9 +184,9 @@ bool DirectX12Buffer::CreateUploadBuffer(const void* data, size_t dataSize)
     uploadHeapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
     uploadHeapProps.CreationNodeMask = 1;
     uploadHeapProps.VisibleNodeMask = 1;
-    
+
     D3D12_RESOURCE_DESC uploadDesc = CreateBufferDesc();
-    
+
     HRESULT hr = m_device->CreateCommittedResource(
         &uploadHeapProps,
         D3D12_HEAP_FLAG_NONE,
@@ -186,45 +194,72 @@ bool DirectX12Buffer::CreateUploadBuffer(const void* data, size_t dataSize)
         D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
         IID_PPV_ARGS(&m_uploadBuffer));
-    
+
     if (FAILED(hr)) {
         // Error handling
         return false;
     }
-    
+
     // Map the upload buffer
     void* mappedData = nullptr;
     hr = m_uploadBuffer->Map(0, nullptr, &mappedData);
-    
+
     if (FAILED(hr)) {
         // Error handling
         return false;
     }
-    
+
     // Copy data to the upload buffer
     memcpy(mappedData, data, dataSize);
     m_uploadBuffer->Unmap(0, nullptr);
-    
-    // Initialize command objects (if not already done)
+
+    // Initialize command objects
     if (!m_commandAllocator) {
-        hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, 
+        hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                             IID_PPV_ARGS(&m_commandAllocator));
         if (FAILED(hr))
             return false;
-    }
-    
-    if (!m_commandList) {
-        hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, 
-                                        m_commandAllocator.Get(), nullptr, 
-                                        IID_PPV_ARGS(&m_commandList));
+    } else {
+        // Allocator already exists from a previous upload — wait for the GPU
+        // to finish using it before resetting. Create a temporary fence.
+        WaitForUploadComplete();
+        hr = m_commandAllocator->Reset();
         if (FAILED(hr))
             return false;
     }
-    
+
+    if (!m_commandList) {
+        hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                        m_commandAllocator.Get(), nullptr,
+                                        IID_PPV_ARGS(&m_commandList));
+        if (FAILED(hr))
+            return false;
+    } else {
+        // Command list already exists in CLOSED state — reset it
+        hr = m_commandList->Reset(m_commandAllocator.Get(), nullptr);
+        if (FAILED(hr))
+            return false;
+    }
+
+    // If the buffer is NOT in COPY_DEST state (i.e. it was already uploaded
+    // once and transitioned to its target state), transition it back to
+    // COPY_DEST so the copy can succeed.
+    if (m_currentState != D3D12_RESOURCE_STATE_COPY_DEST) {
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.Transition.pResource = m_buffer.Get();
+        barrier.Transition.StateBefore = m_currentState;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        m_commandList->ResourceBarrier(1, &barrier);
+    }
+
     // Copy data from upload buffer to default buffer
     m_commandList->CopyBufferRegion(m_buffer.Get(), 0, m_uploadBuffer.Get(), 0, dataSize);
-    
-    // Transition resource state if needed
+
+    // Transition resource to its target state
     if (m_resourceState != D3D12_RESOURCE_STATE_COPY_DEST) {
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -233,17 +268,16 @@ bool DirectX12Buffer::CreateUploadBuffer(const void* data, size_t dataSize)
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         barrier.Transition.StateAfter = m_resourceState;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        
+
         m_commandList->ResourceBarrier(1, &barrier);
     }
-    
+
+    m_currentState = m_resourceState;
+
     hr = m_commandList->Close();
     if (FAILED(hr))
         return false;
-    
-    // Note: The command list needs to be executed by the renderer
-    // This typically happens in the Update() method or when the renderer flushes commands
-    
+
     return true;
 }
 
@@ -338,7 +372,11 @@ void DirectX12Buffer::Update(void* data, size_t size)
     else {
         // GPU-only buffer (like vertex/index buffers)
         // Use an upload buffer and command list to update the buffer
-        CreateUploadBuffer(data, size);
+        if (CreateUploadBuffer(data, size) && m_commandQueue) {
+            ID3D12CommandList* ppCmdLists[] = {m_commandList.Get()};
+            m_commandQueue->ExecuteCommandLists(1, ppCmdLists);
+            WaitForUploadComplete();
+        }
     }
 }
 
@@ -369,10 +407,30 @@ void DirectX12Buffer::SetAsConstantBuffer(ID3D12GraphicsCommandList* commandList
     );
 }
 
-void* DirectX12Buffer::GetData() { 
+void* DirectX12Buffer::GetData() {
     return nullptr;
 }
-    
+
+void DirectX12Buffer::WaitForUploadComplete()
+{
+    if (!m_device || !m_commandQueue)
+        return;
+
+    Microsoft::WRL::ComPtr<ID3D12Fence> tempFence;
+    HRESULT hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&tempFence));
+    if (FAILED(hr)) return;
+
+    m_commandQueue->Signal(tempFence.Get(), 1);
+
+    HANDLE ev = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!ev) return;
+
+    if (tempFence->GetCompletedValue() < 1) {
+        tempFence->SetEventOnCompletion(1, ev);
+        WaitForSingleObject(ev, INFINITE);
+    }
+    CloseHandle(ev);
+}
 
 } // namespace RenderEngine
 } // namespace Sleak

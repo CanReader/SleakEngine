@@ -75,6 +75,9 @@ public:
     Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
     Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
+    // Lighting/fog UBO (matches ShadowLightUBO from Vulkan path)
+    void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+
     // Skybox state management
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
     virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) override;
@@ -155,6 +158,12 @@ private:
     // Debug line PSO (line topology)
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_debugLinePipelineState;
     bool CreateDebugLinePipelineState();
+
+    // Light/fog constant buffer (persistently-mapped upload heap)
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_lightUBO;
+    void* m_lightUBOMapped = nullptr;
+    bool m_lightUBOCreated = false;
+    bool CreateLightUBO();
 
     // ImGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiSrvHeap;

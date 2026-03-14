@@ -5,6 +5,7 @@
 #include <SDL3/SDL_system.h>
 #include <Graphics/Vertex.hpp>
 #include <Graphics/DirectX/DirectX12CubemapTexture.hpp>
+#include <Graphics/ConstantBuffer.hpp>
 #include <Logger.hpp>
 #include <stdexcept>
 #include <string>
@@ -309,7 +310,8 @@ bool DirectX12Renderer::CreateRootSignature() {
     // Parameter 0: CBV at register(b0) — transform (vertex shader)
     // Parameter 1: CBV at register(b1) — material  (all shaders)
     // Parameter 2: SRV descriptor table at register(t0) — texture (pixel shader)
-    D3D12_ROOT_PARAMETER rootParams[3] = {};
+    // Parameter 3: CBV at register(b2) — lighting/fog (pixel shader)
+    D3D12_ROOT_PARAMETER rootParams[4] = {};
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
@@ -333,6 +335,11 @@ bool DirectX12Renderer::CreateRootSignature() {
     rootParams[2].DescriptorTable.NumDescriptorRanges = 1;
     rootParams[2].DescriptorTable.pDescriptorRanges = &srvRange;
     rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    rootParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[3].Descriptor.ShaderRegister = 2;
+    rootParams[3].Descriptor.RegisterSpace = 0;
+    rootParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     // Static samplers
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2] = {};
@@ -370,7 +377,7 @@ bool DirectX12Renderer::CreateRootSignature() {
     staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
-    rootSigDesc.NumParameters = 3;
+    rootSigDesc.NumParameters = 4;
     rootSigDesc.pParameters = rootParams;
     rootSigDesc.NumStaticSamplers = 2;
     rootSigDesc.pStaticSamplers = staticSamplers;
@@ -502,10 +509,16 @@ bool DirectX12Renderer::CreatePipelineStateFromShader(
 void DirectX12Renderer::BeginRender() {
     frameIndex = swapChain->GetCurrentBackBufferIndex();
 
-    // Wait only for the specific frame that used this allocator to finish,
-    // allowing the other frame to still be in-flight on the GPU.
-    if (fence->GetCompletedValue() < fenceValues[frameIndex]) {
-        fence->SetEventOnCompletion(fenceValues[frameIndex], fenceEvent);
+    // Wait for ALL pending GPU work to complete before starting a new frame.
+    // This prevents race conditions on shared constant buffers: without this,
+    // only the same-slot frame (N-2) is waited on, but frame N-1 may still be
+    // reading constant buffer data that the CPU is about to overwrite.
+    UINT64 waitValue = 0;
+    for (UINT i = 0; i < FrameCount; i++) {
+        if (fenceValues[i] > waitValue) waitValue = fenceValues[i];
+    }
+    if (fence->GetCompletedValue() < waitValue) {
+        fence->SetEventOnCompletion(waitValue, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
 
@@ -565,6 +578,12 @@ void DirectX12Renderer::BeginRender() {
     // Bind default white texture so the SRV table is always valid
     if (m_defaultTexture) {
         m_defaultTexture->Bind(0);
+    }
+
+    // Bind light/fog constant buffer at root parameter 3 (register b2)
+    if (m_lightUBOCreated && m_lightUBO) {
+        commandList->SetGraphicsRootConstantBufferView(
+            3, m_lightUBO->GetGPUVirtualAddress());
     }
 
     bImFrameActive = false;
@@ -684,6 +703,13 @@ void DirectX12Renderer::Cleanup() {
         ImGui::DestroyContext();
         bImInitialized = false;
     }
+    if (m_lightUBO && m_lightUBOMapped) {
+        m_lightUBO->Unmap(0, nullptr);
+        m_lightUBOMapped = nullptr;
+    }
+    m_lightUBO.Reset();
+    m_lightUBOCreated = false;
+
     imguiSrvHeap.Reset();
     m_sharedSrvHeap.Reset();
 
@@ -863,7 +889,7 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
 BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
                                              void* data) {
     assert(size > 0);
-    auto* buffer = new DirectX12Buffer(device.Get(), size, Type);
+    auto* buffer = new DirectX12Buffer(device.Get(), commandQueue.Get(), size, Type);
     buffer->Initialize(data);
 
     // Execute the buffer's upload command list if it recorded any
@@ -989,6 +1015,56 @@ void DirectX12Renderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     if (dx12Tex) {
         dx12Tex->BindToCommandList(commandList.Get(), 2);
     }
+}
+
+bool DirectX12Renderer::CreateLightUBO() {
+    if (m_lightUBOCreated) return true;
+
+    // 256-byte aligned size (CB requirement)
+    const UINT uboSize = (sizeof(RenderEngine::ShadowLightUBO) + 255) & ~255;
+
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = uboSize;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    HRESULT hr = device->CreateCommittedResource(
+        &heapProps, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&m_lightUBO));
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create light UBO! HRESULT: 0x{:08X}",
+                    static_cast<unsigned int>(hr));
+        return false;
+    }
+
+    hr = m_lightUBO->Map(0, nullptr, &m_lightUBOMapped);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to map light UBO!");
+        return false;
+    }
+
+    memset(m_lightUBOMapped, 0, uboSize);
+    m_lightUBOCreated = true;
+    return true;
+}
+
+void DirectX12Renderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
+    if (!m_lightUBOCreated && !CreateLightUBO()) return;
+    if (!data) return;
+
+    uint32_t copySize = size;
+    if (copySize > sizeof(RenderEngine::ShadowLightUBO))
+        copySize = sizeof(RenderEngine::ShadowLightUBO);
+    memcpy(m_lightUBOMapped, data, copySize);
 }
 
 bool DirectX12Renderer::CreateSkyboxPipelineState() {

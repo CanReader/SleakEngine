@@ -1,7 +1,7 @@
 // ============================================================
-// DXCraft Basic Material Shader (DirectX 12 HLSL)
-// Hardcoded directional light fallback
-// (DX12 root signature does not yet support Material/Light CBs)
+// Default Material Shader (DirectX 12 HLSL)
+// Directional light + Blinn-Phong specular + distance fog
+// Lighting data from LightCB at register(b2)
 // ============================================================
 
 struct VS_INPUT
@@ -30,7 +30,25 @@ cbuffer TransformCB : register(b0) {
     row_major float4x4 World;
 };
 
-// Texture + sampler — root parameter 1, register(t0/s0)
+// Light/fog CB — root parameter 3, register(b2)
+// Layout matches ShadowLightUBO from ConstantBuffer.hpp
+cbuffer LightCB : register(b2) {
+    float4 LightDir;        // xyz = direction, w = shadow normal bias
+    float4 LightColor;      // rgb = color, a = intensity
+    float4 Ambient;         // rgb = color, a = intensity
+    float4 CameraPos;       // xyz = position
+    row_major float4x4 LightVP;
+    float ShadowBias;
+    float ShadowStrength;
+    float ShadowTexelSize;
+    float LightSize;
+    float4 FogColor;        // rgb = color
+    float FogStart;
+    float FogEnd;
+    float2 _fogPad;
+};
+
+// Texture + sampler — root parameter 2, register(t0/s0)
 Texture2D diffuseTexture : register(t0);
 SamplerState mainSampler : register(s0);
 
@@ -64,13 +82,12 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
         discard;
     float4 baseColor = texColor * input.Color;
 
-    // Hardcoded directional light (sun-like)
-    float3 lightDir = normalize(float3(-0.3, -1.0, -0.4));
-    float3 lightColor = float3(1.0, 0.95, 0.9);
-    float lightIntensity = 1.2;
+    float3 lightDir = normalize(LightDir.xyz);
+    float3 lightColor = LightColor.rgb;
+    float lightIntensity = LightColor.a;
 
     // Ambient
-    float3 ambient = float3(0.15, 0.15, 0.18);
+    float3 ambient = Ambient.rgb * Ambient.a;
 
     // Diffuse (Lambert)
     float3 N = normalize(input.WorldNorm);
@@ -78,13 +95,20 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
     float3 diffuse = lightColor * lightIntensity * NdotL;
 
     // Simple specular (Blinn-Phong)
-    float3 viewDir = normalize(-input.WorldPos);
+    float3 viewDir = normalize(CameraPos.xyz - input.WorldPos);
     float3 halfDir = normalize(-lightDir + viewDir);
     float spec = pow(max(dot(N, halfDir), 0.0), 32.0);
     float3 specular = lightColor * spec * 0.3;
 
     float3 finalColor = baseColor.rgb * (ambient + diffuse)
                       + specular;
+
+    // Distance fog (Minecraft-style linear fog)
+    if (FogEnd > 0.0) {
+        float dist = length(input.WorldPos - CameraPos.xyz);
+        float fogFactor = saturate((FogEnd - dist) / (FogEnd - FogStart));
+        finalColor = lerp(FogColor.rgb, finalColor, fogFactor);
+    }
 
     return float4(finalColor, baseColor.a);
 }

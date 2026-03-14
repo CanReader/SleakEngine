@@ -10,8 +10,8 @@ namespace RenderEngine {
 class DirectX12Buffer : public BufferBase {
 public:
     // Constructor for common buffer types
-    DirectX12Buffer(ID3D12Device* device, size_t size, BufferType type);
-   
+    DirectX12Buffer(ID3D12Device* device, ID3D12CommandQueue* queue, size_t size, BufferType type);
+
     // Constructor for custom buffer configuration
     DirectX12Buffer(ID3D12Device* device, size_t size, D3D12_HEAP_TYPE heapType,
                    D3D12_RESOURCE_STATES resourceState);
@@ -64,15 +64,21 @@ private:
     void SetAsIndexBuffer   (ID3D12GraphicsCommandList* commandList, DXGI_FORMAT format, UINT offset = 0);
     void SetAsConstantBuffer(ID3D12GraphicsCommandList* commandList, UINT rootParameterIndex);
     
+    // Wait for pending GPU upload to complete (for command list/allocator reuse)
+    void WaitForUploadComplete();
+
     // Smart pointers for proper resource management
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
+    ID3D12CommandQueue* m_commandQueue = nullptr; // non-owning, for upload execution
     Microsoft::WRL::ComPtr<ID3D12Resource> m_buffer;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;  // Add upload buffer
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
-   
+
     D3D12_HEAP_TYPE m_heapType = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_STATES m_resourceState = D3D12_RESOURCE_STATE_COMMON;
+    // Actual current GPU resource state (tracked for correct barriers on re-upload)
+    D3D12_RESOURCE_STATES m_currentState = D3D12_RESOURCE_STATE_COMMON;
     void* m_mappedData = nullptr;
 };
 } // namespace RenderEngine
