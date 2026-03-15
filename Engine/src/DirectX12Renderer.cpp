@@ -773,21 +773,29 @@ void DirectX12Renderer::Resize(uint32_t width, uint32_t height) {
 
 void DirectX12Renderer::Draw(uint32_t vertexCount) {
     commandList->DrawInstanced(vertexCount, 1, 0, 0);
+    DrawnVertices += vertexCount;
+    DrawnTriangles += vertexCount / 3;
 }
 
 void DirectX12Renderer::DrawIndexed(uint32_t indexCount) {
     commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+    DrawnVertices += indexCount;
+    DrawnTriangles += indexCount / 3;
 }
 
 void DirectX12Renderer::DrawInstance(uint32_t instanceCount,
                                       uint32_t vertexPerInstance) {
     commandList->DrawInstanced(vertexPerInstance, instanceCount, 0, 0);
+    DrawnVertices += vertexPerInstance * instanceCount;
+    DrawnTriangles += (vertexPerInstance / 3) * instanceCount;
 }
 
 void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
                                              uint32_t indexPerInstance) {
     commandList->DrawIndexedInstanced(indexPerInstance, instanceCount, 0,
                                       0, 0);
+    DrawnVertices += indexPerInstance * instanceCount;
+    DrawnTriangles += (indexPerInstance / 3) * instanceCount;
 }
 
 void DirectX12Renderer::SetRenderFace(RenderFace face) {
