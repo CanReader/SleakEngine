@@ -8,6 +8,7 @@
 #include <Events/ApplicationEvent.h>
 #include <Events/InputEvent.h>
 #include <Core/Timer.hpp>
+#include <Debug/Benchmark.hpp>
 
 namespace Sleak {
 
@@ -85,6 +86,8 @@ class ENGINE_API Application {
     bool GetVSync() const;
     void SetVSync(bool enabled);
 
+    Benchmark* GetBenchmark() { return m_benchmark; }
+
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
     void OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e);
 
@@ -98,6 +101,7 @@ class ENGINE_API Application {
     GameBase* Game;
     RenderEngine::Renderer* renderer;
     DebugOverlay* m_DebugOverlay = nullptr;
+    Benchmark* m_benchmark = nullptr;
     float DeltaTime;
 
     Timer FrameTimer;

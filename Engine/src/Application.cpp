@@ -97,6 +97,7 @@ namespace Sleak {
         // Game must be deleted first — scene cleanup destroys objects
         // whose components hold render resources (buffers, etc.)
         delete Game;
+        delete m_benchmark;
         delete m_DebugOverlay;
         delete renderer;
         delete CoreWindow;
@@ -118,6 +119,9 @@ namespace Sleak {
 
             m_DebugOverlay = new DebugOverlay();
             m_DebugOverlay->Initialize(renderer, game);
+
+            m_benchmark = new Benchmark();
+            m_benchmark->Initialize(renderer);
             {
                 auto& cfg = m_DebugOverlay->GetConfig();
                 cfg.ShowCameraPanel = false;
@@ -178,6 +182,11 @@ namespace Sleak {
                     Game->Loop(DeltaTime);
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
+
+                #ifdef _DEBUG
+                if (m_benchmark)
+                    m_benchmark->Tick(DeltaTime);
+                #endif
 
                 renderer->FlushPendingTransfers();
 
@@ -263,6 +272,13 @@ namespace Sleak {
             case Input::KEY_CODE::KEY__F11:
               CoreWindow->ToggleFullScreen();
             break;
+
+            #ifdef _DEBUG
+            case Input::KEY_CODE::KEY__F12:
+              if (m_benchmark)
+                  m_benchmark->ToggleRecording();
+            break;
+            #endif
 
         }
 
