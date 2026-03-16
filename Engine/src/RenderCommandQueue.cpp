@@ -79,7 +79,8 @@ namespace Sleak {
                         lastSlot0Buffer = bindCmd->GetBuffer();
                     }
                 }
-                if (type == CommandType::Draw || type == CommandType::DrawIndexed) {
+                if ((type == CommandType::Draw || type == CommandType::DrawIndexed)
+                    && lastSlot0Buffer) {
                     ShadowDrawEntry entry;
                     entry.command = cmd;
                     entry.transformBuffer = lastSlot0Buffer;
