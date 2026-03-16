@@ -12,6 +12,7 @@
 #include <locale>
 #include <codecvt>
 #include <d3dcompiler.h>
+#include <Graphics/DirectX/DirectX12Buffer.hpp>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -521,6 +522,9 @@ void DirectX12Renderer::BeginRender() {
         fence->SetEventOnCompletion(waitValue, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
+
+    // Process deferred GPU resource deletions now that GPU is idle
+    DirectX12Buffer::ProcessDeferredCleanup();
 
     // Reset the command allocator and command list for this frame
     commandAllocators[frameIndex]->Reset();

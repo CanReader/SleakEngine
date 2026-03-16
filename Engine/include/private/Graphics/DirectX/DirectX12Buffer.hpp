@@ -67,6 +67,16 @@ private:
     // Wait for pending GPU upload to complete (for command list/allocator reuse)
     void WaitForUploadComplete();
 
+public:
+    // Release staging upload resources (call after GPU copy is guaranteed complete)
+    void ReleaseUploadResources();
+
+    // Deferred cleanup: queue buffers for deletion after GPU is done
+    static void DeferCleanup(Microsoft::WRL::ComPtr<ID3D12Resource> resource);
+    static void ProcessDeferredCleanup();
+
+private:
+
     // Smart pointers for proper resource management
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
     ID3D12CommandQueue* m_commandQueue = nullptr; // non-owning, for upload execution

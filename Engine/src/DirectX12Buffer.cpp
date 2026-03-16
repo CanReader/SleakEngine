@@ -312,16 +312,25 @@ void DirectX12Buffer::Cleanup()
     if (bIsMapped) {
         Unmap();
     }
-    
-    m_uploadBuffer.Reset();  // Reset upload buffer
-    m_buffer.Reset();
-    m_commandList.Reset();
-    m_commandAllocator.Reset();
-    
+
+    // Defer GPU buffer destruction — may still be referenced by in-flight commands.
+    // Upload resources can be freed immediately (copy already submitted).
+    ReleaseUploadResources();
+    if (m_buffer) {
+        DeferCleanup(std::move(m_buffer));
+        m_buffer = nullptr;
+    }
+
     bIsInitialized = false;
     Size = 0;
     Data = nullptr;
     bIsMapped = false;
+}
+
+void DirectX12Buffer::ReleaseUploadResources() {
+    m_uploadBuffer.Reset();
+    m_commandList.Reset();
+    m_commandAllocator.Reset();
 }
 
 bool DirectX12Buffer::Map()
@@ -430,6 +439,23 @@ void DirectX12Buffer::WaitForUploadComplete()
         WaitForSingleObject(ev, INFINITE);
     }
     CloseHandle(ev);
+}
+
+// Static deferred cleanup queue — buffers released after GPU fence wait
+static std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> s_deferredResources;
+static std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> s_pendingResources;
+
+void DirectX12Buffer::DeferCleanup(Microsoft::WRL::ComPtr<ID3D12Resource> resource) {
+    if (resource)
+        s_pendingResources.push_back(std::move(resource));
+}
+
+void DirectX12Buffer::ProcessDeferredCleanup() {
+    // Release resources deferred from the PREVIOUS frame (GPU guaranteed done
+    // since BeginRender waits for all fences before calling this).
+    s_deferredResources.clear();
+    // Move current pending to deferred — will be released next frame
+    s_deferredResources.swap(s_pendingResources);
 }
 
 } // namespace RenderEngine
