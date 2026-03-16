@@ -112,7 +112,7 @@ private:
         uint32_t memoryTypeIndex;
     };
     static std::vector<PooledBuffer> s_bufferPool;
-    static constexpr size_t MAX_POOL_SIZE = 64;
+    static constexpr size_t MAX_POOL_SIZE = 256;
 
     bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                           VkMemoryPropertyFlags properties,

@@ -49,6 +49,7 @@ bool VulkanBuffer::Initialize(void* data) {
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 m_stagingBuffer, m_stagingMemory);
+            if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             // Copy data to staging buffer
             if (data) {
@@ -65,6 +66,19 @@ bool VulkanBuffer::Initialize(void* data) {
                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 m_buffer, m_memory);
+
+            if (m_buffer == VK_NULL_HANDLE) {
+                // OOM — clean up staging and fail gracefully
+                if (m_stagingBuffer != VK_NULL_HANDLE) {
+                    vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+                    m_stagingBuffer = VK_NULL_HANDLE;
+                }
+                if (m_stagingMemory != VK_NULL_HANDLE) {
+                    vkFreeMemory(m_device, m_stagingMemory, nullptr);
+                    m_stagingMemory = VK_NULL_HANDLE;
+                }
+                return false;
+            }
 
             // Copy from staging to device-local
             if (data) {
@@ -89,6 +103,7 @@ bool VulkanBuffer::Initialize(void* data) {
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 m_stagingBuffer, m_stagingMemory);
+            if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             if (data) {
                 void* mapped;
@@ -103,6 +118,18 @@ bool VulkanBuffer::Initialize(void* data) {
                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 m_buffer, m_memory);
+
+            if (m_buffer == VK_NULL_HANDLE) {
+                if (m_stagingBuffer != VK_NULL_HANDLE) {
+                    vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+                    m_stagingBuffer = VK_NULL_HANDLE;
+                }
+                if (m_stagingMemory != VK_NULL_HANDLE) {
+                    vkFreeMemory(m_device, m_stagingMemory, nullptr);
+                    m_stagingMemory = VK_NULL_HANDLE;
+                }
+                return false;
+            }
 
             if (data) {
                 CopyBuffer(m_stagingBuffer, m_buffer, Size);
@@ -127,6 +154,8 @@ bool VulkanBuffer::Initialize(void* data) {
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 m_buffer, m_memory);
+
+            if (m_buffer == VK_NULL_HANDLE) return false;
 
             // Persistently map
             vkMapMemory(m_device, m_memory, 0, Size, 0, &m_mappedData);
@@ -306,6 +335,10 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) !=
         VK_SUCCESS) {
         SLEAK_ERROR("Failed to allocate Vulkan buffer memory!");
+        // Destroy the orphaned VkBuffer to prevent use-after-OOM
+        vkDestroyBuffer(m_device, buffer, nullptr);
+        buffer = VK_NULL_HANDLE;
+        memory = VK_NULL_HANDLE;
         return;
     }
 
@@ -487,11 +520,11 @@ uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,
 }
 
 void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
-    // Rate-limit processing to avoid vkFreeMemory spikes
-    constexpr int MAX_PER_FRAME = 8;
-    int processed = 0;
+    // Process ALL eligible buffers each frame to prevent VRAM exhaustion.
+    // Old buffers must be freed at least as fast as new ones are created,
+    // otherwise the deferred queue grows unbounded and OOMs the GPU.
     auto it = s_deferredDeletions.begin();
-    while (it != s_deferredDeletions.end() && processed < MAX_PER_FRAME) {
+    while (it != s_deferredDeletions.end()) {
         if (s_frameNumber - it->frameNumber >= maxFramesInFlight) {
             // Recycle into pool if there's room, otherwise destroy
             if (s_bufferPool.size() < MAX_POOL_SIZE && it->allocSize > 0) {
@@ -503,7 +536,6 @@ void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
                     vkFreeMemory(it->device, it->memory, nullptr);
             }
             it = s_deferredDeletions.erase(it);
-            ++processed;
         } else {
             ++it;
         }
