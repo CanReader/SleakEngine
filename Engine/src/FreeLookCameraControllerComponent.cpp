@@ -54,7 +54,7 @@ namespace Sleak {
     }
 
     void FreeLookCameraController::ToggleCursor(bool enabled) {
-        bool cursor_set = enabled ? SDL_HideCursor() : SDL_ShowCursor();
+        bool cursor_set = enabled ? SDL_ShowCursor() : SDL_HideCursor();
 
         if(!cursor_set) {
             SLEAK_ERROR("Failed to set cursor visibility {}", SDL_GetError());

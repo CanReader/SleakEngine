@@ -46,7 +46,7 @@ void FirstPersonController::Update(float deltaTime) {
 }
 
 void FirstPersonController::ToggleCursor(bool enabled) {
-    bool cursor_set = enabled ? SDL_HideCursor() : SDL_ShowCursor();
+    bool cursor_set = enabled ? SDL_ShowCursor() : SDL_HideCursor();
     (void)cursor_set;
 }
 
