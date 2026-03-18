@@ -11,6 +11,7 @@ in vec3 fragWorldTan;
 in vec3 fragWorldBit;
 in vec4 fragColor;
 in vec2 fragUV;
+in vec4 fragShadowCoord;
 
 out vec4 outColor;
 
@@ -119,6 +120,159 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
         clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+// Fresnel-Schlick with roughness (for IBL ambient specular)
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+    float oneMinusRoughness = 1.0 - roughness;
+    return F0 + (max(vec3(oneMinusRoughness), F0) - F0)
+        * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// IBL textures
+layout(binding = 7) uniform samplerCube irradianceMap;
+layout(binding = 8) uniform samplerCube prefilterMap;
+layout(binding = 9) uniform sampler2D   brdfLUT;
+
+layout(std140, binding = 3) uniform IBLUBO {
+    uint  IBLEnabled;
+    float IBLIntensity;
+    float MaxReflectionLOD;
+    uint  _iblPad0;
+};
+
+// SSAO composite texture (screen-space, blurred AO)
+layout(binding = 10) uniform sampler2D ssaoTexture;
+
+layout(std140, binding = 4) uniform SSAOUBO_Composite {
+    uint  SSAOCompositeEnabled;
+    float ssaoScreenWidth;
+    float ssaoScreenHeight;
+    float _ssaoCompPad0;
+};
+
+// Shadow mapping with PCSS
+layout(std140, binding = 5) uniform ShadowUBO {
+    mat4  ShadowLightVP;
+    float ShadowBias;
+    float ShadowStrength;
+    float ShadowTexelSize;
+    float ShadowLightSize;
+    uint  PCSSEnabled;
+    uint  ShadowMapEnabled;
+    float _shadowPad0, _shadowPad1;
+};
+
+layout(binding = 11) uniform sampler2DShadow shadowMapSampler;
+layout(binding = 12) uniform sampler2D       shadowMapDepth;
+
+// ---- PCSS Shadow Functions ----
+
+float InterleavedGradientNoiseGL(vec2 screenPos) {
+    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(screenPos, magic.xy)));
+}
+
+const vec2 poissonDisk[32] = vec2[](
+    vec2(-0.9465, -0.1484), vec2(-0.7431,  0.5353),
+    vec2(-0.5863, -0.5879), vec2(-0.3935,  0.1025),
+    vec2(-0.2428,  0.7722), vec2(-0.1074, -0.3075),
+    vec2( 0.0542, -0.8645), vec2( 0.1267,  0.4300),
+    vec2( 0.2787, -0.1353), vec2( 0.3842,  0.6501),
+    vec2( 0.4714, -0.5537), vec2( 0.5765,  0.1675),
+    vec2( 0.6712, -0.3340), vec2( 0.7527,  0.4813),
+    vec2( 0.8745, -0.0910), vec2( 0.9601,  0.2637),
+    vec2(-0.8312,  0.3150), vec2(-0.6142, -0.2890),
+    vec2(-0.4581,  0.6310), vec2(-0.2134, -0.7520),
+    vec2(-0.0678,  0.4210), vec2( 0.1893, -0.5430),
+    vec2( 0.3215,  0.8140), vec2( 0.4890, -0.0230),
+    vec2( 0.6340,  0.3470), vec2( 0.7810, -0.5690),
+    vec2(-0.3467,  0.2560), vec2(-0.1290, -0.1120),
+    vec2( 0.0910,  0.1560), vec2( 0.2340, -0.3410),
+    vec2(-0.5120,  0.0420), vec2( 0.4210,  0.5120)
+);
+
+float FindBlockerDepthGL(vec2 uv, float receiverDepth, float searchRadius) {
+    float blockerSum = 0.0;
+    int blockerCount = 0;
+
+    float angle = InterleavedGradientNoiseGL(gl_FragCoord.xy) * 6.283185;
+    float sa = sin(angle);
+    float ca = cos(angle);
+    mat2 rotation = mat2(ca, sa, -sa, ca);
+
+    for (int i = 0; i < 16; i++) {
+        vec2 offset = rotation * poissonDisk[i] * searchRadius;
+        float sampleDepth = texture(shadowMapDepth, uv + offset).r;
+        if (sampleDepth < receiverDepth) {
+            blockerSum += sampleDepth;
+            blockerCount++;
+        }
+    }
+
+    if (blockerCount == 0) return -1.0;
+    return blockerSum / float(blockerCount);
+}
+
+float PCSSFilterGL(vec2 uv, float receiverDepth, float filterRadius) {
+    float angle = InterleavedGradientNoiseGL(gl_FragCoord.xy) * 6.283185;
+    float sa = sin(angle);
+    float ca = cos(angle);
+    mat2 rotation = mat2(ca, sa, -sa, ca);
+
+    float shadow = 0.0;
+    for (int i = 0; i < 32; i++) {
+        vec2 offset = rotation * poissonDisk[i] * filterRadius;
+        shadow += texture(shadowMapSampler, vec3(uv + offset, receiverDepth));
+    }
+    return shadow / 32.0;
+}
+
+float CalcShadowPCSSGL(vec4 sc) {
+    if (ShadowMapEnabled == 0u) return 1.0;
+
+    vec3 proj = sc.xyz / sc.w;
+    proj.xy = proj.xy * 0.5 + 0.5;
+
+    if (proj.x < 0.0 || proj.x > 1.0 ||
+        proj.y < 0.0 || proj.y > 1.0 ||
+        proj.z < 0.0 || proj.z > 1.0)
+        return 1.0;
+
+    vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), proj.xy)
+                   * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - proj.xy);
+    float edgeFade = fadeCoord.x * fadeCoord.y;
+
+    float biasedDepth = proj.z - ShadowBias;
+    float shadow;
+
+    if (PCSSEnabled != 0u) {
+        float searchRadius = ShadowTexelSize * ShadowLightSize * 40.0;
+        float blockerDepth = FindBlockerDepthGL(proj.xy, biasedDepth, searchRadius);
+
+        if (blockerDepth < 0.0) return 1.0;
+
+        float penumbra = ((biasedDepth - blockerDepth) / blockerDepth) * ShadowLightSize;
+        float filterRadius = max(penumbra * ShadowTexelSize * 80.0, ShadowTexelSize * 8.0);
+        filterRadius = min(filterRadius, ShadowTexelSize * ShadowLightSize * 30.0);
+
+        shadow = PCSSFilterGL(proj.xy, biasedDepth, filterRadius);
+    } else {
+        // Standard 3x3 PCF
+        shadow = 0.0;
+        float radius = ShadowTexelSize * 2.0;
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                vec2 offset = vec2(float(x), float(y)) * radius;
+                shadow += texture(shadowMapSampler, vec3(proj.xy + offset, biasedDepth));
+            }
+        }
+        shadow /= 9.0;
+    }
+
+    return mix(1.0, shadow, ShadowStrength * edgeFade);
+}
+
+// ---- End PCSS Shadow Functions ----
+
 float AttenuateUE4(float distance, float range) {
     if (range <= 0.0) return 1.0;
     float d = distance / range;
@@ -166,6 +320,13 @@ void main() {
     if (HasAOMap != 0u)
         ao *= texture(aoTexture, uv).r;
 
+    // Composite screen-space AO
+    if (SSAOCompositeEnabled != 0u) {
+        vec2 screenUV = gl_FragCoord.xy / vec2(ssaoScreenWidth, ssaoScreenHeight);
+        float ssao = texture(ssaoTexture, screenUV).r;
+        ao *= ssao;
+    }
+
     vec3 albedo = baseColor.rgb;
     vec3 V = normalize(CameraPos - fragWorldPos);
 
@@ -182,6 +343,11 @@ void main() {
 
         if (light.Type == 0u) {
             L = normalize(-light.Direction);
+            // Apply PCSS shadow to first directional light
+            if (i == 0u) {
+                float shadow = CalcShadowPCSSGL(fragShadowCoord);
+                attenuation *= shadow;
+            }
         }
         else if (light.Type == 1u) {
             vec3 toLight = light.Position - fragWorldPos;
@@ -235,8 +401,32 @@ void main() {
         }
     }
 
-    vec3 ambient = AmbientColor * AmbientIntensity
-                 * albedo * ao;
+    vec3 ambient;
+    if (IBLEnabled != 0u) {
+        // IBL diffuse: sample irradiance map
+        vec3 kS_ibl = FresnelSchlickRoughness(
+            max(dot(N, V), 0.0), F0, roughness);
+        vec3 kD_ibl = (1.0 - kS_ibl) * (1.0 - metallic);
+
+        vec3 irradiance = texture(irradianceMap, N).rgb;
+        vec3 diffuseIBL = irradiance * albedo;
+
+        // IBL specular: sample prefiltered env map + BRDF LUT
+        vec3 R = reflect(-V, N);
+        vec3 prefilteredColor = textureLod(
+            prefilterMap, R, roughness * MaxReflectionLOD).rgb;
+        float NdotV_ibl = max(dot(N, V), 0.0);
+        vec2 envBRDF = texture(brdfLUT,
+            vec2(NdotV_ibl, roughness)).rg;
+        vec3 specularIBL = prefilteredColor
+            * (kS_ibl * envBRDF.x + envBRDF.y);
+
+        ambient = (kD_ibl * diffuseIBL + specularIBL)
+                * ao * IBLIntensity;
+    } else {
+        ambient = AmbientColor * AmbientIntensity
+                * albedo * ao;
+    }
 
     vec3 emissive = matEmissiveColor * matEmissiveIntensity;
     if (HasEmissiveMap != 0u)
