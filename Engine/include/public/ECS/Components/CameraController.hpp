@@ -5,9 +5,10 @@
 #include <Math/Vector.hpp>
 #include <Camera/Camera.hpp>
 #include <Memory/RefPtr.h>
+#include <Core/OSDef.hpp>
 
 namespace Sleak {
-    class CameraController : public Component {
+    class ENGINE_API CameraController : public Component {
     public:
         CameraController(GameObject* object) : Component(object) {}
         ~CameraController() override = default;

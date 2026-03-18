@@ -3,9 +3,10 @@
 
 #include <ECS/Components/CameraController.hpp>
 #include <Events/KeyboardEvent.h>
+#include <Core/OSDef.hpp>
 
 namespace Sleak {
-    class FreeLookCameraController : public CameraController {
+    class ENGINE_API FreeLookCameraController : public CameraController {
     public:
         FreeLookCameraController(GameObject* object);
 
