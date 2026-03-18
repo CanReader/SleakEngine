@@ -2,6 +2,7 @@
 #define _RIGIDBODY_COMPONENT_HPP_
 
 #include <ECS/Component.hpp>
+#include <Core/OSDef.hpp>
 #include <Math/Vector.hpp>
 
 namespace Sleak {
@@ -12,7 +13,7 @@ namespace Sleak {
         Dynamic     // Mass-based response, affected by gravity
     };
 
-    class RigidbodyComponent : public Component {
+    class ENGINE_API RigidbodyComponent : public Component {
     public:
         RigidbodyComponent(GameObject* owner, BodyType type = BodyType::Kinematic);
         ~RigidbodyComponent() override = default;

@@ -67,6 +67,9 @@ class ENGINE_API Application {
     void CloseApplication();
     void WaitGPUIdle();
 
+    void SetCursorVisible(bool visible);
+    void SetMouseRelativeMode(bool enabled);
+
     RenderEngine::Renderer* GetRenderer() { return renderer; }
     GameBase* GetGame() { return Game; }
 

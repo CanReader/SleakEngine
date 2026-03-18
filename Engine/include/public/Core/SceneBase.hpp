@@ -5,7 +5,7 @@
 #include <Memory/RefPtr.h>
 #include <Core/OSDef.hpp>
 #include <Utility/Container/List.hpp>
-#include <Memory/ObjectPtr.h>
+
 
 namespace Sleak {
 
@@ -77,10 +77,8 @@ namespace Sleak {
         List<GameObject*> FindObjectsByTag(const std::string& tag);
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
-        Camera* GetDebugCamera() const {
-            return DebugCamera.IsValid() ? DebugCamera.get()
-                                         : nullptr;
-        }
+        Camera* GetActiveCamera() const { return m_activeCamera; }
+        void SetActiveCamera(Camera* cam) { m_activeCamera = cam; }
 
         LightManager* GetLightManager() const {
             return m_lightManager;
@@ -102,7 +100,7 @@ namespace Sleak {
         List<GameObject*> Objects;
         List<GameObject*> m_pendingDestroy;
 
-        ObjectPtr<Camera> DebugCamera;
+        Camera* m_activeCamera = nullptr;
 
         LightManager* m_lightManager = nullptr;
         Physics::PhysicsWorld* m_physicsWorld = nullptr;
@@ -110,9 +108,6 @@ namespace Sleak {
 
         void ProcessPendingDestroy();
         void DestroyAllObjects();
-
-    private:
-        void InitializeDebugCamera();
     };
 
 } // namespace Sleak

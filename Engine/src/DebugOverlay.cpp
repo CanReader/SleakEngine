@@ -40,7 +40,7 @@ void DebugOverlay::Render(float deltaTime) {
 void DebugOverlay::RenderCameraPanel() {
     Camera* camera = nullptr;
     if (m_game && m_game->GetActiveScene())
-        camera = m_game->GetActiveScene()->GetDebugCamera();
+        camera = m_game->GetActiveScene()->GetActiveCamera();
     if (!camera) return;
 
     UI::BeginPanel("Camera", 0, 0, m_config.PanelAlpha,

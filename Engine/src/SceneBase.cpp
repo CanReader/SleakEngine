@@ -2,15 +2,12 @@
 #include <Core/GameObject.hpp>
 #include <Logger.hpp>
 #include <Camera/Camera.hpp>
-#include <ECS/Components/FreeLookCameraController.hpp>
-#include <ECS/Components/FirstPersonController.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
 #include <Runtime/Skybox.hpp>
 #include <Physics/PhysicsWorld.hpp>
 #include <Physics/ColliderComponent.hpp>
-#include <Physics/RigidbodyComponent.hpp>
 #include <Debug/DebugLineRenderer.hpp>
 
 namespace Sleak {
@@ -118,8 +115,6 @@ bool SceneBase::Initialize() {
         }
     }
 
-    InitializeDebugCamera();
-
     if (m_skybox && !m_skybox->IsInitialized()) {
         m_skybox->Initialize();
     }
@@ -152,9 +147,6 @@ void SceneBase::Update(float deltaTime) {
 
     if (m_skybox)
         m_skybox->Render();
-
-    if (DebugCamera)
-        DebugCamera->Update(deltaTime);
 
     if (m_physicsWorld)
         m_physicsWorld->Step(deltaTime);
@@ -198,17 +190,9 @@ void SceneBase::Update(float deltaTime) {
             drawColliderShape(collider, pos, scale);
         }
 
-        if (DebugCamera.IsValid()) {
-            auto* collider = DebugCamera->GetComponent<ColliderComponent>();
-            if (collider) {
-                Math::Vector3D pos = DebugCamera->GetPosition() + collider->GetOffset();
-                drawColliderShape(collider, pos, Math::Vector3D(1, 1, 1));
-            }
-        }
-
     }
 
-    DebugLineRenderer::Flush(DebugCamera.IsValid() ? DebugCamera.get() : nullptr);
+    DebugLineRenderer::Flush(m_activeCamera);
 
     ProcessPendingDestroy();
 }
@@ -356,21 +340,6 @@ void SceneBase::SetSkybox(Skybox* skybox) {
     m_skybox = skybox;
     if (m_skybox && bInitialized && !m_skybox->IsInitialized()) {
         m_skybox->Initialize();
-    }
-}
-
-void SceneBase::InitializeDebugCamera() {
-    if (!DebugCamera.IsValid()) {
-        DebugCamera = ObjectPtr<Camera>(new Camera(
-            std::string("SceneDebugCamera"),
-            {0, 3, 0}, 60, 0.01, 100));
-        DebugCamera->AddComponent<FreeLookCameraController>();
-
-        DebugCamera->Initialize();
-        DebugCamera->GetComponent<FreeLookCameraController>()->SetEnabled(true);
-
-        DebugCamera->SetActive(true);
-        DebugCamera->SetLookTarget({0, 0, 1});
     }
 }
 

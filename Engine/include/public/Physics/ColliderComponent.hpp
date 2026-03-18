@@ -2,13 +2,14 @@
 #define _COLLIDER_COMPONENT_HPP_
 
 #include <ECS/Component.hpp>
+#include <Core/OSDef.hpp>
 #include <Physics/Colliders.hpp>
 
 namespace Sleak {
 
     struct MeshData;
 
-    class ColliderComponent : public Component {
+    class ENGINE_API ColliderComponent : public Component {
     public:
         // Manual shape constructors
         ColliderComponent(GameObject* owner, const Physics::AABB& aabb);

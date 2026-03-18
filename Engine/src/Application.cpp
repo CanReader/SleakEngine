@@ -254,7 +254,7 @@ namespace Sleak {
             case Input::KEY_CODE::KEY__F9:
             {
                 if (Game && Game->GetActiveScene()) {
-                    Camera* cam = Game->GetActiveScene()->GetDebugCamera();
+                    Camera* cam = Game->GetActiveScene()->GetActiveCamera();
                     if (cam) {
                         auto* fpc = cam->GetComponent<FirstPersonController>();
                         if (fpc) {
@@ -294,6 +294,18 @@ namespace Sleak {
 
     void Application::WaitGPUIdle() {
         if (renderer) renderer->WaitIdle();
+    }
+
+    void Application::SetCursorVisible(bool visible) {
+        if (visible)
+            SDL_ShowCursor();
+        else
+            SDL_HideCursor();
+    }
+
+    void Application::SetMouseRelativeMode(bool enabled) {
+        if (CoreWindow)
+            CoreWindow->SetRelativeMouseMode(enabled);
     }
 
     int Application::GetFPS() const { return renderer->GetFrameRate(); }

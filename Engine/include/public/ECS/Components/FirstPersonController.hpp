@@ -2,6 +2,7 @@
 #define _FIRSTPERSONCONTROLLER_HPP_
 
 #include <ECS/Components/CameraController.hpp>
+#include <Core/OSDef.hpp>
 #include <Events/KeyboardEvent.h>
 
 namespace Sleak {
@@ -10,7 +11,7 @@ namespace Sleak {
 
     // First person controller modeled after Unreal Engine's CharacterMovementComponent.
     // Uses acceleration/braking model with very low air control.
-    class FirstPersonController : public CameraController {
+    class ENGINE_API FirstPersonController : public CameraController {
     public:
         FirstPersonController(GameObject* object);
 
