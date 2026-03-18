@@ -50,7 +50,7 @@ bool DirectX11Renderer::Initialize() {
                                      SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
     // Create a DirectX 11 device and swap chain
     DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
-    swapChainDesc.BufferCount = 1;
+    swapChainDesc.BufferCount = 2;
     swapChainDesc.BufferDesc.Width = Window::GetWidth();
     swapChainDesc.BufferDesc.Height = Window::GetHeight();
     swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -61,6 +61,7 @@ bool DirectX11Renderer::Initialize() {
     swapChainDesc.SampleDesc.Count = 1;
     swapChainDesc.SampleDesc.Quality = 0;
     swapChainDesc.Windowed = TRUE;
+    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     UINT createDeviceFlags = 0;
     #ifdef _DEBUG
@@ -101,23 +102,22 @@ bool DirectX11Renderer::Initialize() {
     #ifdef _DEBUG
         ID3D11InfoQueue* infoQueue;
         if (SUCCEEDED(device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&infoQueue))) {
+            // Only break on corruption (critical), not on errors — breaking on
+            // errors without a debugger attached silently drops draw calls.
             infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
-            infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
 
             D3D11_MESSAGE_SEVERITY severities[] = {
                 D3D11_MESSAGE_SEVERITY_INFO
             };
-    
-            // Enable all messages
+
             D3D11_INFO_QUEUE_FILTER filter = {};
             filter.DenyList.NumSeverities = _countof(severities);
             filter.DenyList.pSeverityList = severities;
-    
+
             infoQueue->AddStorageFilterEntries(&filter);
             infoQueue->Release();
         }
-
-#endif
+    #endif
 
         SetPerformanceCounter(true);
         SetRenderMode(RenderMode::Fill);
@@ -152,9 +152,11 @@ void DirectX11Renderer::BeginRender() {
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
-    // Bind MSAA targets if active
+    // Bind render targets at frame start
     if (msaaSampleCount > 1 && msaaRenderTargetView && msaaDepthStencilView) {
         deviceContext->OMSetRenderTargets(1, &msaaRenderTargetView, msaaDepthStencilView);
+    } else {
+        deviceContext->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
     }
 
     ClearRenderTarget(0.39f, 0.58f, 0.93f, 1.0f);
@@ -242,11 +244,13 @@ void DirectX11Renderer::Cleanup() {
     }
 
     #ifdef _DEBUG
-        ID3D11Debug* debugDevice;
-        device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
-        if (debugDevice) {
-            debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
-            debugDevice->Release();
+        if(device) {
+            ID3D11Debug* debugDevice;
+            device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
+            if (debugDevice) {
+                debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+                debugDevice->Release();
+            }
         }
     #endif
 
@@ -382,7 +386,6 @@ void DirectX11Renderer::Draw(uint32_t vertexCount) {
 }
 
 void DirectX11Renderer::DrawIndexed(uint32_t indexCount) {
-    
     deviceContext->DrawIndexed(indexCount, 0, 0);
     DrawnVertices += indexCount;
 }
@@ -729,8 +732,13 @@ BufferBase* DirectX11Renderer::CreateBuffer(BufferType Type, uint32_t size, void
 Shader* DirectX11Renderer::CreateShader(const std::string& shaderSource) {
     DirectX11Shader* shader = new DirectX11Shader(device);
     if (shader->compile(shaderSource)) {
-        layout = shader->createInputLayout();
-        bIsLayoutCreated = true;
+        // Each shader creates its own input layout matching its VS inputs.
+        // The layout is stored per-shader and set in bind().
+        auto* il = shader->createInputLayout();
+        if (!bIsLayoutCreated && il) {
+            layout = il;
+            bIsLayoutCreated = true;
+        }
         return static_cast<Shader*>(shader);
     }
     return nullptr;

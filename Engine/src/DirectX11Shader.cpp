@@ -65,6 +65,8 @@ void DirectX11Shader::bind() {
 
     m_deviceContext->VSSetShader(m_vertexShader.Get(), nullptr, 0);
     m_deviceContext->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+    if (Layout)
+        m_deviceContext->IASetInputLayout(Layout.Get());
 }
 
 ID3DBlob* DirectX11Shader::getVertexShaderBlob() const {
@@ -72,18 +74,43 @@ ID3DBlob* DirectX11Shader::getVertexShaderBlob() const {
 }
 
 ID3D11InputLayout* DirectX11Shader::createInputLayout() {
-    ID3D11InputLayout* inputLayout = nullptr;
+    // Check via reflection if the shader uses BLENDINDICES (skinned shader)
+    bool isSkinned = false;
+    Microsoft::WRL::ComPtr<ID3D11ShaderReflection> reflector;
+    HRESULT hr = D3DReflect(m_vertexShaderBlob->GetBufferPointer(),
+                             m_vertexShaderBlob->GetBufferSize(),
+                             IID_ID3D11ShaderReflection,
+                             reinterpret_cast<void**>(reflector.GetAddressOf()));
+    if (SUCCEEDED(hr)) {
+        D3D11_SHADER_DESC shaderDesc;
+        reflector->GetDesc(&shaderDesc);
+        for (UINT p = 0; p < shaderDesc.InputParameters; ++p) {
+            D3D11_SIGNATURE_PARAMETER_DESC paramDesc;
+            reflector->GetInputParameterDesc(p, &paramDesc);
+            if (strcmp(paramDesc.SemanticName, "BLENDINDICES") == 0) {
+                isSkinned = true;
+                break;
+            }
+        }
+    }
 
-    HRESULT hr = m_device->CreateInputLayout(
-        DefaultLayout, ARRAYSIZE(DefaultLayout),
+    D3D11_INPUT_ELEMENT_DESC* layoutDesc = isSkinned ? SkinnedLayout : DefaultLayout;
+    UINT layoutCount = isSkinned ? ARRAYSIZE(SkinnedLayout) : ARRAYSIZE(DefaultLayout);
+
+    ID3D11InputLayout* inputLayout = nullptr;
+    hr = m_device->CreateInputLayout(
+        layoutDesc, layoutCount,
         m_vertexShaderBlob->GetBufferPointer(),
-        m_vertexShaderBlob->GetBufferSize(), &inputLayout); // Here crashes!
+        m_vertexShaderBlob->GetBufferSize(), &inputLayout);
 
     if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to create input layout: 0x{:08X}",
-                    hr);  // Log the HRESULT
+        SLEAK_ERROR("Failed to create input layout: 0x{:08X}", hr);
         return nullptr;
     }
+
+    // Store per-shader so bind() can set it
+    Layout.Attach(inputLayout);
+    inputLayout->AddRef(); // Keep a ref for the caller too
 
     return inputLayout;
 }
