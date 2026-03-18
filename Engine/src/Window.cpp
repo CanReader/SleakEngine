@@ -39,12 +39,14 @@ bool Window::InitializeWindow() {
 
   auto type = RenderEngine::RendererFactory::GetRendererType();
 
-  int GraphicsAPI = SDL_WINDOW_OPENGL;
+  int GraphicsAPI = 0;
 
-  if(type == RenderEngine::RendererType::Vulkan)
+  if(type == RenderEngine::RendererType::OpenGL)
+    GraphicsAPI = SDL_WINDOW_OPENGL;
+  else if(type == RenderEngine::RendererType::Vulkan)
     GraphicsAPI = SDL_WINDOW_VULKAN;
 
-  if (!SDL_Init(SDL_INIT_VIDEO | GraphicsAPI)) {
+  if (!SDL_Init(SDL_INIT_VIDEO)) {
     SLEAK_FATAL("Failed to initialize SDL: %{0}" , SDL_GetError());
     return false;
     }
@@ -110,8 +112,8 @@ void Window::Update() {
       {
         DispatchEvent<Sleak::Events::WindowCloseEvent>();
         EventDispatcher::UnregisterAllEvents();
-        event.type = SDL_EVENT_QUIT;
-        break;
+        bShouldClose = true;
+        return;
       }
 
       case SDL_EVENT_KEY_DOWN:
@@ -191,8 +193,7 @@ void Window::SetRelativeMouseMode(bool enabled) {
 }
 
 void Window::Close() {
-  event.type = SDL_EVENT_QUIT;
-  SDL_Quit();
+  bShouldClose = true;
 }
 
 }

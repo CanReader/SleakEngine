@@ -26,12 +26,7 @@ public:
   void Update();
   void Close();
 
-  inline bool ShouldClose() { 
-    if(event.type == SDL_EVENT_QUIT)
-      return true;
-    else
-      return false;
-  }
+  inline bool ShouldClose() { return bShouldClose; }
 
   inline SDL_Window* GetSDLWindow() {return SDLWindow;}
   inline std::string GetWindowTitle() { return WindowName;}
@@ -50,6 +45,7 @@ public:
 private:
   bool bIsInitialized = false;
   bool bIsFullScreen = false;
+  bool bShouldClose = false;
   bool m_imguiReady = false;
   std::string WindowName;
 
