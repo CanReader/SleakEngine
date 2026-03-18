@@ -24,6 +24,16 @@ set(ASSIMP_BUILD_FBX_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 
+# Propagate /utf-8 into CMAKE_CXX_FLAGS so assimp's flag check sees it
+# and doesn't add the conflicting /source-charset:utf-8
+if(MSVC)
+  string(FIND "${CMAKE_CXX_FLAGS}" "/utf-8" _idx)
+  if(_idx EQUAL -1)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /utf-8")
+  endif()
+endif()
+
 # --- Build all vendor dependencies ---
 add_subdirectory(vendors/glm)
 add_subdirectory(vendors/freeglut)
