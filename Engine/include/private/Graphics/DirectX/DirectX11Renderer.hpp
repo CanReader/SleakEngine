@@ -79,6 +79,9 @@ public:
 
     void ApplyMSAAChange() override;
 
+    // Shadow mapping support
+    void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+
     virtual RenderContext* GetContext() override { return this; }
 
    private:
@@ -137,6 +140,24 @@ public:
 
     ImGuiContext* ImCon;
 
+    // Shadow mapping
+    ID3D11Buffer* m_shadowCB = nullptr;
+    bool m_shadowCBCreated = false;
+    bool CreateShadowConstantBuffer();
+    void CleanupShadowResources();
+
+    // Post-process: Tonemapping
+    ID3D11Buffer* m_postProcessCB = nullptr;
+    ID3D11Texture2D* m_hdrTexture = nullptr;
+    ID3D11RenderTargetView* m_hdrRTV = nullptr;
+    ID3D11ShaderResourceView* m_hdrSRV = nullptr;
+    ID3D11SamplerState* m_pointSampler = nullptr;
+    ID3D11VertexShader* m_tonemapVS = nullptr;
+    ID3D11PixelShader* m_tonemapPS = nullptr;
+    bool m_tonemapResourcesCreated = false;
+    bool CreateTonemapResources();
+    void CleanupTonemapResources();
+    void ExecuteTonemapPass();
 };
 
 } // namespace RenderEngine

@@ -167,6 +167,77 @@ namespace Sleak {
             float _fogPad[2];        // padding to 16-byte alignment
         };
 
+        // GPU-aligned POD struct for post-process settings constant buffer.
+        // Total: 16 bytes (1 x 16-byte row).
+        struct alignas(16) PostProcessGPUData {
+            float Exposure;        // HDR exposure multiplier (default 1.0)
+            float Gamma;           // Gamma correction exponent (default 2.2)
+            uint32_t TonemapEnabled; // 0 = passthrough, 1 = ACES tonemap
+            uint32_t _ppPad0;
+        };
+
+        // GPU-aligned POD struct for SSAO settings constant buffer.
+        // Total: 64 bytes (4 x 16-byte rows).
+        static constexpr uint32_t SSAO_KERNEL_SIZE = 64;
+
+        struct alignas(16) SSAOSettingsGPUData {
+            // Row 0
+            float Radius;          // Sample hemisphere radius (default 0.5)
+            float Bias;            // Depth bias to prevent self-occlusion (default 0.025)
+            float Power;           // AO power exponent (default 2.0)
+            uint32_t KernelSize;   // Number of samples (default 64)
+
+            // Row 1
+            float ScreenWidth;
+            float ScreenHeight;
+            uint32_t SSAOEnabled;  // 0 = disabled, 1 = enabled
+            uint32_t _ssaoPad0;
+
+            // Row 2: near/far plane for linearizing depth
+            float NearPlane;
+            float FarPlane;
+            float _ssaoPad1, _ssaoPad2;
+
+            // Row 3: reserved
+            float _ssaoPad3[4];
+        };
+
+        // GPU-aligned POD struct for PCSS shadow settings (used in PBR shader, DX11/OpenGL).
+        // Total: 96 bytes (6 x 16-byte rows).
+        struct alignas(16) PCSSShadowGPUData {
+            // Row 0-3: Light view-projection matrix (64 bytes)
+            float LightVP[16];
+
+            // Row 4: Shadow parameters
+            float ShadowBias;
+            float ShadowStrength;
+            float ShadowTexelSize;
+            float ShadowLightSize;
+
+            // Row 5: Toggles
+            uint32_t PCSSEnabled;
+            uint32_t ShadowMapEnabled;
+            float _shadowPad0, _shadowPad1;
+        };
+
+        // GPU-aligned POD struct for SSAO composite settings (used in PBR shader).
+        // Total: 16 bytes (1 x 16-byte row).
+        struct alignas(16) SSAOCompositeGPUData {
+            uint32_t SSAOCompositeEnabled; // 0 = disabled, 1 = multiply AO by SSAO texture
+            float    ScreenWidth;
+            float    ScreenHeight;
+            float    _ssaoCompPad;
+        };
+
+        // GPU-aligned POD struct for IBL settings constant buffer.
+        // Total: 16 bytes (1 x 16-byte row).
+        struct alignas(16) IBLSettingsGPUData {
+            uint32_t IBLEnabled;       // 0 = disabled, 1 = enabled
+            float    IBLIntensity;     // multiplier for IBL contribution (default 1.0)
+            float    MaxReflectionLOD; // max mip level for prefiltered env map (default 4.0)
+            uint32_t _iblPad0;
+        };
+
         struct alignas(16) LightBuffer : public ConstantBuffer {
             LightBuffer() : gpuData{} {}
             LightBuffer(const LightCBData& data)

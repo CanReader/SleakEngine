@@ -13,6 +13,8 @@
 #include <imgui_internal.h>
 #include <windows.h>
 #include <psapi.h>
+#include <d3dcompiler.h>
+#include <cstring>
 
 namespace Sleak {
     namespace RenderEngine {
@@ -152,8 +154,14 @@ void DirectX11Renderer::BeginRender() {
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
-    // Bind render targets at frame start
-    if (msaaSampleCount > 1 && msaaRenderTargetView && msaaDepthStencilView) {
+    // Create tonemap resources on demand
+    if (m_tonemapEnabled && !m_tonemapResourcesCreated)
+        CreateTonemapResources();
+
+    // When tonemapping is enabled and no MSAA, render to HDR target
+    if (m_tonemapEnabled && m_tonemapResourcesCreated && msaaSampleCount <= 1) {
+        deviceContext->OMSetRenderTargets(1, &m_hdrRTV, depthStencilView);
+    } else if (msaaSampleCount > 1 && msaaRenderTargetView && msaaDepthStencilView) {
         deviceContext->OMSetRenderTargets(1, &msaaRenderTargetView, msaaDepthStencilView);
     } else {
         deviceContext->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
@@ -180,7 +188,18 @@ void DirectX11Renderer::EndRender() {
         ResolveMSAA();
     }
 
+    // Run tonemapping post-process pass (HDR -> backbuffer)
+    if (m_tonemapEnabled && m_tonemapResourcesCreated && msaaSampleCount <= 1) {
+        ExecuteTonemapPass();
+        // Restore input layout after fullscreen pass
+        if (bIsLayoutCreated)
+            deviceContext->IASetInputLayout(layout);
+    }
+
+    // ImGui renders on top of tonemapped output
     if (bImInitialized) {
+        // Ensure we're rendering to the backbuffer
+        deviceContext->OMSetRenderTargets(1, &renderTargetView, nullptr);
         ImGui::Render();
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
@@ -192,6 +211,10 @@ void DirectX11Renderer::EndRender() {
 
 void DirectX11Renderer::Cleanup() {
     bImInitialized = false;
+
+    // Cleanup post-process resources
+    CleanupTonemapResources();
+    CleanupShadowResources();
 
     // Cleanup MSAA resources
     if (msaaRenderTarget) { msaaRenderTarget->Release(); msaaRenderTarget = nullptr; }
@@ -371,6 +394,12 @@ void DirectX11Renderer::Resize(uint32_t width, uint32_t height) {
     if (msaaSampleCount > 1) {
         CreateMSAARenderTarget();
         CreateMSAADepthStencil();
+    }
+
+    // Recreate HDR tonemap target at new size
+    if (m_tonemapResourcesCreated) {
+        CleanupTonemapResources();
+        CreateTonemapResources();
     }
 
     // Update the viewport
@@ -916,10 +945,222 @@ bool DirectX11Renderer::CreateImGUI()
 }
 
 
+// ---- Shadow Constant Buffer ----
+
+bool DirectX11Renderer::CreateShadowConstantBuffer() {
+    if (m_shadowCBCreated) return true;
+
+    D3D11_BUFFER_DESC desc{};
+    desc.ByteWidth = sizeof(PCSSShadowGPUData);
+    desc.Usage = D3D11_USAGE_DYNAMIC;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    HRESULT hr = device->CreateBuffer(&desc, nullptr, &m_shadowCB);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow constant buffer!");
+        return false;
+    }
+
+    m_shadowCBCreated = true;
+    return true;
+}
+
+void DirectX11Renderer::CleanupShadowResources() {
+    if (m_shadowCB) { m_shadowCB->Release(); m_shadowCB = nullptr; }
+    m_shadowCBCreated = false;
+}
+
+void DirectX11Renderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
+    if (!device || !deviceContext) return;
+
+    // Create shadow CB on first call
+    if (!m_shadowCBCreated) {
+        if (!CreateShadowConstantBuffer()) return;
+    }
+
+    // Map the ShadowLightUBO data into our PCSSShadowGPUData format
+    const auto* ubo = static_cast<const ShadowLightUBO*>(data);
+
+    PCSSShadowGPUData shadowData{};
+    std::memcpy(shadowData.LightVP, ubo->LightVP, sizeof(float) * 16);
+    shadowData.ShadowBias = ubo->ShadowBias;
+    shadowData.ShadowStrength = ubo->ShadowStrength;
+    shadowData.ShadowTexelSize = ubo->ShadowTexelSize;
+    shadowData.ShadowLightSize = ubo->LightSize;
+    shadowData.PCSSEnabled = m_pcssEnabled ? 1 : 0;
+    shadowData.ShadowMapEnabled = m_shadowPassEnabled ? 1 : 0;
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    HRESULT hr = deviceContext->Map(m_shadowCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (SUCCEEDED(hr)) {
+        std::memcpy(mapped.pData, &shadowData, sizeof(shadowData));
+        deviceContext->Unmap(m_shadowCB, 0);
+    }
+
+    // Bind shadow CB at slot 5 (both VS and PS)
+    deviceContext->VSSetConstantBuffers(5, 1, &m_shadowCB);
+    deviceContext->PSSetConstantBuffers(5, 1, &m_shadowCB);
+}
+
+// ---- Post-Process: Tonemapping ----
+
+bool DirectX11Renderer::CreateTonemapResources() {
+    if (m_tonemapResourcesCreated) return true;
+    if (!device) return false;
+
+    // Get back buffer dimensions
+    ID3D11Texture2D* backBuffer = nullptr;
+    swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+    if (!backBuffer) return false;
+
+    D3D11_TEXTURE2D_DESC bbDesc{};
+    backBuffer->GetDesc(&bbDesc);
+    backBuffer->Release();
+
+    // Create HDR render target (R16G16B16A16_FLOAT)
+    D3D11_TEXTURE2D_DESC texDesc{};
+    texDesc.Width = bbDesc.Width;
+    texDesc.Height = bbDesc.Height;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr = device->CreateTexture2D(&texDesc, nullptr, &m_hdrTexture);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create HDR texture for tonemapping!");
+        return false;
+    }
+
+    hr = device->CreateRenderTargetView(m_hdrTexture, nullptr, &m_hdrRTV);
+    if (FAILED(hr)) return false;
+
+    hr = device->CreateShaderResourceView(m_hdrTexture, nullptr, &m_hdrSRV);
+    if (FAILED(hr)) return false;
+
+    // Create point sampler
+    D3D11_SAMPLER_DESC sampDesc{};
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    hr = device->CreateSamplerState(&sampDesc, &m_pointSampler);
+    if (FAILED(hr)) return false;
+
+    // Create post-process constant buffer
+    D3D11_BUFFER_DESC cbDesc{};
+    cbDesc.ByteWidth = sizeof(PostProcessGPUData);
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    hr = device->CreateBuffer(&cbDesc, nullptr, &m_postProcessCB);
+    if (FAILED(hr)) return false;
+
+    // Compile tonemap shaders
+    ID3DBlob* vsBlob = nullptr;
+    ID3DBlob* psBlob = nullptr;
+    ID3DBlob* errorBlob = nullptr;
+
+    // Build path to shader (relative to working directory = bin/)
+    std::string narrowPath = "assets/shaders/tonemap.hlsl";
+    std::wstring shaderPath(narrowPath.begin(), narrowPath.end());
+
+    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "VS_Main", "vs_5_0", D3DCOMPILE_DEBUG, 0, &vsBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            SLEAK_ERROR("Tonemap VS compile error: {}",
+                (const char*)errorBlob->GetBufferPointer());
+            errorBlob->Release();
+        }
+        return false;
+    }
+
+    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "PS_Main", "ps_5_0", D3DCOMPILE_DEBUG, 0, &psBlob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            SLEAK_ERROR("Tonemap PS compile error: {}",
+                (const char*)errorBlob->GetBufferPointer());
+            errorBlob->Release();
+        }
+        vsBlob->Release();
+        return false;
+    }
+
+    hr = device->CreateVertexShader(vsBlob->GetBufferPointer(),
+        vsBlob->GetBufferSize(), nullptr, &m_tonemapVS);
+    vsBlob->Release();
+    if (FAILED(hr)) { psBlob->Release(); return false; }
+
+    hr = device->CreatePixelShader(psBlob->GetBufferPointer(),
+        psBlob->GetBufferSize(), nullptr, &m_tonemapPS);
+    psBlob->Release();
+    if (FAILED(hr)) return false;
+
+    m_tonemapResourcesCreated = true;
+    SLEAK_INFO("Tonemapping post-process resources created successfully");
+    return true;
+}
+
+void DirectX11Renderer::CleanupTonemapResources() {
+    if (m_tonemapVS) { m_tonemapVS->Release(); m_tonemapVS = nullptr; }
+    if (m_tonemapPS) { m_tonemapPS->Release(); m_tonemapPS = nullptr; }
+    if (m_postProcessCB) { m_postProcessCB->Release(); m_postProcessCB = nullptr; }
+    if (m_hdrSRV) { m_hdrSRV->Release(); m_hdrSRV = nullptr; }
+    if (m_hdrRTV) { m_hdrRTV->Release(); m_hdrRTV = nullptr; }
+    if (m_hdrTexture) { m_hdrTexture->Release(); m_hdrTexture = nullptr; }
+    if (m_pointSampler) { m_pointSampler->Release(); m_pointSampler = nullptr; }
+    m_tonemapResourcesCreated = false;
+}
+
+void DirectX11Renderer::ExecuteTonemapPass() {
+    if (!m_tonemapResourcesCreated || !m_tonemapVS || !m_tonemapPS)
+        return;
+
+    // Update post-process constant buffer
+    PostProcessGPUData ppData{};
+    ppData.Exposure = m_exposure;
+    ppData.Gamma = m_gamma;
+    ppData.TonemapEnabled = m_tonemapEnabled ? 1 : 0;
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    HRESULT hr = deviceContext->Map(m_postProcessCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (SUCCEEDED(hr)) {
+        std::memcpy(mapped.pData, &ppData, sizeof(ppData));
+        deviceContext->Unmap(m_postProcessCB, 0);
+    }
+
+    // Switch render target to backbuffer
+    deviceContext->OMSetRenderTargets(1, &renderTargetView, nullptr);
+
+    // Bind HDR texture as input
+    deviceContext->PSSetShaderResources(0, 1, &m_hdrSRV);
+    deviceContext->PSSetSamplers(0, 1, &m_pointSampler);
+    deviceContext->PSSetConstantBuffers(0, 1, &m_postProcessCB);
+
+    // Set tonemap shaders
+    deviceContext->VSSetShader(m_tonemapVS, nullptr, 0);
+    deviceContext->PSSetShader(m_tonemapPS, nullptr, 0);
+
+    // Draw fullscreen triangle (no input layout needed for SV_VertexID)
+    deviceContext->IASetInputLayout(nullptr);
+    deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    deviceContext->Draw(3, 0);
+
+    // Unbind HDR SRV to prevent read/write conflict
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    deviceContext->PSSetShaderResources(0, 1, &nullSRV);
+}
+
 } // namespace RenderEngine
 } // namespace Sleak
 
 #else
-namespace Sleak::RenderEngine {class DirectX11Renderer;} 
+namespace Sleak::RenderEngine {class DirectX11Renderer;}
 
 #endif

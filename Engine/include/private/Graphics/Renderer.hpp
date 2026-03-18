@@ -113,6 +113,34 @@ public:
     bool GetVSync() const { return m_vsync; }
     virtual void ApplyVSyncChange() {}
 
+    // Post-process: ACES Tonemapping
+    void SetTonemappingEnabled(bool enabled) { m_tonemapEnabled = enabled; }
+    bool IsTonemappingEnabled() const { return m_tonemapEnabled; }
+    void SetExposure(float exposure) { m_exposure = exposure; }
+    float GetExposure() const { return m_exposure; }
+    void SetGamma(float gamma) { m_gamma = gamma; }
+    float GetGamma() const { return m_gamma; }
+
+    // Post-process: SSAO
+    void SetSSAOEnabled(bool enabled) { m_ssaoEnabled = enabled; }
+    bool IsSSAOEnabled() const { return m_ssaoEnabled; }
+    void SetSSAORadius(float radius) { m_ssaoRadius = radius; }
+    float GetSSAORadius() const { return m_ssaoRadius; }
+    void SetSSAOBias(float bias) { m_ssaoBias = bias; }
+    float GetSSAOBias() const { return m_ssaoBias; }
+    void SetSSAOPower(float power) { m_ssaoPower = power; }
+    float GetSSAOPower() const { return m_ssaoPower; }
+
+    // IBL (Image Based Lighting)
+    void SetIBLEnabled(bool enabled) { m_iblEnabled = enabled; }
+    bool IsIBLEnabled() const { return m_iblEnabled; }
+    void SetIBLIntensity(float intensity) { m_iblIntensity = intensity; }
+    float GetIBLIntensity() const { return m_iblIntensity; }
+
+    // PCSS Soft Shadows
+    void SetPCSSEnabled(bool enabled) { m_pcssEnabled = enabled; }
+    bool IsPCSSEnabled() const { return m_pcssEnabled; }
+
     // Anti-aliasing (MSAA)
     virtual void SetMSAASampleCount(uint32_t samples) {
         // Validate: must be 1, 2, 4, or 8
@@ -173,6 +201,24 @@ public:
 
     // Shadow pass
     bool m_shadowPassEnabled = false;
+
+    // Post-process: Tonemapping
+    bool m_tonemapEnabled = true;
+    float m_exposure = 1.0f;
+    float m_gamma = 2.2f;
+
+    // Post-process: SSAO
+    bool m_ssaoEnabled = false;
+    float m_ssaoRadius = 0.5f;
+    float m_ssaoBias = 0.025f;
+    float m_ssaoPower = 2.0f;
+
+    // IBL
+    bool m_iblEnabled = false;
+    float m_iblIntensity = 1.0f;
+
+    // PCSS
+    bool m_pcssEnabled = true;
 
     // VSync state
     bool m_vsync = false;
