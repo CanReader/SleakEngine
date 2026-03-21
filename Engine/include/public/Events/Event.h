@@ -123,15 +123,19 @@ namespace Sleak {
             template<typename EventT>
             static void DispatchEvent(const EventT& event) {
                 EventType type = event.GetEventType();
-                
-                if (eventHandlers.find(type) != eventHandlers.end()) {
-                    for (auto& handler : eventHandlers[type]) {
-                        // Try to cast to the right event delegate type
-                        auto typedDelegate = std::dynamic_pointer_cast<EventDelegate<EventT>>(handler);
-                        if (typedDelegate) {
-                            typedDelegate->SetEvent(event);
-                            typedDelegate->Execute();
-                        }
+
+                if (eventHandlers.find(type) == eventHandlers.end())
+                    return;
+
+                // Copy the handler list so that handlers which add/remove entries
+                // during dispatch don't invalidate the iteration.
+                auto handlers = eventHandlers[type];
+                for (auto& handler : handlers) {
+                    // Try to cast to the right event delegate type
+                    auto typedDelegate = std::dynamic_pointer_cast<EventDelegate<EventT>>(handler);
+                    if (typedDelegate) {
+                        typedDelegate->SetEvent(event);
+                        typedDelegate->Execute();
                     }
                 }
             }

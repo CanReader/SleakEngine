@@ -4,11 +4,13 @@
 #include <ECS/Components/CameraController.hpp>
 #include <Events/KeyboardEvent.h>
 #include <Core/OSDef.hpp>
+#include <string>
 
 namespace Sleak {
     class ENGINE_API FreeLookCameraController : public CameraController {
     public:
         FreeLookCameraController(GameObject* object);
+        ~FreeLookCameraController() override;
 
         bool Initialize() override;
         void Update(float deltaTime) override;
@@ -73,6 +75,9 @@ namespace Sleak {
         Math::Vector2D RollRange;
 
         bool m_firstFrame = true;
+
+        std::string m_keyPressedHandlerId;
+        std::string m_keyReleasedHandlerId;
     };
 }
 

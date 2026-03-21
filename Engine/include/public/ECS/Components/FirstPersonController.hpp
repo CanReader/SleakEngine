@@ -4,6 +4,7 @@
 #include <ECS/Components/CameraController.hpp>
 #include <Core/OSDef.hpp>
 #include <Events/KeyboardEvent.h>
+#include <string>
 
 namespace Sleak {
 
@@ -14,6 +15,7 @@ namespace Sleak {
     class ENGINE_API FirstPersonController : public CameraController {
     public:
         FirstPersonController(GameObject* object);
+        ~FirstPersonController() override;
 
         bool Initialize() override;
         void Update(float deltaTime) override;
@@ -68,6 +70,9 @@ namespace Sleak {
         bool m_firstFrame = true;
 
         RigidbodyComponent* m_rigidbody = nullptr;
+
+        std::string m_keyPressedHandlerId;
+        std::string m_keyReleasedHandlerId;
     };
 
 } // namespace Sleak

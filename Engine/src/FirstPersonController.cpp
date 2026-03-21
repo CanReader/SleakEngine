@@ -16,8 +16,13 @@ FirstPersonController::FirstPersonController(GameObject* object)
     m_velocity = Math::Vector3D::Zero();
     translationInput = Math::Vector3D::Zero();
 
-    EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyPressed);
-    EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyReleased);
+    m_keyPressedHandlerId  = EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyPressed);
+    m_keyReleasedHandlerId = EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyReleased);
+}
+
+FirstPersonController::~FirstPersonController() {
+    EventDispatcher::UnregisterEvent(EventType::KeyPressed,  m_keyPressedHandlerId);
+    EventDispatcher::UnregisterEvent(EventType::KeyReleased, m_keyReleasedHandlerId);
 }
 
 bool FirstPersonController::Initialize() {

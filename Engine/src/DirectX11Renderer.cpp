@@ -432,9 +432,16 @@ void DirectX11Renderer::DrawIndexedInstance(uint32_t instanceCount,
 void DirectX11Renderer::ClearRenderTarget(float r, float g, float b, float a) {
     const float clearColor[4] = {r, g, b, a};
 
-    ID3D11RenderTargetView* target = msaaSampleCount > 1 ? msaaRenderTargetView : renderTargetView; 
+    ID3D11RenderTargetView* target;
+    if (m_tonemapEnabled && m_tonemapResourcesCreated && msaaSampleCount <= 1)
+        target = m_hdrRTV;
+    else if (msaaSampleCount > 1)
+        target = msaaRenderTargetView;
+    else
+        target = renderTargetView;
 
-    deviceContext->ClearRenderTargetView(target, clearColor);
+    if (target)
+        deviceContext->ClearRenderTargetView(target, clearColor);
 }
 
 void DirectX11Renderer::ClearDepthStencil(bool clearDepth, bool clearStencil,

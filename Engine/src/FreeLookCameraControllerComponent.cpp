@@ -25,9 +25,13 @@ namespace Sleak {
         translationInput = Math::Vector3D::Zero();
         velocity = Math::Vector3D::Zero();
 
-        EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyPressed);
-        EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyReleased);
+        m_keyPressedHandlerId  = EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyPressed);
+        m_keyReleasedHandlerId = EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyReleased);
+    }
 
+    FreeLookCameraController::~FreeLookCameraController() {
+        EventDispatcher::UnregisterEvent(EventType::KeyPressed,  m_keyPressedHandlerId);
+        EventDispatcher::UnregisterEvent(EventType::KeyReleased, m_keyReleasedHandlerId);
     }
 
     bool FreeLookCameraController::Initialize() {
