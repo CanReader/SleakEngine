@@ -109,6 +109,11 @@ class ENGINE_API Application {
 
     Timer FrameTimer;
 
+    // Deferred resize — set in the event handler, applied at start of next frame
+    bool     m_pendingResize = false;
+    uint32_t m_pendingResizeW = 0;
+    uint32_t m_pendingResizeH = 0;
+
     static Application* Instance;
 };
 

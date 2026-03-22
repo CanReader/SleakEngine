@@ -157,6 +157,14 @@ namespace Sleak {
 
                 CoreWindow->Update();
 
+                // Apply any pending resize (deferred from event handler to avoid GPU hang)
+                if (m_pendingResize) {
+                    renderer->Resize(m_pendingResizeW, m_pendingResizeH);
+                    width  = static_cast<int>(m_pendingResizeW);
+                    height = static_cast<int>(m_pendingResizeH);
+                    m_pendingResize = false;
+                }
+
                 renderer->BeginRender();
 
                 // Update active scene if present
@@ -211,17 +219,20 @@ namespace Sleak {
     }
 
     void Application::OnWindowResize(const Sleak::Events::WindowResizeEvent& e) {
-        renderer->Resize(e.GetWidth(), e.GetHeight());
-
-        width = e.GetWidth();
-        height = e.GetHeight();
+        // Store and defer — applying during event dispatch causes GPU hangs on rapid resize
+        m_pendingResizeW = e.GetWidth();
+        m_pendingResizeH = e.GetHeight();
+        m_pendingResize  = true;
     }
 
     void Application::OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e) {
         int w = Window::GetWidth();
         int h = Window::GetHeight();
-        if (w > 0 && h > 0)
-            renderer->Resize(w, h);
+        if (w > 0 && h > 0) {
+            m_pendingResizeW = static_cast<uint32_t>(w);
+            m_pendingResizeH = static_cast<uint32_t>(h);
+            m_pendingResize  = true;
+        }
     }
 
     void Application::onMouseClick(const Sleak::Events::Input::MouseButtonPressedEvent& e) {

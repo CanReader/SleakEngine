@@ -349,6 +349,12 @@ void DirectX11Renderer::Resize(uint32_t width, uint32_t height) {
     if (swapChain == nullptr || device == nullptr || deviceContext == nullptr) {
         return;
     }
+    if (width == 0 || height == 0) return;
+
+    // Unbind all pipeline resources so DXGI can release the back-buffer references
+    deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+    deviceContext->ClearState();
+    deviceContext->Flush();
 
     // Release all references to the swap chain's buffers
     if (renderTargetView) {
@@ -369,19 +375,15 @@ void DirectX11Renderer::Resize(uint32_t width, uint32_t height) {
         depthStencilState = nullptr;
     }
 
-    // Resize the swap chain buffers
-    HRESULT hr =
-        swapChain->ResizeBuffers(1,                           // Buffer count
-                                 width,                       // New width
-                                 height,                      // New height
-                                 DXGI_FORMAT_R8G8B8A8_UNORM,  // Buffer format
-                                 0                            // Flags
-        );
-
-    SetViewport(0,0,width,height);
+    // Use 0 to preserve the existing buffer count (FLIP_DISCARD requires >=2)
+    // Use DXGI_FORMAT_UNKNOWN to preserve the existing format
+    HRESULT hr = swapChain->ResizeBuffers(0,
+                                          width, height,
+                                          DXGI_FORMAT_UNKNOWN,
+                                          0);
 
     if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to resize swap chain buffers!");
+        SLEAK_ERROR("Failed to resize swap chain buffers! HRESULT: 0x{:X}", (unsigned)hr);
         return;
     }
 
