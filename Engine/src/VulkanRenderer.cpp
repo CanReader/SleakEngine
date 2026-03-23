@@ -2398,8 +2398,19 @@ std::optional<SwapchainDetails> VulkanRenderer::QuerySwapchain() {
 
 VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
     const std::vector<VkSurfaceFormatKHR>& formats) {
+    // Prefer UNORM so the GPU does NOT apply automatic sRGB gamma encoding
+    // on output. The game renders in sRGB/gamma space already (no linear
+    // pipeline), so using _SRGB would gamma-encode everything twice —
+    // producing a washed-out, overbright image. _UNORM writes values as-is,
+    // matching the behaviour of DX11/DX12 DXGI_FORMAT_*_UNORM swap chains.
     for (auto& format : formats)
-        if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
+            format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            return format;
+
+    // Second preference: R8G8B8A8_UNORM
+    for (auto& format : formats)
+        if (format.format == VK_FORMAT_R8G8B8A8_UNORM &&
             format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             return format;
 

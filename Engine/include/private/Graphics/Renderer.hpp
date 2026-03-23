@@ -203,7 +203,9 @@ public:
     bool m_shadowPassEnabled = false;
 
     // Post-process: Tonemapping
-    bool m_tonemapEnabled = true;
+    // Disabled by default — game renders in sRGB space, not linear HDR.
+    // Enable only when the lighting pipeline explicitly works in linear space.
+    bool m_tonemapEnabled = false;
     float m_exposure = 1.0f;
     float m_gamma = 2.2f;
 
