@@ -40,6 +40,7 @@ private:
     void StopRecording();
     void WriteFrameData(float deltaTime);
     void WriteSummary();
+    void WriteHardwareInfo();
 
     std::string GetRendererTag() const;
     std::string GenerateFilename() const;
@@ -53,15 +54,23 @@ private:
 
     std::vector<BenchmarkMetric> m_customMetrics;
 
-    // Accumulate stats for summary
+    // Per-session accumulators
     int m_minFPS = 0;
     int m_maxFPS = 0;
+    double m_sumFPS = 0.0;
     float m_minFrameTime = 0.0f;
     float m_maxFrameTime = 0.0f;
-    double m_sumFPS = 0.0;
     double m_sumFrameTime = 0.0;
-    double m_sumVertices = 0.0;
+    double m_sumTriangles = 0.0;
+    double m_sumCPU = 0.0;
     double m_sumRAM = 0.0;
+
+    // Stutter/spike counters
+    int m_spikes16 = 0;   // frames > 16.67ms (below 60 FPS)
+    int m_spikes33 = 0;   // frames > 33.33ms (below 30 FPS)
+    int m_spikes50 = 0;   // frames > 50ms    (below 20 FPS)
+
+    std::vector<float> m_frameTimes;   // all frame times for percentile calculation
     std::vector<double> m_customSums;
 };
 
