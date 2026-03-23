@@ -142,6 +142,17 @@ namespace Sleak {
 
                 Game->Begin();
 
+                // Apply CLI graphics settings
+                {
+                    int vsync = CommandLine::GetVSync();
+                    if (vsync != 0) renderer->SetVSync(vsync > 0);
+
+                    int msaa = CommandLine::GetMSAA();
+                    if (msaa > 0) renderer->SetMSAASampleCount(static_cast<uint32_t>(msaa));
+
+                    if (CommandLine::StartFullscreen()) CoreWindow->ToggleFullScreen();
+                }
+
                 // Auto-start benchmark if --bench / --benchmark was passed
                 if (CommandLine::AutoBenchmark() && m_benchmark)
                     m_benchmark->ToggleRecording();

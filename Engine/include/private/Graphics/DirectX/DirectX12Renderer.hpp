@@ -31,6 +31,7 @@ public:
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
+    void WaitIdle() override { WaitForGPU(); }
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 

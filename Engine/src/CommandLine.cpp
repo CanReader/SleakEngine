@@ -75,6 +75,44 @@ std::string CommandLine::GetWorldName() {
     return (it != s_values.end()) ? it->second : "";
 }
 
+int CommandLine::GetSeed() {
+    auto it = s_values.find("-seed");
+    if (it != s_values.end() && !it->second.empty()) {
+        try { return std::stoi(it->second); } catch (...) {}
+    }
+    return 0;
+}
+
+int CommandLine::GetRenderDistance() {
+    auto it = s_values.find("-rd");
+    if (it != s_values.end() && !it->second.empty()) {
+        try { return std::stoi(it->second); } catch (...) {}
+    }
+    return 0;
+}
+
+int CommandLine::GetMSAA() {
+    auto it = s_values.find("-msaa");
+    if (it != s_values.end() && !it->second.empty()) {
+        try { return std::stoi(it->second); } catch (...) {}
+    }
+    return 0;
+}
+
+int CommandLine::GetVSync() {
+    if (s_flags.count("--vsync"))    return  1;
+    if (s_flags.count("--no-vsync")) return -1;
+    return 0;
+}
+
+bool CommandLine::StartFullscreen() {
+    return s_flags.count("--fullscreen") > 0;
+}
+
+bool CommandLine::StartFlyMode() {
+    return s_flags.count("--fly") > 0;
+}
+
 bool CommandLine::AutoBenchmark() {
     return s_flags.count("--bench") || s_flags.count("--benchmark");
 }
@@ -100,11 +138,19 @@ void CommandLine::PrintHelp(const char* exe) {
         << "  -r d3d12           Use DirectX 12\n"
         << "  -r opengl          Use OpenGL\n"
         << "\nWindow\n"
-        << "  -w <pixels>        Window width   (default: 1200)\n"
-        << "  -h <pixels>        Window height  (default: 800)\n"
-        << "  -t <name>          Window title   (use _ for spaces)\n"
+        << "  -w <pixels>        Window width        (default: 1200)\n"
+        << "  -h <pixels>        Window height       (default: 800)\n"
+        << "  -t <name>          Window title        (use _ for spaces)\n"
+        << "  --fullscreen       Start in fullscreen\n"
         << "\nWorld\n"
         << "  -world <name>      Load world if save exists, create new otherwise\n"
+        << "  -seed <n>          Seed for new world creation (default: random)\n"
+        << "  -rd <n>            Initial render distance in chunks (default: 8)\n"
+        << "  --fly              Start in fly mode\n"
+        << "\nGraphics\n"
+        << "  -msaa <n>          MSAA sample count: 1, 2, 4, 8  (default: 1)\n"
+        << "  --vsync            Enable VSync on launch\n"
+        << "  --no-vsync         Disable VSync on launch\n"
         << "\nBenchmark\n"
         << "  --bench            Start benchmark recording immediately on launch\n"
         << "\nMisc\n"
@@ -112,7 +158,8 @@ void CommandLine::PrintHelp(const char* exe) {
         << "\nExamples\n"
         << "  SleakCraft -r vulkan -world MyWorld\n"
         << "  SleakCraft -r d3d11 -world TestWorld --bench\n"
-        << "  SleakCraft -w 1920 -h 1080 -t My_Game\n\n";
+        << "  SleakCraft -r d3d12 -world Perf -rd 16 -msaa 4 --bench\n"
+        << "  SleakCraft -w 1920 -h 1080 --fullscreen --vsync\n\n";
 }
 
 }  // namespace Sleak
