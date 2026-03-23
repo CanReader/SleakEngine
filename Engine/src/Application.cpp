@@ -5,6 +5,7 @@
 #include <WindowHelper.hpp>
 #include <Graphics/Renderer.hpp>
 #include <Window.hpp>
+#include <algorithm>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
@@ -52,17 +53,25 @@ namespace Sleak {
         Instance = this;
 
         // Read all settings from CommandLine (parsed in main before Application)
-        int width  = CommandLine::GetWidth();
-        int height = CommandLine::GetHeight();
+        {
+            const std::string wStr = CommandLine::GetValue("-w");
+            const std::string hStr = CommandLine::GetValue("-h");
+            if (!wStr.empty()) try { width  = std::stoi(wStr); } catch (...) {}
+            if (!hStr.empty()) try { height = std::stoi(hStr); } catch (...) {}
+        }
 
-        std::string titleOverride = CommandLine::GetTitle();
-        if (!titleOverride.empty())
-            Specification.Name = titleOverride;
+        {
+            std::string title = CommandLine::GetValue("-t");
+            if (!title.empty()) {
+                std::replace(title.begin(), title.end(), '_', ' ');
+                Specification.Name = title;
+            }
+        }
 
         CoreWindow = new Window(width, height, Specification.Name);
 
         try {
-            const std::string rendererArg = CommandLine::GetRenderer();
+            const std::string rendererArg = CommandLine::GetValue("-r");
             if (!rendererArg.empty()) {
                 renderer = RenderEngine::RendererFactory::ParseArg(rendererArg, CoreWindow);
             } else {
@@ -144,17 +153,22 @@ namespace Sleak {
 
                 // Apply CLI graphics settings
                 {
-                    int vsync = CommandLine::GetVSync();
-                    if (vsync != 0) renderer->SetVSync(vsync > 0);
+                    if (CommandLine::HasFlag("--vsync"))    renderer->SetVSync(true);
+                    if (CommandLine::HasFlag("--no-vsync")) renderer->SetVSync(false);
 
-                    int msaa = CommandLine::GetMSAA();
-                    if (msaa > 0) renderer->SetMSAASampleCount(static_cast<uint32_t>(msaa));
+                    const std::string msaaStr = CommandLine::GetValue("-msaa");
+                    if (!msaaStr.empty()) {
+                        try { renderer->SetMSAASampleCount(
+                            static_cast<uint32_t>(std::stoi(msaaStr))); }
+                        catch (...) {}
+                    }
 
-                    if (CommandLine::StartFullscreen()) CoreWindow->ToggleFullScreen();
+                    if (CommandLine::HasFlag("--fullscreen")) CoreWindow->ToggleFullScreen();
                 }
 
                 // Auto-start benchmark if --bench / --benchmark was passed
-                if (CommandLine::AutoBenchmark() && m_benchmark)
+                if ((CommandLine::HasFlag("--bench") || CommandLine::HasFlag("--benchmark"))
+                    && m_benchmark)
                     m_benchmark->ToggleRecording();
             }
 
