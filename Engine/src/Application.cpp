@@ -1,4 +1,5 @@
 #include "../../include/public/Core/Application.hpp"
+#include "../../include/public/Core/CommandLine.hpp"
 #include "../../include/private/Graphics/RendererFactory.hpp" 
 #include "../../include/private/Graphics/RenderCommandQueue.hpp" 
 #include <WindowHelper.hpp>
@@ -50,37 +51,34 @@ namespace Sleak {
         }
         Instance = this;
 
-        int width = 1200, height = 800;
-        if (Specification.CommandLineArgs.Size > 1) {
-            if (!Specification.CommandLineArgs["-w"].empty())
-                width = std::stoi(Specification.CommandLineArgs["-w"]);
-            if (!Specification.CommandLineArgs["-h"].empty())
-                height = std::stoi(Specification.CommandLineArgs["-h"]);
-            if (!Specification.CommandLineArgs["-t"].empty())
-                Specification.Name = Specification.CommandLineArgs["-t"];
-        }
+        // Read all settings from CommandLine (parsed in main before Application)
+        int width  = CommandLine::GetWidth();
+        int height = CommandLine::GetHeight();
 
-        CoreWindow = new Window(width,height,Specification.Name);
-        
+        std::string titleOverride = CommandLine::GetTitle();
+        if (!titleOverride.empty())
+            Specification.Name = titleOverride;
+
+        CoreWindow = new Window(width, height, Specification.Name);
+
         try {
-            if (!Specification.CommandLineArgs["-r"].empty())
-            {
-                renderer = RenderEngine::
-                           RendererFactory::
-                           ParseArg(Specification.CommandLineArgs["-r"], CoreWindow);
-            }
-            else {
+            const std::string rendererArg = CommandLine::GetRenderer();
+            if (!rendererArg.empty()) {
+                renderer = RenderEngine::RendererFactory::ParseArg(rendererArg, CoreWindow);
+            } else {
                 #ifdef PLATFORM_WIN
                 renderer = RenderEngine::RendererFactory::CreateRenderer(
                     RenderEngine::RendererType::DirectX11, CoreWindow);
                 #else
-                    renderer = RenderEngine::RendererFactory::CreateRenderer(RenderEngine::RendererType::Vulkan, CoreWindow);
+                renderer = RenderEngine::RendererFactory::CreateRenderer(
+                    RenderEngine::RendererType::Vulkan, CoreWindow);
                 #endif
-                }
-        } 
-        catch(std::exception& e) {
+            }
+        }
+        catch (std::exception& e) {
             SLEAK_ERROR(std::string(e.what()));
-            renderer = RenderEngine::RendererFactory::CreateRenderer(RenderEngine::RendererType::Vulkan, CoreWindow);
+            renderer = RenderEngine::RendererFactory::CreateRenderer(
+                RenderEngine::RendererType::Vulkan, CoreWindow);
         }
 
         EventDispatcher::RegisterEventHandler(this,&Application::OnKeyPressed);
@@ -143,6 +141,10 @@ namespace Sleak {
                 }
 
                 Game->Begin();
+
+                // Auto-start benchmark if --bench / --benchmark was passed
+                if (CommandLine::AutoBenchmark() && m_benchmark)
+                    m_benchmark->ToggleRecording();
             }
 
             while(!CoreWindow->ShouldClose()) {
