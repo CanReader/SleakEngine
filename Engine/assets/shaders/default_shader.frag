@@ -187,9 +187,9 @@ void main() {
     // ACES tone mapping
     lit = ACESFilm(lit);
 
-    // Distance fog
+    // Distance fog (horizontal XZ only — altitude doesn't affect fog)
     if (uFogEnd > 0.0) {
-        float dist = length(fragWorldPos - uCameraPos.xyz);
+        float dist = length(fragWorldPos.xz - uCameraPos.xz);
         float fogFactor = clamp((uFogEnd - dist) / (uFogEnd - uFogStart), 0.0, 1.0);
         lit = mix(uFogColor.rgb, lit, fogFactor);
     }

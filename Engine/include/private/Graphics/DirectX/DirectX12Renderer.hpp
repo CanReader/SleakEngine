@@ -166,6 +166,21 @@ private:
     bool m_lightUBOCreated = false;
     bool CreateLightUBO();
 
+    // Shadow mapping
+    static constexpr UINT SHADOW_MAP_SIZE = 2048;
+    Microsoft::WRL::ComPtr<ID3D12Resource>         m_shadowDepthBuffer;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>   m_shadowDsvHeap;
+    D3D12_CPU_DESCRIPTOR_HANDLE                    m_shadowDsvHandle = {};
+    UINT                                           m_shadowSrvIndex = 0;
+    bool                                           m_shadowMapCreated = false;
+    float                                          m_lightVP[16] = {};
+    bool                                           m_inShadowPass = false;
+    Microsoft::WRL::ComPtr<ID3D12Resource>          m_shadowTransformCB;
+    void*                                          m_shadowTransformMapped = nullptr;
+    void SetLightVP(const float* mat) override;
+    bool CreateShadowMapResources();
+    void RenderShadowPass();
+
     // ImGUI
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> imguiSrvHeap;
 

@@ -204,6 +204,11 @@ void DirectX11Buffer::Update(void* data, size_t size)
     if (!m_buffer || !m_deviceContext || size > Size || !data)
         return;
 
+    // Store CPU shadow copy for transform CBs (needed by shadow pass)
+    if (Type == BufferType::Constant && size <= 128) {
+        StoreCPUShadowCopy(data, size);
+    }
+
     if (m_cpuAccessFlags != 0) {
         // CPU-accessible buffer
         if (!bIsMapped && !Map())

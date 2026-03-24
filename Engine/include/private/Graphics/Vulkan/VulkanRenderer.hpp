@@ -282,7 +282,7 @@ private:
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
 
     // Shadow mapping resources
-    static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
+    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
     VkImage m_shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
     VkImageView m_shadowImageView = VK_NULL_HANDLE;

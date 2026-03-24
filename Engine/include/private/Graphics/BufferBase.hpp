@@ -3,6 +3,7 @@
 
 #include "ResourceBase.hpp"
 #include <Core/OSDef.hpp>
+#include <cstring>
 
 namespace Sleak {
     namespace RenderEngine {
@@ -31,12 +32,26 @@ namespace Sleak {
                 Slot = slot;
             }
 
+            // CPU-side shadow copy for shadow pass (avoids GPU readback)
+            const void* GetCPUShadowCopy() const { return m_cpuShadowCopy; }
+            size_t GetCPUShadowCopySize() const { return m_cpuShadowCopySize; }
+            void StoreCPUShadowCopy(const void* data, size_t size) {
+                if (size > sizeof(m_cpuShadowStorage)) size = sizeof(m_cpuShadowStorage);
+                memcpy(m_cpuShadowStorage, data, size);
+                m_cpuShadowCopy = m_cpuShadowStorage;
+                m_cpuShadowCopySize = size;
+            }
+
         protected:
             BufferType Type;
             size_t Size = 0;
             int Slot = 0;
             void* Data = nullptr;
-            bool bIsMapped = false;        
+            bool bIsMapped = false;
+            // Small inline storage for transform CB shadow copy (128 bytes = 2 matrices)
+            const void* m_cpuShadowCopy = nullptr;
+            size_t m_cpuShadowCopySize = 0;
+            alignas(16) char m_cpuShadowStorage[128] = {};
         };
     };    
 };

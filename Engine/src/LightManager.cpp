@@ -222,7 +222,7 @@ void LightManager::UpdateShadowData() {
 
     ubo.ShadowBias = shadowLight ? shadowLight->GetShadowBias() : 0.0f;
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
-    ubo.ShadowTexelSize = 1.0f / 4096.0f;  // Match SHADOW_MAP_SIZE
+    ubo.ShadowTexelSize = 1.0f / 2048.0f;  // Match SHADOW_MAP_SIZE
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
 
     // Fog

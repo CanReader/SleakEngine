@@ -13,6 +13,7 @@
 #include <codecvt>
 #include <d3dcompiler.h>
 #include <Graphics/DirectX/DirectX12Buffer.hpp>
+#include "Graphics/RenderCommandQueue.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -311,12 +312,13 @@ bool DirectX12Renderer::CreateRootSignature() {
     // Parameter 0: CBV at register(b0) — transform (vertex shader)
     // Parameter 1: CBV at register(b1) — material  (all shaders)
     // Parameter 2: SRV descriptor table at register(t0) — texture (pixel shader)
-    // Parameter 3: CBV at register(b2) — lighting/fog (pixel shader)
-    D3D12_ROOT_PARAMETER rootParams[4] = {};
+    // Parameter 3: CBV at register(b2) — lighting/fog (all shaders, VS needs LightVP)
+    // Parameter 4: SRV descriptor table at register(t3) — shadow map (pixel shader)
+    D3D12_ROOT_PARAMETER rootParams[5] = {};
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
-    rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[1].Descriptor.ShaderRegister = 1;
@@ -340,10 +342,24 @@ bool DirectX12Renderer::CreateRootSignature() {
     rootParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[3].Descriptor.ShaderRegister = 2;
     rootParams[3].Descriptor.RegisterSpace = 0;
-    rootParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_DESCRIPTOR_RANGE shadowSrvRange = {};
+    shadowSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    shadowSrvRange.NumDescriptors = 1;
+    shadowSrvRange.BaseShaderRegister = 3;
+    shadowSrvRange.RegisterSpace = 0;
+    shadowSrvRange.OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    rootParams[4].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[4].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[4].DescriptorTable.pDescriptorRanges = &shadowSrvRange;
+    rootParams[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     // Static samplers
-    D3D12_STATIC_SAMPLER_DESC staticSamplers[2] = {};
+    D3D12_STATIC_SAMPLER_DESC staticSamplers[3] = {};
 
     // s0: ANISOTROPIC 16x — block textures (high quality filtering)
     staticSamplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
@@ -377,10 +393,25 @@ bool DirectX12Renderer::CreateRootSignature() {
     staticSamplers[1].RegisterSpace = 0;
     staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+    // s3: COMPARISON sampler — shadow map PCF
+    staticSamplers[2].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    staticSamplers[2].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[2].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[2].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[2].MipLODBias = 0.0f;
+    staticSamplers[2].MaxAnisotropy = 1;
+    staticSamplers[2].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    staticSamplers[2].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    staticSamplers[2].MinLOD = 0.0f;
+    staticSamplers[2].MaxLOD = 0.0f;
+    staticSamplers[2].ShaderRegister = 3;
+    staticSamplers[2].RegisterSpace = 0;
+    staticSamplers[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
-    rootSigDesc.NumParameters = 4;
+    rootSigDesc.NumParameters = 5;
     rootSigDesc.pParameters = rootParams;
-    rootSigDesc.NumStaticSamplers = 2;
+    rootSigDesc.NumStaticSamplers = 3;
     rootSigDesc.pStaticSamplers = staticSamplers;
     rootSigDesc.Flags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -572,8 +603,16 @@ void DirectX12Renderer::BeginRender() {
     commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH,
                                        1.0f, 0, 0, nullptr);
 
+    // Shadow pass before main rendering
+    if (m_shadowPassEnabled) {
+        RenderShadowPass();
+    }
+
     // Set render targets
     commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+    // Restore viewport/scissor after shadow pass
+    commandList->RSSetViewports(1, &viewport);
+    commandList->RSSetScissorRects(1, &scissorRect);
 
     // Set primitive topology
     commandList->IASetPrimitiveTopology(
@@ -588,6 +627,12 @@ void DirectX12Renderer::BeginRender() {
     if (m_lightUBOCreated && m_lightUBO) {
         commandList->SetGraphicsRootConstantBufferView(
             3, m_lightUBO->GetGPUVirtualAddress());
+    }
+
+    // Bind shadow map SRV at root parameter 4 (register t3)
+    if (m_shadowMapCreated) {
+        commandList->SetGraphicsRootDescriptorTable(
+            4, GetSharedSrvGPUHandle(m_shadowSrvIndex));
     }
 
     bImFrameActive = false;
@@ -894,6 +939,49 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     auto* dx12Buf = static_cast<DirectX12Buffer*>(buffer.get());
     if (!dx12Buf) return;
 
+    // Shadow pass: use a dedicated shadow CB with LightVP*World for slot 0
+    if (m_inShadowPass && slot == 0 && dx12Buf->GetCPUShadowCopySize() >= 128) {
+        const float* srcWorld = reinterpret_cast<const float*>(
+            static_cast<const char*>(dx12Buf->GetCPUShadowCopy()) + 64);
+
+        float shadowPC[32];
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+                }
+                shadowPC[r * 4 + c] = sum;
+            }
+        }
+        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+
+        // Create dedicated shadow transform CB on first use
+        if (!m_shadowTransformCB) {
+            const UINT cbSize = 256; // 256-byte aligned
+            D3D12_HEAP_PROPERTIES heapProps = {};
+            heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC desc = {};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width = cbSize;
+            desc.Height = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_UNKNOWN;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&m_shadowTransformCB));
+            m_shadowTransformCB->Map(0, nullptr, &m_shadowTransformMapped);
+        }
+
+        memcpy(m_shadowTransformMapped, shadowPC, sizeof(shadowPC));
+        commandList->SetGraphicsRootConstantBufferView(
+            slot, m_shadowTransformCB->GetGPUVirtualAddress());
+        return;
+    }
+
     commandList->SetGraphicsRootConstantBufferView(
         slot, dx12Buf->GetD3DBuffer()->GetGPUVirtualAddress());
 }
@@ -1077,6 +1165,132 @@ void DirectX12Renderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     if (copySize > sizeof(RenderEngine::ShadowLightUBO))
         copySize = sizeof(RenderEngine::ShadowLightUBO);
     memcpy(m_lightUBOMapped, data, copySize);
+}
+
+void DirectX12Renderer::SetLightVP(const float* mat) {
+    if (mat) memcpy(m_lightVP, mat, sizeof(m_lightVP));
+}
+
+bool DirectX12Renderer::CreateShadowMapResources() {
+    if (m_shadowMapCreated) return true;
+
+    // Create shadow DSV heap
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    if (FAILED(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_shadowDsvHeap)))) {
+        SLEAK_ERROR("Failed to create shadow DSV heap!");
+        return false;
+    }
+    m_shadowDsvHandle = m_shadowDsvHeap->GetCPUDescriptorHandleForHeapStart();
+
+    // Create shadow depth texture
+    D3D12_RESOURCE_DESC depthDesc = {};
+    depthDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    depthDesc.Width = SHADOW_MAP_SIZE;
+    depthDesc.Height = SHADOW_MAP_SIZE;
+    depthDesc.DepthOrArraySize = 1;
+    depthDesc.MipLevels = 1;
+    depthDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    depthDesc.SampleDesc.Count = 1;
+    depthDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE clearValue = {};
+    clearValue.Format = DXGI_FORMAT_D32_FLOAT;
+    clearValue.DepthStencil.Depth = 1.0f;
+
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    if (FAILED(device->CreateCommittedResource(
+            &heapProps, D3D12_HEAP_FLAG_NONE, &depthDesc,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearValue,
+            IID_PPV_ARGS(&m_shadowDepthBuffer)))) {
+        SLEAK_ERROR("Failed to create shadow depth buffer!");
+        return false;
+    }
+
+    // Create DSV
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    device->CreateDepthStencilView(m_shadowDepthBuffer.Get(), &dsvDesc, m_shadowDsvHandle);
+
+    // Create SRV in shared heap
+    m_shadowSrvIndex = AllocateSRVSlot();
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MipLevels = 1;
+    device->CreateShaderResourceView(m_shadowDepthBuffer.Get(), &srvDesc,
+                                      GetSharedSrvCPUHandle(m_shadowSrvIndex));
+
+    m_shadowMapCreated = true;
+    SLEAK_INFO("D3D12 shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    return true;
+}
+
+void DirectX12Renderer::RenderShadowPass() {
+    if (!m_shadowMapCreated) {
+        if (!CreateShadowMapResources()) return;
+    }
+
+    // Transition shadow buffer to depth write
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = m_shadowDepthBuffer.Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrier);
+
+    // Set shadow DSV (no RTV)
+    commandList->OMSetRenderTargets(0, nullptr, FALSE, &m_shadowDsvHandle);
+    commandList->ClearDepthStencilView(m_shadowDsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+    // Set shadow viewport
+    D3D12_VIEWPORT shadowViewport = {};
+    shadowViewport.Width = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.Height = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.MinDepth = 0.0f;
+    shadowViewport.MaxDepth = 1.0f;
+    commandList->RSSetViewports(1, &shadowViewport);
+
+    D3D12_RECT shadowScissor = {};
+    shadowScissor.right = SHADOW_MAP_SIZE;
+    shadowScissor.bottom = SHADOW_MAP_SIZE;
+    commandList->RSSetScissorRects(1, &shadowScissor);
+
+    // Ensure PSO and root signature are bound for shadow pass
+    if (pipelineState) {
+        commandList->SetPipelineState(pipelineState.Get());
+    }
+    commandList->SetGraphicsRootSignature(rootSignature.Get());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Re-bind SRV heap
+    ID3D12DescriptorHeap* srvHeaps[] = {m_sharedSrvHeap.Get()};
+    commandList->SetDescriptorHeaps(1, srvHeaps);
+
+    // Bind default texture so draws with texture lookups don't crash
+    if (m_defaultTexture) {
+        m_defaultTexture->Bind(0);
+    }
+
+    // Execute shadow draw commands
+    m_inShadowPass = true;
+    auto* queue = RenderCommandQueue::GetInstance();
+    if (queue) {
+        queue->ExecuteShadowPass(this);
+    }
+    m_inShadowPass = false;
+
+    // Transition back to shader resource
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    commandList->ResourceBarrier(1, &barrier);
 }
 
 bool DirectX12Renderer::CreateSkyboxPipelineState() {

@@ -54,6 +54,11 @@ void OpenGLBuffer::Update() {
 void OpenGLBuffer::Update(void* data, size_t size) {
     if (!data || size == 0 || m_buffer == 0) return;
 
+    // Store CPU shadow copy for transform CBs (needed by shadow pass)
+    if (Type == BufferType::Constant && size <= 128) {
+        StoreCPUShadowCopy(data, size);
+    }
+
     glBindBuffer(m_target, m_buffer);
     glBufferSubData(m_target, 0, size, data);
     glBindBuffer(m_target, 0);

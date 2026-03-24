@@ -15,6 +15,7 @@
 #include <psapi.h>
 #include <d3dcompiler.h>
 #include <cstring>
+#include "Graphics/RenderCommandQueue.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
@@ -169,6 +170,11 @@ void DirectX11Renderer::BeginRender() {
 
     ClearRenderTarget(0.39f, 0.58f, 0.93f, 1.0f);
     ClearDepthStencil(true, false, 1.0, 0);
+
+    // Shadow pass: render shadow depth map before main pass
+    if (m_shadowPassEnabled) {
+        RenderShadowPass();
+    }
 
     if (bIsLayoutCreated)
         deviceContext->IASetInputLayout(layout);
@@ -502,9 +508,48 @@ void DirectX11Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
 void DirectX11Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                 uint32_t slot) {
     try {
-        auto d3d11Buffer =
-            dynamic_cast<DirectX11Buffer*>(buffer.get())->GetD3DBuffer();
+        auto* dx11Buf = dynamic_cast<DirectX11Buffer*>(buffer.get());
+        if (!dx11Buf) return;
 
+        // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
+        if (m_inShadowPass && slot == 0 && dx11Buf->GetCPUShadowCopySize() >= 128) {
+            const float* srcWorld = reinterpret_cast<const float*>(
+                static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) + 64);
+
+            float shadowPC[32];
+            for (int r = 0; r < 4; ++r) {
+                for (int c = 0; c < 4; ++c) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k) {
+                        sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+                    }
+                    shadowPC[r * 4 + c] = sum;
+                }
+            }
+            std::memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+
+            // Create dedicated shadow transform CB on first use
+            if (!m_shadowTransformCB) {
+                D3D11_BUFFER_DESC desc{};
+                desc.ByteWidth = 128;
+                desc.Usage = D3D11_USAGE_DYNAMIC;
+                desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+                desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+                device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB);
+            }
+
+            // Update and bind the shadow CB instead of the original
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+                std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
+                deviceContext->Unmap(m_shadowTransformCB, 0);
+            }
+            deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+            deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+            return;
+        }
+
+        auto d3d11Buffer = dx11Buf->GetD3DBuffer();
         deviceContext->VSSetConstantBuffers(slot, 1, &d3d11Buffer);
         deviceContext->PSSetConstantBuffers(slot, 1, &d3d11Buffer);
 
@@ -978,6 +1023,161 @@ bool DirectX11Renderer::CreateShadowConstantBuffer() {
 void DirectX11Renderer::CleanupShadowResources() {
     if (m_shadowCB) { m_shadowCB->Release(); m_shadowCB = nullptr; }
     m_shadowCBCreated = false;
+    if (m_shadowTransformCB) { m_shadowTransformCB->Release(); m_shadowTransformCB = nullptr; }
+    if (m_shadowRasterState) { m_shadowRasterState->Release(); m_shadowRasterState = nullptr; }
+    if (m_shadowSampler) { m_shadowSampler->Release(); m_shadowSampler = nullptr; }
+    if (m_shadowSRV) { m_shadowSRV->Release(); m_shadowSRV = nullptr; }
+    if (m_shadowDSV) { m_shadowDSV->Release(); m_shadowDSV = nullptr; }
+    if (m_shadowDepthTex) { m_shadowDepthTex->Release(); m_shadowDepthTex = nullptr; }
+    m_shadowMapCreated = false;
+}
+
+void DirectX11Renderer::SetLightVP(const float* mat) {
+    if (mat) std::memcpy(m_lightVP, mat, sizeof(m_lightVP));
+}
+
+bool DirectX11Renderer::CreateShadowMapResources() {
+    if (m_shadowMapCreated) return true;
+
+    // Create depth texture
+    D3D11_TEXTURE2D_DESC texDesc{};
+    texDesc.Width = SHADOW_MAP_SIZE;
+    texDesc.Height = SHADOW_MAP_SIZE;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr = device->CreateTexture2D(&texDesc, nullptr, &m_shadowDepthTex);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow depth texture!");
+        return false;
+    }
+
+    // Create DSV
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    hr = device->CreateDepthStencilView(m_shadowDepthTex, &dsvDesc, &m_shadowDSV);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow DSV!");
+        return false;
+    }
+
+    // Create SRV for sampling
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    hr = device->CreateShaderResourceView(m_shadowDepthTex, &srvDesc, &m_shadowSRV);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow SRV!");
+        return false;
+    }
+
+    // Create comparison sampler
+    D3D11_SAMPLER_DESC sampDesc{};
+    sampDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampDesc.BorderColor[0] = 1.0f;
+    sampDesc.BorderColor[1] = 1.0f;
+    sampDesc.BorderColor[2] = 1.0f;
+    sampDesc.BorderColor[3] = 1.0f;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+    sampDesc.MinLOD = 0;
+    sampDesc.MaxLOD = 0;
+    hr = device->CreateSamplerState(&sampDesc, &m_shadowSampler);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow sampler!");
+        return false;
+    }
+
+    // Create shadow rasterizer state with depth bias
+    D3D11_RASTERIZER_DESC rasterDesc{};
+    rasterDesc.FillMode = D3D11_FILL_SOLID;
+    rasterDesc.CullMode = D3D11_CULL_BACK;
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.DepthBias = 100;
+    rasterDesc.SlopeScaledDepthBias = 2.0f;
+    rasterDesc.DepthBiasClamp = 0.01f;
+    rasterDesc.DepthClipEnable = TRUE;
+    hr = device->CreateRasterizerState(&rasterDesc, &m_shadowRasterState);
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow rasterizer state!");
+        return false;
+    }
+
+    m_shadowMapCreated = true;
+    SLEAK_INFO("D3D11 shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    return true;
+}
+
+void DirectX11Renderer::RenderShadowPass() {
+    if (!m_shadowMapCreated) {
+        if (!CreateShadowMapResources()) return;
+    }
+
+    // Save current render targets and viewport
+    ID3D11RenderTargetView* savedRTV = nullptr;
+    ID3D11DepthStencilView* savedDSV = nullptr;
+    deviceContext->OMGetRenderTargets(1, &savedRTV, &savedDSV);
+
+    D3D11_VIEWPORT savedViewport;
+    UINT numViewports = 1;
+    deviceContext->RSGetViewports(&numViewports, &savedViewport);
+
+    // Unbind shadow SRV to avoid D3D11 warning (resource bound as both input and output)
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    deviceContext->PSSetShaderResources(3, 1, &nullSRV);
+
+    // Set shadow render target (depth only, no color)
+    ID3D11RenderTargetView* nullRTV = nullptr;
+    deviceContext->OMSetRenderTargets(1, &nullRTV, m_shadowDSV);
+
+    // Set shadow viewport
+    D3D11_VIEWPORT shadowViewport{};
+    shadowViewport.Width = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.Height = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.MinDepth = 0.0f;
+    shadowViewport.MaxDepth = 1.0f;
+    deviceContext->RSSetViewports(1, &shadowViewport);
+
+    // Clear shadow depth
+    deviceContext->ClearDepthStencilView(m_shadowDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    // Set shadow rasterizer state
+    deviceContext->RSSetState(m_shadowRasterState);
+
+    // Set primitive topology (same as main pass)
+    deviceContext->IASetPrimitiveTopology(topology);
+    if (bIsLayoutCreated)
+        deviceContext->IASetInputLayout(layout);
+
+    // Execute shadow draw commands
+    m_inShadowPass = true;
+    auto* queue = RenderCommandQueue::GetInstance();
+    if (queue) {
+        queue->ExecuteShadowPass(this);
+    }
+    m_inShadowPass = false;
+
+    // Restore raster state
+    SetRasterState();
+
+    // Restore render targets and viewport
+    deviceContext->OMSetRenderTargets(1, &savedRTV, savedDSV);
+    deviceContext->RSSetViewports(1, &savedViewport);
+    if (savedRTV) savedRTV->Release();
+    if (savedDSV) savedDSV->Release();
+
+    // Bind shadow map SRV and sampler for main pass
+    deviceContext->PSSetShaderResources(3, 1, &m_shadowSRV);
+    deviceContext->PSSetSamplers(3, 1, &m_shadowSampler);
 }
 
 void DirectX11Renderer::UpdateShadowLightUBO(const void* data, uint32_t size) {

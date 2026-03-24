@@ -369,6 +369,11 @@ void DirectX12Buffer::Update(void* data, size_t size)
     if (!m_buffer || size > Size || !data)
         return;
 
+    // Store CPU shadow copy for transform CBs (needed by shadow pass)
+    if (Type == BufferType::Constant && size <= 128) {
+        StoreCPUShadowCopy(data, size);
+    }
+
     if (m_heapType == D3D12_HEAP_TYPE_UPLOAD) {
         // CPU-accessible buffer (like constant buffers)
         if (!bIsMapped && !Map())

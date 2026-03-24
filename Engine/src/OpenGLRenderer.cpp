@@ -5,7 +5,10 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
 #include "Graphics/Vertex.hpp"
 #include "Graphics/ResourceManager.hpp"
+#include "Graphics/ConstantBuffer.hpp"
+#include "Graphics/RenderCommandQueue.hpp"
 #include <vector>
+#include <cstring>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -106,6 +109,11 @@ void OpenGLRenderer::BeginRender() {
     if (m_msaaFBO != 0)
         glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
 
+    // Shadow pass before main rendering
+    if (m_shadowPassEnabled) {
+        RenderShadowPass();
+    }
+
     glClearColor(0.39f, 0.58f, 0.93f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -144,6 +152,12 @@ void OpenGLRenderer::EndRender() {
 
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
+        if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
+        if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
+        if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
+        if (m_shadowFBO) { glDeleteFramebuffers(1, &m_shadowFBO); m_shadowFBO = 0; }
+        m_shadowMapCreated = false;
+        m_shadowUBOCreated = false;
         CleanupMSAAFramebuffer();
         if (bImInitialized) {
             ImGui_ImplOpenGL3_Shutdown();
@@ -338,6 +352,38 @@ void OpenGLRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     auto* glBuf = dynamic_cast<OpenGLBuffer*>(buffer.get());
     if (!glBuf) return;
 
+    // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
+    if (m_inShadowPass && slot == 0 && glBuf->GetCPUShadowCopySize() >= 128) {
+        const float* srcWorld = reinterpret_cast<const float*>(
+            static_cast<const char*>(glBuf->GetCPUShadowCopy()) + 64);
+
+        float shadowPC[32];
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+                }
+                shadowPC[r * 4 + c] = sum;
+            }
+        }
+        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+
+        // Create dedicated shadow transform UBO on first use
+        if (m_shadowTransformUBO == 0) {
+            glGenBuffers(1, &m_shadowTransformUBO);
+            glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
+            glBufferData(GL_UNIFORM_BUFFER, 128, nullptr, GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        }
+
+        glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(shadowPC), shadowPC);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glBindBufferBase(GL_UNIFORM_BUFFER, slot, m_shadowTransformUBO);
+        return;
+    }
+
     glBindBufferBase(GL_UNIFORM_BUFFER, slot, glBuf->GetGLBuffer());
 }
 
@@ -509,6 +555,131 @@ bool OpenGLRenderer::CreateImGUI() {
 
     bImInitialized = true;
     return true;
+}
+
+void OpenGLRenderer::SetLightVP(const float* mat) {
+    if (mat) memcpy(m_lightVP, mat, sizeof(m_lightVP));
+}
+
+bool OpenGLRenderer::CreateShadowUBO() {
+    if (m_shadowUBOCreated) return true;
+    glGenBuffers(1, &m_shadowUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_shadowUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(RenderEngine::PCSSShadowGPUData), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    m_shadowUBOCreated = true;
+    return true;
+}
+
+void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
+    if (!m_shadowUBOCreated && !CreateShadowUBO()) return;
+    if (!data) return;
+
+    const auto* ubo = static_cast<const RenderEngine::ShadowLightUBO*>(data);
+
+    RenderEngine::PCSSShadowGPUData shadowData{};
+    memcpy(shadowData.LightVP, ubo->LightVP, sizeof(float) * 16);
+    shadowData.ShadowBias = ubo->ShadowBias;
+    shadowData.ShadowStrength = ubo->ShadowStrength;
+    shadowData.ShadowTexelSize = ubo->ShadowTexelSize;
+    shadowData.ShadowLightSize = ubo->LightSize;
+    shadowData.PCSSEnabled = m_pcssEnabled ? 1 : 0;
+    shadowData.ShadowMapEnabled = m_shadowPassEnabled ? 1 : 0;
+
+    glBindBuffer(GL_UNIFORM_BUFFER, m_shadowUBO);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(shadowData), &shadowData);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    // Bind shadow UBO at binding 5 (matches shader)
+    glBindBufferBase(GL_UNIFORM_BUFFER, 5, m_shadowUBO);
+}
+
+bool OpenGLRenderer::CreateShadowMapResources() {
+    if (m_shadowMapCreated) return true;
+
+    // Create depth texture
+    glGenTextures(1, &m_shadowDepthTex);
+    glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
+                 SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Create FBO
+    glGenFramebuffers(1, &m_shadowFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_shadowDepthTex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        SLEAK_ERROR("OpenGL shadow FBO is not complete!");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    m_shadowMapCreated = true;
+    SLEAK_INFO("OpenGL shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    return true;
+}
+
+void OpenGLRenderer::RenderShadowPass() {
+    if (!m_shadowMapCreated) {
+        if (!CreateShadowMapResources()) return;
+    }
+
+    // Save current viewport
+    GLint savedViewport[4];
+    glGetIntegerv(GL_VIEWPORT, savedViewport);
+
+    // Bind shadow FBO
+    glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
+    glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    // Enable polygon offset for slope-scale depth bias
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(2.0f, 4.0f);
+
+    // Cull front faces during shadow pass to reduce peter-panning
+    glCullFace(GL_FRONT);
+
+    // Ensure VAO is bound for shadow pass draws
+    glBindVertexArray(m_VAO);
+
+    // Execute shadow draw commands
+    m_inShadowPass = true;
+    auto* queue = RenderCommandQueue::GetInstance();
+    if (queue) {
+        queue->ExecuteShadowPass(this);
+    }
+    m_inShadowPass = false;
+
+    // Restore state
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    // Restore original cull face
+    ConfigureRenderFace();
+
+    // Restore framebuffer
+    if (m_msaaFBO != 0)
+        glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
+    else
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+
+    // Bind shadow map texture at unit 3
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 }  // namespace RenderEngine

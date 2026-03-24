@@ -213,15 +213,9 @@ class Matrix {
         result(0, 0) = 1.0f / (aspectRatio * tanHalfFovY);
         result(1, 1) = 1.0f / tanHalfFovY;
         result(2, 2) = farPlane / (farPlane - nearPlane);
-        result(2, 3) = (-nearPlane * farPlane) / (farPlane - nearPlane);
-        result(3, 2) = 1.0f;
-        result(3, 3) = 0.0f;
-
-        result(2, 2) = farPlane / (farPlane - nearPlane);
         result(2, 3) = 1.0f;
         result(3, 2) = (-nearPlane * farPlane) / (farPlane - nearPlane);
         result(3, 3) = 0.0f;
-
 
         return result;
     }

@@ -97,6 +97,22 @@ private:
     virtual void ConfigureRenderFace() override;
 
     void SetupVertexLayout();
+
+    // Shadow mapping
+    static constexpr int SHADOW_MAP_SIZE = 2048;
+    GLuint m_shadowFBO = 0;
+    GLuint m_shadowDepthTex = 0;
+    GLuint m_shadowUBO = 0;
+    bool m_shadowMapCreated = false;
+    bool m_shadowUBOCreated = false;
+    float m_lightVP[16] = {};
+    bool m_inShadowPass = false;
+    GLuint m_shadowTransformUBO = 0;
+    void SetLightVP(const float* mat) override;
+    void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    bool CreateShadowMapResources();
+    bool CreateShadowUBO();
+    void RenderShadowPass();
 };
 
 }  // namespace RenderEngine
