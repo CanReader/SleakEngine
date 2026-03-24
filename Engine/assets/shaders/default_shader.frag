@@ -151,37 +151,41 @@ float CalcShadow(vec4 sc) {
     return shadow;
 }
 
+// ACES film tone mapping (Stephen Hill fit)
+vec3 ACESFilm(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3(0.0), vec3(1.0));
+}
+
 void main() {
     vec4 texColor = texture(diffuseTexture, fragUV);
     if (texColor.a < 0.5)
         discard;
-    vec4 baseColor = texColor * fragColor;
 
-    vec3 N = normalize(fragWorldNorm);
-    vec3 lightDir = normalize(uLightDir.xyz);
-    vec3 lightColor = uLightColor.rgb;
-    float lightIntensity = uLightColor.a;
+    // AO is stored in vertex color (r channel). Apply only to ambient.
+    float ao       = fragColor.r;
+    vec3 baseColor = texColor.rgb;
+
+    vec3 N            = normalize(fragWorldNorm);
+    vec3 lightDir     = normalize(uLightDir.xyz);
+    vec3 lightColor   = uLightColor.rgb;
+    float lightIntens = uLightColor.a;
 
     // Hemisphere ambient: sky color above, ground-bounce below
-    vec3 ambientColor = uAmbient.rgb * uAmbient.a;
-    vec3 groundColor = ambientColor * vec3(0.65, 0.6, 0.55);
-    float hemisphere = N.y * 0.5 + 0.5;
-    vec3 ambient = mix(groundColor, ambientColor, hemisphere);
+    vec3 skyAmbient    = uAmbient.rgb * uAmbient.a;
+    vec3 groundAmbient = skyAmbient * vec3(0.55, 0.50, 0.45);
+    float hemisphere   = N.y * 0.5 + 0.5;
+    vec3 ambient       = mix(groundAmbient, skyAmbient, hemisphere);
 
-    // Diffuse lighting
-    float NdotL = dot(N, -lightDir);
-    float diffuseTerm = max(NdotL, 0.0);
+    // Wrap diffuse: softens shadow terminator, side faces get ~15% sun
+    float NdotL   = clamp(dot(N, -lightDir) * 0.85 + 0.15, 0.0, 1.0);
+    float shadow  = CalcShadow(fragShadowCoord);
+    vec3  diffuse = lightColor * lightIntens * NdotL * shadow;
 
-    // Wrap lighting for softer light falloff on side faces
-    float wrapTerm = max((NdotL + 0.15) / 1.15, 0.0);
-    vec3 diffuse = lightColor * lightIntensity * wrapTerm;
+    // Compose: AO only on ambient (direct light ignores occlusion)
+    vec3 lit = baseColor * (ao * ambient + diffuse);
 
-    float shadow = CalcShadow(fragShadowCoord);
-
-    vec3 lit = baseColor.rgb * (ambient + shadow * diffuse);
-
-    // Reinhard tone mapping
-    lit = lit / (lit + vec3(1.0));
+    // ACES tone mapping
+    lit = ACESFilm(lit);
 
     // Distance fog
     if (uFogEnd > 0.0) {
@@ -190,5 +194,5 @@ void main() {
         lit = mix(uFogColor.rgb, lit, fogFactor);
     }
 
-    outColor = vec4(lit, baseColor.a);
+    outColor = vec4(lit, texColor.a);
 }
