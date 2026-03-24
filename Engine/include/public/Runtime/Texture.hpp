@@ -20,9 +20,16 @@ enum class TextureType {
 };
 
 enum class TextureFilter {
-    Nearest,
-    Linear,
-    Anisotropic,
+    Nearest,        // Point / no filtering
+    Bilinear,       // Linear min/mag, nearest mip
+    Trilinear,      // Linear min/mag/mip (best quality without anisotropy)
+    Anisotropic2x,  // Anisotropic 2x
+    Anisotropic4x,  // Anisotropic 4x
+    Anisotropic8x,  // Anisotropic 8x
+    Anisotropic16x, // Anisotropic 16x (highest quality)
+    // Legacy aliases kept for backward compatibility
+    Linear      = Trilinear,
+    Anisotropic = Anisotropic16x,
 };
 
 enum class TextureWrapMode {
@@ -56,6 +63,9 @@ public:
     virtual TextureFormat GetFormat() const = 0;
 
     virtual TextureType GetType() const = 0;
+
+    virtual void SetLodBias(float bias) {}
+    virtual float GetLodBias() const { return 0.0f; }
 
     virtual uint64_t GetImGuiTextureID() const { return 0; }
 };

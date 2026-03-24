@@ -30,6 +30,9 @@ public:
     // Set texture wrap mode
     void SetWrapMode(TextureWrapMode wrapMode) override;
 
+    void SetLodBias(float bias) override;
+    float GetLodBias() const override { return m_lodBias; }
+
     // Get texture width
     uint32_t GetWidth() const override;
 
@@ -58,6 +61,7 @@ private:
     TextureType m_type;
     TextureFilter m_filter;
     TextureWrapMode m_wrapMode;
+    float m_lodBias = 0.0f;
 
     void CreateSamplerState();
     DXGI_FORMAT GetDXGIFormat(TextureFormat format) const;

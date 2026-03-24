@@ -199,6 +199,16 @@ void VulkanTexture::SetWrapMode(TextureWrapMode wrapMode) {
     }
 }
 
+void VulkanTexture::SetLodBias(float bias) {
+    m_lodBias = bias;
+    if (m_sampler != VK_NULL_HANDLE) {
+        vkDestroySampler(m_device, m_sampler, nullptr);
+        m_sampler = VK_NULL_HANDLE;
+        CreateSampler();
+        UpdateDescriptorSets();
+    }
+}
+
 void VulkanTexture::UpdateDescriptorSets() {
     if (m_descriptorSets.empty() || m_imageView == VK_NULL_HANDLE || m_sampler == VK_NULL_HANDLE)
         return;
@@ -339,12 +349,43 @@ bool VulkanTexture::CreateSampler() {
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 
-    // Filter
-    VkFilter vkFilter = VK_FILTER_LINEAR;
-    if (m_filter == TextureFilter::Nearest)
-        vkFilter = VK_FILTER_NEAREST;
-    samplerInfo.magFilter = vkFilter;
-    samplerInfo.minFilter = vkFilter;
+    // Filter and mip mode
+    VkFilter magFilter = VK_FILTER_LINEAR;
+    VkFilter minFilter = VK_FILTER_LINEAR;
+    VkSamplerMipmapMode mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    VkBool32 anisotropyEnable = VK_FALSE;
+    float maxAnisotropy = 1.0f;
+
+    switch (m_filter) {
+        case TextureFilter::Nearest:
+            magFilter = VK_FILTER_NEAREST;
+            minFilter = VK_FILTER_NEAREST;
+            mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            break;
+        case TextureFilter::Bilinear:
+            mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            break;
+        case TextureFilter::Trilinear:
+            mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            break;
+        case TextureFilter::Anisotropic2x:
+            anisotropyEnable = VK_TRUE; maxAnisotropy = 2.0f;
+            break;
+        case TextureFilter::Anisotropic4x:
+            anisotropyEnable = VK_TRUE; maxAnisotropy = 4.0f;
+            break;
+        case TextureFilter::Anisotropic8x:
+            anisotropyEnable = VK_TRUE; maxAnisotropy = 8.0f;
+            break;
+        case TextureFilter::Anisotropic16x:
+            anisotropyEnable = VK_TRUE; maxAnisotropy = 16.0f;
+            break;
+        default:
+            break;
+    }
+
+    samplerInfo.magFilter = magFilter;
+    samplerInfo.minFilter = minFilter;
 
     // Wrap mode
     VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -368,16 +409,15 @@ bool VulkanTexture::CreateSampler() {
     samplerInfo.addressModeV = addressMode;
     samplerInfo.addressModeW = addressMode;
 
-    samplerInfo.anisotropyEnable =
-        (m_filter == TextureFilter::Anisotropic) ? VK_TRUE : VK_FALSE;
-    samplerInfo.maxAnisotropy = 16.0f;
+    samplerInfo.anisotropyEnable = anisotropyEnable;
+    samplerInfo.maxAnisotropy = maxAnisotropy;
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable = VK_FALSE;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.mipmapMode = mipmapMode;
+    samplerInfo.mipLodBias = m_lodBias;
     samplerInfo.minLod = 0.0f;
-    samplerInfo.maxLod = 0.0f;
+    samplerInfo.maxLod = 1000.0f;
 
     if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_sampler) !=
         VK_SUCCESS) {

@@ -28,8 +28,10 @@ bool OpenGLTexture::LoadFromMemory(const void* data, uint32_t width,
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glFormat,
                  GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Default: trilinear (good quality baseline)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -65,22 +67,50 @@ void OpenGLTexture::Unbind() const {
 }
 
 void OpenGLTexture::SetFilter(TextureFilter filter) {
+    m_filter = filter;
     glBindTexture(GL_TEXTURE_2D, m_texture);
     switch (filter) {
         case TextureFilter::Nearest:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                            GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                            GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             break;
-        case TextureFilter::Linear:
+        case TextureFilter::Bilinear:
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            break;
+        case TextureFilter::Trilinear:
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            break;
+        case TextureFilter::Anisotropic2x:
+        case TextureFilter::Anisotropic4x:
+        case TextureFilter::Anisotropic8x:
+        case TextureFilter::Anisotropic16x: {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            float aniso = 1.0f;
+            if (filter == TextureFilter::Anisotropic2x)  aniso = 2.0f;
+            else if (filter == TextureFilter::Anisotropic4x)  aniso = 4.0f;
+            else if (filter == TextureFilter::Anisotropic8x)  aniso = 8.0f;
+            else if (filter == TextureFilter::Anisotropic16x) aniso = 16.0f;
+            float maxSupported;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxSupported);
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY,
+                            aniso < maxSupported ? aniso : maxSupported);
+            break;
+        }
         default:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                            GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                            GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             break;
     }
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void OpenGLTexture::SetLodBias(float bias) {
+    m_lodBias = bias;
+    glBindTexture(GL_TEXTURE_2D, m_texture);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, bias);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 

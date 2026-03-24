@@ -27,38 +27,32 @@ bool DirectX11Texture::LoadFromMemory(const void* data, uint32_t width, uint32_t
     m_height = height;
     m_format = format;
 
-    // Create texture description
+    // Create texture description with mipmap generation support
     D3D11_TEXTURE2D_DESC textureDesc = {};
     textureDesc.Width = width;
     textureDesc.Height = height;
-    textureDesc.MipLevels = 1;
+    textureDesc.MipLevels = 0;  // 0 = auto-calculate full mip chain
     textureDesc.ArraySize = 1;
     textureDesc.Format = GetDXGIFormat(format);
     textureDesc.SampleDesc.Count = 1;
     textureDesc.SampleDesc.Quality = 0;
     textureDesc.Usage = D3D11_USAGE_DEFAULT;
-    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
     textureDesc.CPUAccessFlags = 0;
-    textureDesc.MiscFlags = 0;
+    textureDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 
-    // Create texture data
-    D3D11_SUBRESOURCE_DATA textureData = {};
-    textureData.pSysMem = data;
-    textureData.SysMemPitch = width * 4; // Assuming 4 bytes per pixel (RGBA8)
-    textureData.SysMemSlicePitch = 0;
-
-    // Create the texture
-    HRESULT hr = m_device->CreateTexture2D(&textureDesc, &textureData, &m_texture);
+    // Create the texture (no initial data — we'll upload via UpdateSubresource)
+    HRESULT hr = m_device->CreateTexture2D(&textureDesc, nullptr, &m_texture);
     if (FAILED(hr)) {
         SLEAK_ERROR("Failed to create texture! HRESULT: 0x{:08X}", static_cast<unsigned int>(hr));
         return false;
     }
 
-    // Create the shader resource view
+    // Create the shader resource view (all mip levels)
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Format = textureDesc.Format;
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
+    srvDesc.Texture2D.MipLevels = static_cast<UINT>(-1);  // all mip levels
     srvDesc.Texture2D.MostDetailedMip = 0;
 
     hr = m_device->CreateShaderResourceView(m_texture.Get(), &srvDesc, &m_shaderResourceView);
@@ -66,6 +60,10 @@ bool DirectX11Texture::LoadFromMemory(const void* data, uint32_t width, uint32_t
         SLEAK_ERROR("Failed to create shader resource view! HRESULT: 0x{:08X}", static_cast<unsigned int>(hr));
         return false;
     }
+
+    // Upload base level and generate mipmaps
+    m_deviceContext->UpdateSubresource(m_texture.Get(), 0, nullptr, data, width * 4, 0);
+    m_deviceContext->GenerateMips(m_shaderResourceView.Get());
 
     // Create the sampler state
     CreateSamplerState();
@@ -174,6 +172,11 @@ void DirectX11Texture::SetWrapMode(TextureWrapMode wrapMode) {
     CreateSamplerState();
 }
 
+void DirectX11Texture::SetLodBias(float bias) {
+    m_lodBias = bias;
+    CreateSamplerState();
+}
+
 uint32_t DirectX11Texture::GetWidth() const {
     return m_width;
 }
@@ -191,13 +194,22 @@ TextureType DirectX11Texture::GetType() const {
 }
 
 void DirectX11Texture::CreateSamplerState() {
+    UINT maxAniso = 1;
+    switch (m_filter) {
+        case TextureFilter::Anisotropic2x:  maxAniso = 2;  break;
+        case TextureFilter::Anisotropic4x:  maxAniso = 4;  break;
+        case TextureFilter::Anisotropic8x:  maxAniso = 8;  break;
+        case TextureFilter::Anisotropic16x: maxAniso = 16; break;
+        default: break;
+    }
+
     D3D11_SAMPLER_DESC samplerDesc = {};
     samplerDesc.Filter = GetD3D11Filter(m_filter);
     samplerDesc.AddressU = GetD3D11WrapMode(m_wrapMode);
     samplerDesc.AddressV = GetD3D11WrapMode(m_wrapMode);
     samplerDesc.AddressW = GetD3D11WrapMode(m_wrapMode);
-    samplerDesc.MipLODBias = 0.0f;
-    samplerDesc.MaxAnisotropy = 16;
+    samplerDesc.MipLODBias = m_lodBias;
+    samplerDesc.MaxAnisotropy = maxAniso;
     samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     samplerDesc.MinLOD = 0;
     samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
@@ -221,9 +233,13 @@ DXGI_FORMAT DirectX11Texture::GetDXGIFormat(TextureFormat format) const {
 
 D3D11_FILTER DirectX11Texture::GetD3D11Filter(TextureFilter filter) const {
     switch (filter) {
-        case TextureFilter::Nearest: return D3D11_FILTER_MIN_MAG_MIP_POINT;
-        case TextureFilter::Linear: return D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        case TextureFilter::Anisotropic: return D3D11_FILTER_ANISOTROPIC;
+        case TextureFilter::Nearest:      return D3D11_FILTER_MIN_MAG_MIP_POINT;
+        case TextureFilter::Bilinear:     return D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+        case TextureFilter::Trilinear:    return D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        case TextureFilter::Anisotropic2x:
+        case TextureFilter::Anisotropic4x:
+        case TextureFilter::Anisotropic8x:
+        case TextureFilter::Anisotropic16x: return D3D11_FILTER_ANISOTROPIC;
         default: return D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     }
 }

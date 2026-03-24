@@ -22,6 +22,8 @@ public:
 
     void SetFilter(TextureFilter filter) override;
     void SetWrapMode(TextureWrapMode wrapMode) override;
+    void SetLodBias(float bias) override;
+    float GetLodBias() const override { return m_lodBias; }
 
     uint32_t GetWidth() const override { return m_width; }
     uint32_t GetHeight() const override { return m_height; }
@@ -37,6 +39,8 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
     TextureFormat m_format = TextureFormat::RGBA8;
+    TextureFilter m_filter = TextureFilter::Linear;
+    float m_lodBias = 0.0f;
 };
 
 }  // namespace RenderEngine
