@@ -2,7 +2,7 @@
 
 // ============================================================
 // Default Material Shader - Vulkan Fragment Shader
-// PCSS shadows + hemisphere ambient + per-vertex AO
+// PCF shadows + hemisphere ambient + per-vertex AO
 // ============================================================
 
 layout(location = 0) in vec3 fragWorldPos;
@@ -35,69 +35,17 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;
 
-// Interleaved gradient noise for per-pixel disk rotation
-float InterleavedGradientNoise(vec2 screenPos) {
-    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(screenPos, magic.xy)));
-}
-
-// 32-sample Poisson disk for high quality PCF
-const vec2 disk[32] = vec2[](
-    vec2(-0.9465, -0.1484), vec2(-0.7431,  0.5353),
-    vec2(-0.5863, -0.5879), vec2(-0.3935,  0.1025),
-    vec2(-0.2428,  0.7722), vec2(-0.1074, -0.3075),
-    vec2( 0.0542, -0.8645), vec2( 0.1267,  0.4300),
-    vec2( 0.2787, -0.1353), vec2( 0.3842,  0.6501),
-    vec2( 0.4714, -0.5537), vec2( 0.5765,  0.1675),
-    vec2( 0.6712, -0.3340), vec2( 0.7527,  0.4813),
-    vec2( 0.8745, -0.0910), vec2( 0.9601,  0.2637),
-    vec2(-0.8312,  0.3150), vec2(-0.6142, -0.2890),
-    vec2(-0.4581,  0.6310), vec2(-0.2134, -0.7520),
-    vec2(-0.0678,  0.4210), vec2( 0.1893, -0.5430),
-    vec2( 0.3215,  0.8140), vec2( 0.4890, -0.0230),
-    vec2( 0.6340,  0.3470), vec2( 0.7810, -0.5690),
-    vec2(-0.3467,  0.2560), vec2(-0.1290, -0.1120),
-    vec2( 0.0910,  0.1560), vec2( 0.2340, -0.3410),
-    vec2(-0.5120,  0.0420), vec2( 0.4210,  0.5120)
+// 16-sample Poisson disk for PCF
+const vec2 poissonDisk[16] = vec2[](
+    vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
+    vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543,  0.27676845), vec2( 0.97484398,  0.75648379),
+    vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
+    vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
+    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
 );
-
-// PCSS Step 1: Find average blocker depth using first 16 samples
-float FindBlockerDepth(vec2 uv, float receiverDepth, float searchRadius) {
-    float blockerSum = 0.0;
-    int blockerCount = 0;
-
-    float angle = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
-    float sa = sin(angle);
-    float ca = cos(angle);
-    mat2 rotation = mat2(ca, sa, -sa, ca);
-
-    for (int i = 0; i < 16; i++) {
-        vec2 offset = rotation * disk[i] * searchRadius;
-        vec2 sampleUV = uv + offset;
-
-        // Sample raw depth from shadow map (bypass comparison sampler)
-        // Use a small bias for blocker search
-        float sampleResult = texture(shadowMap, vec3(sampleUV, receiverDepth));
-        if (sampleResult < 0.5) {
-            // This sample is in shadow — it's a blocker
-            // Estimate blocker depth as receiver depth (we can't read raw depth
-            // with a comparison sampler, so we approximate)
-            blockerSum += receiverDepth + uShadowBias * 2.0;
-            blockerCount++;
-        }
-    }
-
-    if (blockerCount == 0)
-        return -1.0; // No blockers found
-
-    return blockerSum / float(blockerCount);
-}
-
-// PCSS Step 2: Estimate penumbra width from blocker distance
-float EstimatePenumbraWidth(float receiverDepth, float blockerDepth) {
-    float penumbra = (receiverDepth - blockerDepth) / blockerDepth;
-    return penumbra * uLightSize;
-}
 
 float CalcShadow(vec4 sc) {
     vec3 projCoords = sc.xyz / sc.w;
@@ -116,35 +64,17 @@ float CalcShadow(vec4 sc) {
 
     float biasedDepth = projCoords.z - uShadowBias;
 
-    float angle = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
-    float sa = sin(angle);
-    float ca = cos(angle);
-    mat2 rotation = mat2(ca, sa, -sa, ca);
-
-    // PCSS: Blocker search with wide radius
-    float searchRadius = uShadowTexelSize * uLightSize * 40.0;
-    float blockerDepth = FindBlockerDepth(projCoords.xy, biasedDepth, searchRadius);
-
-    // Determine filter radius based on blocker distance
-    float filterRadius;
-    if (blockerDepth < 0.0) {
-        // No blockers — fully lit, skip expensive filtering
-        return 1.0;
-    } else {
-        // PCSS penumbra estimation
-        float penumbra = EstimatePenumbraWidth(biasedDepth, blockerDepth);
-        filterRadius = max(penumbra * uShadowTexelSize * 80.0, uShadowTexelSize * 8.0);
-        // Clamp to reasonable max to prevent artifacts
-        filterRadius = min(filterRadius, uShadowTexelSize * uLightSize * 30.0);
-    }
-
-    // PCF filtering with 32 samples at computed radius
+    // 16-sample Poisson PCF
+    float texelSize = uShadowTexelSize;
+    float radius = 1.5;
     float shadow = 0.0;
-    for (int i = 0; i < 32; i++) {
-        vec2 offset = rotation * disk[i] * filterRadius;
-        shadow += texture(shadowMap, vec3(projCoords.xy + offset, biasedDepth));
+
+    for (int i = 0; i < 16; i++) {
+        shadow += texture(shadowMap,
+            vec3(projCoords.xy + poissonDisk[i] * texelSize * radius,
+                 biasedDepth));
     }
-    shadow /= 32.0;
+    shadow /= 16.0;
 
     // Apply edge fade and shadow strength
     shadow = mix(1.0, shadow, uShadowStrength * edgeFade);

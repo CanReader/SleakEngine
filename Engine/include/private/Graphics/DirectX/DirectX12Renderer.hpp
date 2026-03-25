@@ -177,8 +177,12 @@ private:
     bool                                           m_inShadowPass = false;
     Microsoft::WRL::ComPtr<ID3D12Resource>          m_shadowTransformCB;
     void*                                          m_shadowTransformMapped = nullptr;
+    // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
+    Microsoft::WRL::ComPtr<ID3D12PipelineState>    m_shadowPassPSO;
+    Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob; // saved for shadow PSO
     void SetLightVP(const float* mat) override;
     bool CreateShadowMapResources();
+    bool CreateShadowPassPSO();
     void RenderShadowPass();
 
     // ImGUI

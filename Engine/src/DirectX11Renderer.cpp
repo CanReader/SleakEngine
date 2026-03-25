@@ -176,6 +176,14 @@ void DirectX11Renderer::BeginRender() {
         RenderShadowPass();
     }
 
+    // Ensure shadow map SRV + comparison sampler stay bound at t3/s3
+    // for the main draw calls (guards against any intermediate state
+    // clearing the slots between shadow pass and ExecuteCommands).
+    if (m_shadowMapCreated && m_shadowSRV && m_shadowSampler) {
+        deviceContext->PSSetShaderResources(3, 1, &m_shadowSRV);
+        deviceContext->PSSetSamplers(3, 1, &m_shadowSampler);
+    }
+
     if (bIsLayoutCreated)
         deviceContext->IASetInputLayout(layout);
 
@@ -1100,7 +1108,7 @@ bool DirectX11Renderer::CreateShadowMapResources() {
     // Create shadow rasterizer state with depth bias
     D3D11_RASTERIZER_DESC rasterDesc{};
     rasterDesc.FillMode = D3D11_FILL_SOLID;
-    rasterDesc.CullMode = D3D11_CULL_BACK;
+    rasterDesc.CullMode = D3D11_CULL_NONE; // all faces cast shadow regardless of orientation
     rasterDesc.FrontCounterClockwise = FALSE;
     rasterDesc.DepthBias = 100;
     rasterDesc.SlopeScaledDepthBias = 2.0f;

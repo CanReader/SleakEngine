@@ -534,7 +534,88 @@ bool DirectX12Renderer::CreatePipelineStateFromShader(
         return false;
     }
 
+    // Cache VS blob so we can build the depth-only shadow PSO later
+    m_cachedVSBlob = nullptr;
+    vertexShaderBlob->AddRef();
+    m_cachedVSBlob.Attach(vertexShaderBlob);
+
     SLEAK_INFO("DirectX 12 pipeline state created successfully");
+    return true;
+}
+
+bool DirectX12Renderer::CreateShadowPassPSO() {
+    if (m_shadowPassPSO) return true;
+    if (!m_cachedVSBlob) {
+        SLEAK_WARN("CreateShadowPassPSO: no cached VS blob yet");
+        return false;
+    }
+
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
+         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout    = {inputLayout, _countof(inputLayout)};
+    psoDesc.pRootSignature = rootSignature.Get();
+    psoDesc.VS = {m_cachedVSBlob->GetBufferPointer(),
+                  m_cachedVSBlob->GetBufferSize()};
+    // No pixel shader — depth-only pass
+    psoDesc.PS = {nullptr, 0};
+
+    D3D12_RASTERIZER_DESC rasterDesc = {};
+    rasterDesc.FillMode             = D3D12_FILL_MODE_SOLID;
+    rasterDesc.CullMode             = D3D12_CULL_MODE_NONE; // no culling: all faces cast shadow
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.DepthBias            = 1000;   // constant bias (units of depth buffer LSB)
+    rasterDesc.DepthBiasClamp       = 0.01f;
+    rasterDesc.SlopeScaledDepthBias = 2.0f;   // slope-scale bias for steep surfaces
+    rasterDesc.DepthClipEnable      = TRUE;
+    psoDesc.RasterizerState = rasterDesc;
+
+    // Blend: no render targets, all writes masked off
+    D3D12_BLEND_DESC blendDesc = {};
+    blendDesc.AlphaToCoverageEnable  = FALSE;
+    blendDesc.IndependentBlendEnable = FALSE;
+    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+        blendDesc.RenderTarget[i].RenderTargetWriteMask = 0; // no color write
+    }
+    psoDesc.BlendState = blendDesc;
+
+    D3D12_DEPTH_STENCIL_DESC dsDesc = {};
+    dsDesc.DepthEnable    = TRUE;
+    dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    dsDesc.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+    dsDesc.StencilEnable  = FALSE;
+    psoDesc.DepthStencilState = dsDesc;
+
+    psoDesc.SampleMask            = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets      = 0;  // depth-only — no RTV
+    psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count      = 1;
+
+    HRESULT hr = device->CreateGraphicsPipelineState(
+        &psoDesc, IID_PPV_ARGS(&m_shadowPassPSO));
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shadow pass PSO! HRESULT: 0x{:08X}",
+                    static_cast<unsigned int>(hr));
+        return false;
+    }
+    SLEAK_INFO("D3D12 shadow pass PSO created");
     return true;
 }
 
@@ -618,18 +699,26 @@ void DirectX12Renderer::BeginRender() {
     commandList->IASetPrimitiveTopology(
         D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // Bind default white texture so the SRV table is always valid
+    // Re-set root signature after shadow pass (SetGraphicsRootSignature
+    // invalidates all root parameter bindings, so we must rebind everything).
+    commandList->SetGraphicsRootSignature(rootSignature.Get());
+    {
+        ID3D12DescriptorHeap* heaps[] = {m_sharedSrvHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
+    }
+
+    // Root param 2: SRV table at t0 — default white texture
     if (m_defaultTexture) {
         m_defaultTexture->Bind(0);
     }
 
-    // Bind light/fog constant buffer at root parameter 3 (register b2)
+    // Root param 3: CBV at b2 — light/shadow UBO
     if (m_lightUBOCreated && m_lightUBO) {
         commandList->SetGraphicsRootConstantBufferView(
             3, m_lightUBO->GetGPUVirtualAddress());
     }
 
-    // Bind shadow map SRV at root parameter 4 (register t3)
+    // Root param 4: SRV table at t3 — shadow map
     if (m_shadowMapCreated) {
         commandList->SetGraphicsRootDescriptorTable(
             4, GetSharedSrvGPUHandle(m_shadowSrvIndex));
@@ -1263,8 +1352,11 @@ void DirectX12Renderer::RenderShadowPass() {
     shadowScissor.bottom = SHADOW_MAP_SIZE;
     commandList->RSSetScissorRects(1, &shadowScissor);
 
-    // Ensure PSO and root signature are bound for shadow pass
-    if (pipelineState) {
+    // Use depth-only shadow PSO (no PS, no RTV, CULL_NONE + depth bias)
+    if (!m_shadowPassPSO) CreateShadowPassPSO();
+    if (m_shadowPassPSO) {
+        commandList->SetPipelineState(m_shadowPassPSO.Get());
+    } else if (pipelineState) {
         commandList->SetPipelineState(pipelineState.Get());
     }
     commandList->SetGraphicsRootSignature(rootSignature.Get());
