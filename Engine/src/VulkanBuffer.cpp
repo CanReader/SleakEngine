@@ -523,21 +523,23 @@ void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
     // Process ALL eligible buffers each frame to prevent VRAM exhaustion.
     // Old buffers must be freed at least as fast as new ones are created,
     // otherwise the deferred queue grows unbounded and OOMs the GPU.
-    auto it = s_deferredDeletions.begin();
-    while (it != s_deferredDeletions.end()) {
-        if (s_frameNumber - it->frameNumber >= maxFramesInFlight) {
+    // Use swap-and-pop instead of erase() to avoid O(n²) cost
+    for (size_t i = 0; i < s_deferredDeletions.size(); ) {
+        auto& entry = s_deferredDeletions[i];
+        if (s_frameNumber - entry.frameNumber >= maxFramesInFlight) {
             // Recycle into pool if there's room, otherwise destroy
-            if (s_bufferPool.size() < MAX_POOL_SIZE && it->allocSize > 0) {
-                s_bufferPool.push_back({it->buffer, it->memory, it->device,
-                                        it->allocSize, it->usage, it->memoryTypeIndex});
+            if (s_bufferPool.size() < MAX_POOL_SIZE && entry.allocSize > 0) {
+                s_bufferPool.push_back({entry.buffer, entry.memory, entry.device,
+                                        entry.allocSize, entry.usage, entry.memoryTypeIndex});
             } else {
-                vkDestroyBuffer(it->device, it->buffer, nullptr);
-                if (it->memory != VK_NULL_HANDLE)
-                    vkFreeMemory(it->device, it->memory, nullptr);
+                vkDestroyBuffer(entry.device, entry.buffer, nullptr);
+                if (entry.memory != VK_NULL_HANDLE)
+                    vkFreeMemory(entry.device, entry.memory, nullptr);
             }
-            it = s_deferredDeletions.erase(it);
+            entry = std::move(s_deferredDeletions.back());
+            s_deferredDeletions.pop_back();
         } else {
-            ++it;
+            ++i;
         }
     }
 }

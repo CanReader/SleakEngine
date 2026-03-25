@@ -194,9 +194,10 @@ void VulkanRenderer::BeginRender() {
         return;
     }
 
-    // Wait if this swapchain image is still in use by a previous frame
+    // Wait if this swapchain image is still in use by a DIFFERENT frame slot
     if (CurrentFrameIndex < imagesInFlight.size() &&
-        imagesInFlight[CurrentFrameIndex] != VK_NULL_HANDLE) {
+        imagesInFlight[CurrentFrameIndex] != VK_NULL_HANDLE &&
+        imagesInFlight[CurrentFrameIndex] != inFlightFences[currentFrame]) {
         vkWaitForFences(device, 1, &imagesInFlight[CurrentFrameIndex],
                         VK_TRUE, UINT64_MAX);
     }
@@ -222,7 +223,11 @@ void VulkanRenderer::BeginRender() {
 
     bFrameStarted = true;
 
-    if (m_shadowResourcesCreated && m_shadowPassEnabled) {
+    // Skip shadow pass if no cached draws — preserve previous frame's shadow map
+    auto* shadowQueue = RenderCommandQueue::GetInstance();
+    bool hasShadowDraws = shadowQueue && shadowQueue->HasCachedShadowDraws();
+
+    if (m_shadowResourcesCreated && m_shadowPassEnabled && hasShadowDraws) {
         VkClearValue shadowClear{};
         shadowClear.depthStencil = {1.0f, 0};
 
@@ -270,13 +275,14 @@ void VulkanRenderer::BeginRender() {
 
     // Begin render pass
     // When MSAA: 3 attachments (color, depth, resolve); otherwise 2
-    std::vector<VkClearValue> clearValues(2);
+    // Use stack array to avoid per-frame heap allocation
+    VkClearValue clearValues[3];
+    uint32_t clearValueCount = 2;
     clearValues[0] = clearColor;
     clearValues[1].depthStencil = {1.0f, 0};
     if (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT) {
-        VkClearValue resolveClear{};
-        resolveClear.color = clearColor.color;
-        clearValues.push_back(resolveClear);
+        clearValues[2].color = clearColor.color;
+        clearValueCount = 3;
     }
 
     VkRenderPassBeginInfo passInfo{};
@@ -285,9 +291,8 @@ void VulkanRenderer::BeginRender() {
     passInfo.framebuffer = swapChainFramebuffers[CurrentFrameIndex];
     passInfo.renderArea.offset = {0, 0};
     passInfo.renderArea.extent = scExtent;
-    passInfo.clearValueCount =
-        static_cast<uint32_t>(clearValues.size());
-    passInfo.pClearValues = clearValues.data();
+    passInfo.clearValueCount = clearValueCount;
+    passInfo.pClearValues = clearValues;
 
     vkCmdBeginRenderPass(command, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
 

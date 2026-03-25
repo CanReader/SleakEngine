@@ -632,6 +632,10 @@ bool OpenGLRenderer::CreateShadowMapResources() {
 }
 
 void OpenGLRenderer::RenderShadowPass() {
+    // Skip if no cached draws — preserve previous frame's shadow map
+    auto* queue = RenderCommandQueue::GetInstance();
+    if (!queue || !queue->HasCachedShadowDraws()) return;
+
     if (!m_shadowMapCreated) {
         if (!CreateShadowMapResources()) return;
     }
@@ -658,7 +662,6 @@ void OpenGLRenderer::RenderShadowPass() {
 
     // Execute shadow draw commands
     m_inShadowPass = true;
-    auto* queue = RenderCommandQueue::GetInstance();
     if (queue) {
         queue->ExecuteShadowPass(this);
     }

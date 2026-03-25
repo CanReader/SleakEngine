@@ -49,6 +49,8 @@ namespace Sleak {
 
         void ExecuteShadowPass(RenderContext* context);
 
+        bool HasCachedShadowDraws() const { return cachedShadowDraws.GetSize() > 0; }
+
         void Clear();
 
         void SortCommands();
