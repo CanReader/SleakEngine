@@ -334,12 +334,18 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
 
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) !=
         VK_SUCCESS) {
-        SLEAK_ERROR("Failed to allocate Vulkan buffer memory!");
-        // Destroy the orphaned VkBuffer to prevent use-after-OOM
-        vkDestroyBuffer(m_device, buffer, nullptr);
-        buffer = VK_NULL_HANDLE;
-        memory = VK_NULL_HANDLE;
-        return;
+        // OOM: flush all deferred deletions and the recycling pool immediately,
+        // then retry once — deferred buffers often hold significant VRAM while
+        // waiting for MAX_FRAMES_IN_FLIGHT to expire.
+        FlushAllDeferredDeletions();
+        if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) !=
+            VK_SUCCESS) {
+            SLEAK_ERROR("Failed to allocate Vulkan buffer memory!");
+            vkDestroyBuffer(m_device, buffer, nullptr);
+            buffer = VK_NULL_HANDLE;
+            memory = VK_NULL_HANDLE;
+            return;
+        }
     }
 
     vkBindBufferMemory(m_device, buffer, memory, 0);
