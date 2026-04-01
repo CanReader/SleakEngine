@@ -554,7 +554,10 @@ BufferBase* VulkanRenderer::CreateBuffer(BufferType type, uint32_t size,
                                           void* data) {
     auto* buffer = new VulkanBuffer(device, physicalDevice, size, type,
                                      commands, graphicsQueue);
-    buffer->Initialize(data);
+    if (!buffer->Initialize(data)) {
+        delete buffer;
+        return nullptr;
+    }
     return buffer;
 }
 

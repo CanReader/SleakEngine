@@ -815,8 +815,11 @@ void DirectX11Renderer::EndDebugLinePass() {
 BufferBase* DirectX11Renderer::CreateBuffer(BufferType Type, uint32_t size, void* data) {
     assert(size > 0);
 
-    DirectX11Buffer* buffer = new DirectX11Buffer(device,size, Type);
-    buffer->Initialize(data);
+    DirectX11Buffer* buffer = new DirectX11Buffer(device, size, Type);
+    if (!buffer->Initialize(data)) {
+        delete buffer;
+        return nullptr;
+    }
     return static_cast<BufferBase*>(buffer);
 }
 

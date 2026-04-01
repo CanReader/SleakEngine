@@ -394,7 +394,10 @@ void OpenGLRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
 BufferBase* OpenGLRenderer::CreateBuffer(BufferType type, uint32_t size,
                                           void* data) {
     auto* buffer = new OpenGLBuffer(size, type);
-    buffer->Initialize(data);
+    if (!buffer->Initialize(data)) {
+        delete buffer;
+        return nullptr;
+    }
     return buffer;
 }
 

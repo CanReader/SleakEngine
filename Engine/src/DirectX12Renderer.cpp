@@ -1079,7 +1079,10 @@ BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
                                              void* data) {
     assert(size > 0);
     auto* buffer = new DirectX12Buffer(device.Get(), commandQueue.Get(), size, Type);
-    buffer->Initialize(data);
+    if (!buffer->Initialize(data)) {
+        delete buffer;
+        return nullptr;
+    }
 
     // Execute the buffer's upload command list if it recorded any
     // copy commands (DEFAULT heap buffers with initial data).
