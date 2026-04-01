@@ -57,10 +57,12 @@ float CalcShadow(vec4 sc) {
         projCoords.z < 0.0 || projCoords.z > 1.0)
         return 1.0;
 
-    // Smooth fade at shadow map edges to avoid hard cutoffs
+    // Smooth fade at shadow map edges (XY) and far depth (Z) to avoid hard cutoffs
     vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), projCoords.xy)
                    * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - projCoords.xy);
-    float edgeFade = fadeCoord.x * fadeCoord.y;
+    float zFade    = smoothstep(0.0, 0.05, projCoords.z)
+                   * smoothstep(0.0, 0.1,  1.0 - projCoords.z);
+    float edgeFade = fadeCoord.x * fadeCoord.y * zFade;
 
     float biasedDepth = projCoords.z - uShadowBias;
 

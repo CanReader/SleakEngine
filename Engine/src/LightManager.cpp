@@ -161,15 +161,22 @@ void LightManager::UpdateShadowData() {
         float nearP       = shadowLight->GetShadowNearPlane();
         float farP        = shadowLight->GetShadowFarPlane();
 
-        // Light position: offset from camera along negative light direction
+        // Light position: follow camera XZ but fix Y at world origin.
+        // Anchoring Y prevents the shadow frustum from shifting vertically
+        // when the player jumps/flies, which causes hard Z-plane cutoff flicker.
         const auto& camPos = Camera::GetMainCameraPosition();
-        Math::Vector3D lightPos = Math::Vector3D(camPos.GetX(), camPos.GetY(), camPos.GetZ())
+        Math::Vector3D lightPos = Math::Vector3D(camPos.GetX(), 0.0f, camPos.GetZ())
                                 + dir * (-shadowDist);
 
         // Convert to Vector<float,3> for Matrix methods
         Math::Vector<float, 3> lp({lightPos.GetX(), lightPos.GetY(), lightPos.GetZ()});
         Math::Vector<float, 3> ld({dir.GetX(), dir.GetY(), dir.GetZ()});
-        Math::Vector<float, 3> up({0.0f, 1.0f, 0.0f});
+
+        // Avoid degenerate LookTo when light direction is nearly vertical
+        // (cross product with (0,1,0) would be zero → NaN matrix)
+        Math::Vector<float, 3> up = (fabsf(dir.GetY()) > 0.999f)
+            ? Math::Vector<float, 3>({0.0f, 0.0f, 1.0f})
+            : Math::Vector<float, 3>({0.0f, 1.0f, 0.0f});
 
         Math::Matrix4 lightView = Math::Matrix4::LookTo(lp, ld, up);
 
