@@ -116,6 +116,15 @@ public:
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     void SetLightVP(const float* lightVP) override;
 
+    // Deferred rendering overrides
+    virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
+    virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
+    virtual void BindGBufferShader() override;
+    virtual void ExecuteDeferredLightingPass() override;
+    virtual void BeginForwardTransparentPass() override;
+    virtual void EndForwardTransparentPass() override;
+    virtual void UpdateDeferredCB(const void* data, uint32_t size) override;
+
     // MSAA
     void ApplyMSAAChange() override;
     void ApplyVSyncChange() override;
@@ -124,6 +133,21 @@ private:
     bool CreateSkyboxPipeline();
     bool CreateSkinnedPipeline();
     void UpdateSkyboxDescriptorSets();
+
+    // Deferred rendering
+    bool CreateGBufferResources();
+    bool CreateGBufferRenderPass();
+    bool CreateGBufferFramebuffer();
+    bool CreateGBufferPipeline();
+    bool CreateLightingRenderPass();
+    bool CreateLightingFramebuffers();
+    bool CreateLightingPipeline();
+    bool CreateForwardRenderPass();
+    bool CreateForwardFramebuffers();
+    bool CreateGBufferDescriptorSets();
+    bool CreateDeferredCBResources();
+    void CleanupGBufferResources();
+    void UpdateGBufferDescriptors();
 
     // Shadow mapping
     bool CreateShadowResources();
@@ -314,6 +338,53 @@ private:
     // Async buffer transfer (zero-CPU-blocking GPU uploads)
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_transferSemaphores = {};
     std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
+
+    // ---- Deferred GBuffer ----
+    static constexpr uint32_t GBUFFER_COUNT = 3;
+    VkImage        m_gbufferImages[GBUFFER_COUNT]   = {};
+    VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT]   = {};
+    VkImageView    m_gbufferViews[GBUFFER_COUNT]    = {};
+    static const VkFormat m_gbufferFormats[GBUFFER_COUNT];  // defined in .cpp
+    VkRenderPass   m_gbufferRenderPass              = VK_NULL_HANDLE;
+    VkFramebuffer  m_gbufferFramebuffer             = VK_NULL_HANDLE;
+    VkPipeline     m_gbufferPipeline                = VK_NULL_HANDLE;
+    VkPipelineLayout m_gbufferPipelineLayout        = VK_NULL_HANDLE;
+    VulkanShader*  m_gbufferShader                  = nullptr;
+    bool           m_gbufferResourcesCreated        = false;
+    bool           m_inGeometryPass                 = false;
+
+    // Lighting pass
+    VkRenderPass   m_lightingRenderPass             = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> m_lightingFramebuffers;   // one per swapchain image
+    VkPipeline     m_lightingPipeline               = VK_NULL_HANDLE;
+    VkPipelineLayout m_lightingPipelineLayout       = VK_NULL_HANDLE;
+    VulkanShader*  m_lightingShader                 = nullptr;
+
+    // Forward transparent pass
+    VkRenderPass   m_forwardRenderPass              = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> m_forwardFramebuffers;  // one per swapchain image (color+depth, non-MSAA)
+    bool           m_inForwardTransparentPass       = false;
+    bool           m_forwardPassOpen                = false; // true when forward RP is currently recording
+
+    // GBuffer sampler descriptor set (set 0 in lighting pass)
+    VkDescriptorSetLayout m_gbufferSamplerDSL       = VK_NULL_HANDLE;
+    VkDescriptorPool      m_gbufferSamplerPool      = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_gbufferSamplerSets = {};
+    VkSampler      m_gbufferSampler                 = VK_NULL_HANDLE;
+    VkSampler      m_depthSampler                   = VK_NULL_HANDLE;
+
+    // Deferred CB UBO (set 1 in lighting pass): InvViewProj + screenSize + near/far
+    struct DeferredCBData {
+        float InvViewProj[16];
+        float ScreenW, ScreenH, NearP, FarP;
+    };
+    VkDescriptorSetLayout m_deferredCBDSL           = VK_NULL_HANDLE;
+    VkDescriptorPool      m_deferredCBPool          = VK_NULL_HANDLE;
+    std::array<VkBuffer,       MAX_FRAMES_IN_FLIGHT> m_deferredCBBuffers = {};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_deferredCBMemory  = {};
+    std::array<void*,          MAX_FRAMES_IN_FLIGHT> m_deferredCBMapped  = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_deferredCBSets   = {};
+    bool m_deferredCBCreated = false;
 };
 
 }  // namespace RenderEngine

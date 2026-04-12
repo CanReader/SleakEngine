@@ -27,6 +27,7 @@ namespace Sleak {
 
         void UpdateAndBind();
         void UpdateShadowData();
+        void UpdateDeferredCB();
 
         void SetAmbientColor(float r, float g, float b);
         void SetAmbientIntensity(float intensity) {

@@ -45,6 +45,10 @@ namespace Sleak {
 
         void SubmitCustomCommand(CustomCommand::ExecuteFunction function);
 
+        // Execute all queued commands.
+        // In deferred mode: runs opaque draws in the geometry pass, then triggers the
+        // lighting pass, then runs transparent/custom draws in the forward pass.
+        // In forward mode: runs all commands in order (legacy behavior).
         void ExecuteCommands(RenderContext* context);
 
         void ExecuteShadowPass(RenderContext* context);

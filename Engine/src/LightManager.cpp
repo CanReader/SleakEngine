@@ -5,11 +5,51 @@
 #include <Graphics/ResourceManager.hpp>
 #include <Graphics/BufferBase.hpp>
 #include <Graphics/Renderer.hpp>
+#include <Graphics/RenderContext.hpp>
 #include <Camera/Camera.hpp>
+#include <Window.hpp>
 #include <Core/Application.hpp>
 #include <Math/Matrix.hpp>
 #include <Logger.hpp>
 #include <cstring>
+#include <cmath>
+
+namespace {
+// 4x4 row-major matrix inverse via cofactors (Cramer's rule).
+// Returns false if matrix is singular.
+static bool Invert4x4(const float m[16], float inv[16]) {
+    float inv0  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+    float inv4  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+    float inv8  =  m[4]*m[9] *m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+    float inv12 = -m[4]*m[9] *m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+
+    float det = m[0]*inv0 + m[1]*inv4 + m[2]*inv8 + m[3]*inv12;
+    if (std::fabsf(det) < 1e-8f) return false;
+    float id = 1.0f / det;
+
+    inv[0]  = inv0  * id;
+    inv[4]  = inv4  * id;
+    inv[8]  = inv8  * id;
+    inv[12] = inv12 * id;
+
+    inv[1]  = (-m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10]) * id;
+    inv[5]  = ( m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10]) * id;
+    inv[9]  = (-m[0]*m[9] *m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9] ) * id;
+    inv[13] = ( m[0]*m[9] *m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9] ) * id;
+
+    inv[2]  = ( m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6]) * id;
+    inv[6]  = (-m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6]) * id;
+    inv[10] = ( m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5]) * id;
+    inv[14] = (-m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5]) * id;
+
+    inv[3]  = (-m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6]) * id;
+    inv[7]  = ( m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6]) * id;
+    inv[11] = (-m[0]*m[5]*m[11] + m[0]*m[7]*m[9]  + m[4]*m[1]*m[11] - m[4]*m[3]*m[9]  - m[8]*m[1]*m[7] + m[8]*m[3]*m[5]) * id;
+    inv[15] = ( m[0]*m[5]*m[10] - m[0]*m[6]*m[9]  - m[4]*m[1]*m[10] + m[4]*m[2]*m[9]  + m[8]*m[1]*m[6] - m[8]*m[2]*m[5]) * id;
+
+    return true;
+}
+} // namespace
 
 namespace Sleak {
 
@@ -100,6 +140,9 @@ void LightManager::UpdateAndBind() {
 
     // Update shadow data for Vulkan renderer
     UpdateShadowData();
+
+    // Update deferred CB (InvViewProj + screen size) for the lighting pass
+    UpdateDeferredCB();
 }
 
 void LightManager::UpdateShadowData() {
@@ -180,6 +223,20 @@ void LightManager::UpdateShadowData() {
 
         Math::Matrix4 lightView = Math::Matrix4::LookTo(lp, ld, up);
 
+        // ---- Texel snapping: stabilize shadow map when camera moves ----
+        // Snap the light-space origin to shadow map texel boundaries so
+        // sub-texel camera movement doesn't shift the entire shadow map.
+        constexpr float shadowMapSize = 2048.0f;
+        float texelStep = (2.0f * frustumSize) / shadowMapSize;
+
+        // Transform world origin through the light view to get the
+        // current light-space offset, then snap X/Y to texel grid.
+        // Row-major convention: point * Matrix → row 3 holds translation.
+        float lsX = lightView(3, 0);
+        float lsY = lightView(3, 1);
+        lightView(3, 0) = std::floor(lsX / texelStep) * texelStep;
+        lightView(3, 1) = std::floor(lsY / texelStep) * texelStep;
+
         // Build Vulkan-compatible orthographic projection (LH, [0,1] depth range)
         // Engine stores row-major, GLSL reads column-major (transposed) —
         // translations go in ROW 3 so they end up in GLSL column 3.
@@ -252,6 +309,34 @@ void LightManager::SetAmbientColor(float r, float g, float b) {
     m_ambientR = r;
     m_ambientG = g;
     m_ambientB = b;
+}
+
+void LightManager::UpdateDeferredCB() {
+    auto* app = Application::GetInstance();
+    if (!app) return;
+    auto* renderer = app->GetRenderer();
+    if (!renderer) return;
+    auto* ctx = renderer->GetContext();
+    if (!ctx || !ctx->IsDeferredEnabled()) return;
+
+    // ViewProj = View * Proj (row-major engine convention)
+    const Math::Matrix4& V = Camera::GetMainViewMatrix();
+    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    Math::Matrix4 VP = V * P;
+
+    RenderEngine::DeferredCBData cb{};
+    if (!Invert4x4(&VP(0, 0), cb.InvViewProj)) {
+        // Singular matrix — skip update (can happen during initialization)
+        return;
+    }
+
+    // Screen size from Window static state
+    cb.ScreenWidth  = static_cast<float>(app->GetWindow().GetWidth());
+    cb.ScreenHeight = static_cast<float>(app->GetWindow().GetHeight());
+    cb.NearPlane    = 0.1f;
+    cb.FarPlane     = 2000.0f;
+
+    ctx->UpdateDeferredCB(&cb, sizeof(cb));
 }
 
 }  // namespace Sleak

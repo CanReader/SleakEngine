@@ -7,6 +7,7 @@
 #include "Graphics/ResourceManager.hpp"
 #include "Graphics/ConstantBuffer.hpp"
 #include "Graphics/RenderCommandQueue.hpp"
+#include <SDL3/SDL.h>
 #include <vector>
 #include <cstring>
 
@@ -88,6 +89,11 @@ bool OpenGLRenderer::Initialize() {
     m_Initialized = true;
     SetPerformanceCounter(true);
 
+    // Create GBuffer resources (deferred rendering)
+    if (m_deferredEnabled) {
+        CreateGBufferResources();
+    }
+
     SLEAK_INFO("OpenGL renderer has been initialized successfully!");
     SLEAK_INFO("OpenGL Version: {}",
                (const char*)glGetString(GL_VERSION));
@@ -105,17 +111,31 @@ void OpenGLRenderer::BeginRender() {
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
-    // Bind MSAA FBO if active
-    if (m_msaaFBO != 0)
-        glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
-
     // Shadow pass before main rendering
     if (m_shadowPassEnabled) {
         RenderShadowPass();
     }
 
-    glClearColor(0.39f, 0.58f, 0.93f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (m_gbufferCreated && m_deferredEnabled) {
+        // Deferred path: geometry pass writes to GBuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
+        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers(3, drawBuffers);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // Geometry pass must NOT blend — each pixel writes final GBuffer values
+        glDisable(GL_BLEND);
+        m_inGeometryPass = true;
+    } else {
+        // Forward path: bind MSAA FBO if active, else default FBO
+        if (m_msaaFBO != 0)
+            glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFBO);
+        else
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glClearColor(0.39f, 0.58f, 0.93f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
 
     glBindVertexArray(m_VAO);
 
@@ -127,8 +147,9 @@ void OpenGLRenderer::BeginRender() {
 }
 
 void OpenGLRenderer::EndRender() {
-    // Resolve MSAA FBO to default framebuffer before ImGui
-    if (m_msaaFBO != 0) {
+    // Resolve MSAA FBO to default framebuffer before ImGui.
+    // Skip in deferred mode — we rendered directly to FBO 0.
+    if (m_msaaFBO != 0 && !IsDeferredEnabled()) {
         int width, height;
         SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, m_msaaFBO);
@@ -152,6 +173,7 @@ void OpenGLRenderer::EndRender() {
 
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
+        CleanupGBufferResources();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -183,6 +205,10 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     if (m_msaaFBO != 0) {
         CleanupMSAAFramebuffer();
         CreateMSAAFramebuffer();
+    }
+    // Resize GBuffer textures
+    if (m_gbufferCreated) {
+        RecreateGBufferOnResize(static_cast<int>(width), static_cast<int>(height));
     }
 }
 
@@ -687,6 +713,251 @@ void OpenGLRenderer::RenderShadowPass() {
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
     glActiveTexture(GL_TEXTURE0);
+}
+
+// ============================================================
+// Deferred rendering — GBuffer implementation
+// ============================================================
+
+bool OpenGLRenderer::IsDeferredEnabled() const {
+    return m_deferredEnabled && m_gbufferCreated;
+}
+
+bool OpenGLRenderer::CreateGBufferResources() {
+    if (m_gbufferCreated) return true;
+
+    int w, h;
+    SDL_GetWindowSize(m_Window->GetSDLWindow(), &w, &h);
+    m_gbufferWidth  = w;
+    m_gbufferHeight = h;
+
+    // ---- GBuffer FBO ----
+    glGenFramebuffers(1, &m_gbufferFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
+
+    auto makeColorTex = [](GLuint& tex, GLenum internalFmt, int w, int h) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, w, h, 0,
+                     (internalFmt == GL_RGBA16F) ? GL_RGBA : GL_RGBA,
+                     (internalFmt == GL_RGBA16F) ? GL_FLOAT : GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    };
+
+    // RT0: Albedo + AO   (RGBA8)
+    makeColorTex(m_gbufferAlbedoAO,    GL_RGBA8,   w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_gbufferAlbedoAO, 0);
+
+    // RT1: Normal + Roughness  (RGBA16F)
+    makeColorTex(m_gbufferNormalRough, GL_RGBA16F, w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_gbufferNormalRough, 0);
+
+    // RT2: Metallic + Emissive  (RGBA8)
+    makeColorTex(m_gbufferMetalEmit,   GL_RGBA8,   w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, m_gbufferMetalEmit, 0);
+
+    // Depth texture (read back in lighting pass for world pos reconstruction)
+    glGenTextures(1, &m_gbufferDepth);
+    glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, w, h, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_gbufferDepth, 0);
+
+    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+    glDrawBuffers(3, drawBuffers);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // ---- GBuffer geometry shader ----
+    m_gbufferShader = new OpenGLShader();
+    if (!m_gbufferShader->compile("assets/shaders/gbuffer_gl.vert",
+                                   "assets/shaders/gbuffer_gl.frag")) {
+        SLEAK_ERROR("Failed to compile GBuffer geometry shader!");
+        delete m_gbufferShader;
+        m_gbufferShader = nullptr;
+        CleanupGBufferResources();
+        return false;
+    }
+
+    // ---- Lighting pass shader ----
+    m_lightingShader = new OpenGLShader();
+    if (!m_lightingShader->compile("assets/shaders/lighting_pass_gl.vert",
+                                    "assets/shaders/lighting_pass_gl.frag")) {
+        SLEAK_ERROR("Failed to compile deferred lighting pass shader!");
+        delete m_lightingShader;
+        m_lightingShader = nullptr;
+        CleanupGBufferResources();
+        return false;
+    }
+
+    // ---- Empty VAO for fullscreen triangle ----
+    glGenVertexArrays(1, &m_lightingVAO);
+
+    // ---- Deferred CB UBO (binding 6) ----
+    glGenBuffers(1, &m_deferredCBUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_deferredCBUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(RenderEngine::DeferredCBData), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 6, m_deferredCBUBO);
+    m_deferredCBCreated = true;
+
+    m_gbufferCreated = true;
+    SLEAK_INFO("OpenGL GBuffer created ({}x{}) — deferred rendering active", w, h);
+    return true;
+}
+
+void OpenGLRenderer::CleanupGBufferResources() {
+    if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
+    if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
+    if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
+    if (m_gbufferDepth)       { glDeleteTextures(1, &m_gbufferDepth);       m_gbufferDepth       = 0; }
+    if (m_gbufferFBO)         { glDeleteFramebuffers(1, &m_gbufferFBO);     m_gbufferFBO         = 0; }
+    if (m_lightingVAO)        { glDeleteVertexArrays(1, &m_lightingVAO);    m_lightingVAO        = 0; }
+    if (m_deferredCBUBO)      { glDeleteBuffers(1, &m_deferredCBUBO);       m_deferredCBUBO      = 0; }
+    delete m_gbufferShader;  m_gbufferShader  = nullptr;
+    delete m_lightingShader; m_lightingShader = nullptr;
+    m_gbufferCreated    = false;
+    m_deferredCBCreated = false;
+}
+
+void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
+    if (!m_gbufferCreated) return;
+
+    m_gbufferWidth  = width;
+    m_gbufferHeight = height;
+
+    // Resize AlbedoAO
+    glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    // Resize NormalRough
+    glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+
+    // Resize MetalEmit
+    glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    // Resize depth
+    glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    SLEAK_INFO("OpenGL GBuffer resized to {}x{}", width, height);
+}
+
+void OpenGLRenderer::BindGBufferShader() {
+    if (m_gbufferShader) {
+        // Ensure GBuffer FBO is active with all 3 color attachments
+        glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
+        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers(3, drawBuffers);
+        // Ensure depth writes are enabled for geometry pass
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+
+        // Clear stale shadow sampler from unit 3 — the shadow depth texture
+        // has GL_TEXTURE_COMPARE_MODE enabled which conflicts with the GBuffer
+        // shader's sampler2D declaration at binding 3 (roughnessTexture).
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+
+        m_gbufferShader->bind();
+        glBindVertexArray(m_VAO);
+    } else {
+        static bool warned = false;
+        if (!warned) {
+            SLEAK_ERROR("BindGBufferShader: m_gbufferShader is NULL!");
+            warned = true;
+        }
+    }
+}
+
+void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
+    if (!m_deferredCBCreated) return;
+    glBindBuffer(GL_UNIFORM_BUFFER, m_deferredCBUBO);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 6, m_deferredCBUBO);
+}
+
+void OpenGLRenderer::ExecuteDeferredLightingPass() {
+    m_inGeometryPass = false;
+
+    if (!m_gbufferCreated || !m_lightingShader) return;
+
+    // Deferred rendering always outputs to the default FBO (framebuffer 0).
+    // MSAA is incompatible with deferred (multisampled GBuffer is too expensive),
+    // so we skip the MSAA FBO and render directly to the default framebuffer.
+    constexpr GLuint targetFBO = 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, targetFBO);
+
+    // Keep the sky color cleared
+    glClearColor(0.39f, 0.58f, 0.93f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Enable depth writes so the lighting shader can output gl_FragDepth.
+    // This replaces the old glBlitFramebuffer approach which silently failed
+    // on some drivers when GBuffer depth (32F) differs from default FBO depth (24-bit).
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);     // fullscreen triangle must always pass
+    glDepthMask(GL_TRUE);       // allow depth writes
+    glDisable(GL_BLEND);
+
+    // Bind lighting shader
+    m_lightingShader->bind();
+
+    // Bind GBuffer textures at units 8-11
+    glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
+    glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
+    glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
+    glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glActiveTexture(GL_TEXTURE0);
+
+    // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid
+    // sampler2DShadow/sampler2D conflict during the geometry pass.
+    if (m_shadowMapCreated) {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
+        glActiveTexture(GL_TEXTURE0);
+    }
+
+    // Draw fullscreen triangle — shader writes color + gl_FragDepth
+    glBindVertexArray(m_lightingVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Restore depth state for forward pass
+    glDepthFunc(GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Rebind main VAO for forward pass
+    glBindVertexArray(m_VAO);
+}
+
+void OpenGLRenderer::BeginForwardTransparentPass() {
+    m_inForwardTransparentPass = true;
+    // Transparent objects need alpha blending
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+void OpenGLRenderer::EndForwardTransparentPass() {
+    m_inForwardTransparentPass = false;
 }
 
 }  // namespace RenderEngine

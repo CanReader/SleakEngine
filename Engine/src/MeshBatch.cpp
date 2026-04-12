@@ -64,4 +64,8 @@ void MeshBatch::EndBatch() {
     // Reserved for future use (e.g. restoring render state)
 }
 
+void MeshBatch::Shutdown() {
+    s_batchTransformBuffer.reset();
+}
+
 }

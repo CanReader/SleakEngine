@@ -89,6 +89,23 @@ enum class DepthCompare {
             virtual void EndShadowPass() {}
             virtual bool IsShadowPassActive() const { return false; }
 
+            // Deferred rendering support
+            // Returns true when a geometry pass (GBuffer) is active this frame.
+            virtual bool IsInGeometryPass() const { return false; }
+            // Returns true when deferred lighting is enabled for this renderer.
+            virtual bool IsDeferredEnabled() const { return false; }
+            // Bind the GBuffer geometry-pass shader (overrides material shader in geometry pass).
+            virtual void BindGBufferShader() {}
+            // Transition from geometry pass → lighting pass → bind final RT.
+            // Called by RenderCommandQueue after all opaque draws.
+            virtual void ExecuteDeferredLightingPass() {}
+            // Begin the forward transparent sub-pass (renders on top of deferred result).
+            virtual void BeginForwardTransparentPass() {}
+            // End the forward transparent sub-pass.
+            virtual void EndForwardTransparentPass() {}
+            // Update the per-frame deferred CB (InvViewProj + screen size + near/far).
+            virtual void UpdateDeferredCB(const void* data, uint32_t size) { (void)data; (void)size; }
+
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
             virtual void BindIndexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;

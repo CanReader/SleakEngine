@@ -113,6 +113,42 @@ private:
     bool CreateShadowMapResources();
     bool CreateShadowUBO();
     void RenderShadowPass();
+
+    // ---- Deferred rendering (GBuffer) ----
+    // Deferred mode overrides
+    virtual bool IsDeferredEnabled() const override;
+    virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
+    virtual void BindGBufferShader() override;
+    virtual void ExecuteDeferredLightingPass() override;
+    virtual void BeginForwardTransparentPass() override;
+    virtual void EndForwardTransparentPass() override;
+    virtual void UpdateDeferredCB(const void* data, uint32_t size) override;
+
+    // GBuffer FBO + textures
+    GLuint m_gbufferFBO          = 0;
+    GLuint m_gbufferAlbedoAO     = 0;   // RT0: RGBA8  — Albedo + AO
+    GLuint m_gbufferNormalRough  = 0;   // RT1: RGBA16F — Normal + Roughness
+    GLuint m_gbufferMetalEmit    = 0;   // RT2: RGBA8  — Metallic + EmissiveScale
+    GLuint m_gbufferDepth        = 0;   // Depth texture (for lighting pass sampling)
+    bool   m_gbufferCreated      = false;
+    int    m_gbufferWidth        = 0;
+    int    m_gbufferHeight       = 0;
+
+    // GBuffer + lighting pass shaders
+    class OpenGLShader* m_gbufferShader  = nullptr;   // geometry pass shader
+    class OpenGLShader* m_lightingShader = nullptr;   // lighting pass shader
+    GLuint m_lightingVAO = 0;  // empty VAO for fullscreen triangle
+
+    // Deferred CB UBO (InvViewProj + screen size; bound at slot 6)
+    GLuint m_deferredCBUBO    = 0;
+    bool   m_deferredCBCreated = false;
+
+    bool m_inGeometryPass          = false;
+    bool m_inForwardTransparentPass = false;
+
+    bool CreateGBufferResources();
+    void CleanupGBufferResources();
+    void RecreateGBufferOnResize(int width, int height);
 };
 
 }  // namespace RenderEngine

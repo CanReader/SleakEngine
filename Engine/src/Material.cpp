@@ -95,6 +95,28 @@ namespace Sleak {
         return data;
     }
 
+    bool Material::IsForwardRendered() const {
+        return m_renderMode == MaterialRenderMode::Transparent
+            || m_opacity < 1.0f;
+    }
+
+    void Material::BindTexturesAndCB() {
+        // Same as Bind() but without shader->bind() — geometry pass overrides the shader.
+        if (m_diffuseTexture)   m_diffuseTexture->Bind(TEXTURE_SLOT_DIFFUSE);
+        if (m_normalTexture)    m_normalTexture->Bind(TEXTURE_SLOT_NORMAL);
+        if (m_specularTexture)  m_specularTexture->Bind(TEXTURE_SLOT_SPECULAR);
+        if (m_roughnessTexture) m_roughnessTexture->Bind(TEXTURE_SLOT_ROUGHNESS);
+        if (m_metallicTexture)  m_metallicTexture->Bind(TEXTURE_SLOT_METALLIC);
+        if (m_aoTexture)        m_aoTexture->Bind(TEXTURE_SLOT_AO);
+        if (m_emissiveTexture)  m_emissiveTexture->Bind(TEXTURE_SLOT_EMISSIVE);
+
+        if (m_materialBuffer) {
+            RenderEngine::MaterialGPUData data = BuildGPUData();
+            m_materialBuffer->Update(&data, sizeof(data));
+            m_materialBuffer->Update();
+        }
+    }
+
     void Material::SetShader(RenderEngine::Shader* shader) {
         m_shader = ObjectPtr<RenderEngine::Shader>(shader);
     }

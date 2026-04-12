@@ -42,6 +42,9 @@ namespace Sleak {
 
         // End the batch (currently a no-op, reserved for future use).
         static void EndBatch();
+
+        // Release static resources before renderer cleanup.
+        static void Shutdown();
     };
 
 }

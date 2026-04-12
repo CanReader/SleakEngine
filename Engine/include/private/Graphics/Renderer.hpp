@@ -141,6 +141,10 @@ public:
     void SetPCSSEnabled(bool enabled) { m_pcssEnabled = enabled; }
     bool IsPCSSEnabled() const { return m_pcssEnabled; }
 
+    // Deferred rendering mode (default: enabled)
+    void SetDeferredEnabled(bool enabled) { m_deferredEnabled = enabled; }
+    bool GetDeferredEnabled() const { return m_deferredEnabled; }
+
     // Anti-aliasing (MSAA)
     virtual void SetMSAASampleCount(uint32_t samples) {
         // Validate: must be 1, 2, 4, or 8
@@ -221,6 +225,9 @@ public:
 
     // PCSS
     bool m_pcssEnabled = true;
+
+    // Deferred rendering
+    bool m_deferredEnabled = true;
 
     // VSync state
     bool m_vsync = false;

@@ -253,6 +253,30 @@ namespace Sleak {
 
             LightCBData gpuData;
         };
+
+        // Per-frame CB for the deferred lighting pass (bound at slot 3).
+        // Provides inverse view-projection for world-position reconstruction from depth.
+        // Total: 80 bytes (5 x 16-byte rows).
+        struct alignas(16) DeferredCBData {
+            // Rows 0-3: Inverse view-projection matrix (64 bytes)
+            float InvViewProj[16];
+
+            // Row 4: Screen size + near/far planes
+            float ScreenWidth;
+            float ScreenHeight;
+            float NearPlane;
+            float FarPlane;
+        };
+
+        struct alignas(16) DeferredBuffer : public ConstantBuffer {
+            DeferredBuffer() : gpuData{} {}
+            DeferredBuffer(const DeferredCBData& data) : gpuData(data) {}
+
+            virtual void* GetData() const override { return (void*)&gpuData; }
+            virtual uint16_t GetSize() const override { return sizeof(DeferredCBData); }
+
+            DeferredCBData gpuData;
+        };
     }
 }
 

@@ -186,6 +186,8 @@ namespace Sleak {
                 void Execute(RenderContext* context) override;
                 CommandType GetType() const override { return CommandType::BindMaterial; }
 
+                ::Sleak::Material* GetMaterial() const { return m_material; }
+
             private:
                 ::Sleak::Material* m_material;
         };

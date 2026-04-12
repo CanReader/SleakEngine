@@ -124,6 +124,12 @@ bool VulkanRenderer::Initialize() {
     if (!CreateFrameBuffer())
         SLEAK_RETURN_ERR("Failed to create framebuffer of renderer!");
 
+    // Deferred GBuffer — initialized after swapchain framebuffers are ready
+    if (m_deferredEnabled) {
+        if (!CreateGBufferResources())
+            SLEAK_WARN("Failed to create GBuffer resources — deferred rendering disabled");
+    }
+
     if (!CreateSyncObjects())
         SLEAK_RETURN_ERR("Failed to synchronization objects of renderer!");
 
@@ -139,6 +145,9 @@ bool VulkanRenderer::Initialize() {
 // record draw commands via the RenderContext interface.
 void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
+    m_inGeometryPass = false;
+    m_inForwardTransparentPass = false;
+    m_forwardPassOpen = false;
     if (!bRender)
         return;
 
@@ -260,20 +269,81 @@ void VulkanRenderer::BeginRender() {
         m_shadowPassActive = true;
         auto* queue = RenderCommandQueue::GetInstance();
         if (queue) {
-            static int shadowDbgFrame = 0;
-            if (shadowDbgFrame < 5) {
-                SLEAK_INFO("Shadow pass frame {}: lightVP[0]={:.4f}, [5]={:.4f}, [10]={:.4f}, [15]={:.4f}",
-                    shadowDbgFrame, m_lightVP[0], m_lightVP[5], m_lightVP[10], m_lightVP[15]);
-            }
             queue->ExecuteShadowPass(this);
-            ++shadowDbgFrame;
         }
         m_shadowPassActive = false;
 
         vkCmdEndRenderPass(command);
     }
 
-    // Begin render pass
+    // ---- Deferred path: begin GBuffer render pass ----
+    if (m_gbufferResourcesCreated && m_deferredEnabled) {
+        // 4 clear values: RT0, RT1, RT2, depth
+        VkClearValue gbufferClears[GBUFFER_COUNT + 1];
+        for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
+            gbufferClears[i].color = {0.0f, 0.0f, 0.0f, 0.0f};
+        }
+        gbufferClears[GBUFFER_COUNT].depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo gbufferPassInfo{};
+        gbufferPassInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        gbufferPassInfo.renderPass        = m_gbufferRenderPass;
+        gbufferPassInfo.framebuffer       = m_gbufferFramebuffer;
+        gbufferPassInfo.renderArea.offset = {0, 0};
+        gbufferPassInfo.renderArea.extent = scExtent;
+        gbufferPassInfo.clearValueCount   = GBUFFER_COUNT + 1;
+        gbufferPassInfo.pClearValues      = gbufferClears;
+
+        vkCmdBeginRenderPass(command, &gbufferPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
+
+        // Set viewport and scissor
+        VkViewport viewport{};
+        viewport.x        = 0.0f;
+        viewport.y        = 0.0f;
+        viewport.width    = static_cast<float>(scExtent.width);
+        viewport.height   = static_cast<float>(scExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(command, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = scExtent;
+        vkCmdSetScissor(command, 0, 1, &scissor);
+
+        // Bind descriptor sets for GBuffer geometry pass (sets 0-3, same as forward)
+        if (m_textureDescriptorsWritten && CurrentFrameIndex < descriptorSets.size()) {
+            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLay, 0, 1,
+                                    &descriptorSets[CurrentFrameIndex], 0, nullptr);
+        }
+        if (m_lightUBOCreated) {
+            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLay, 2, 1,
+                                    &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
+            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLay, 3, 1,
+                                    &m_shadowSamplerDescriptorSets[currentFrame], 0, nullptr);
+        }
+
+        m_inGeometryPass = true;
+
+        // ImGui new frame (same as forward path below)
+        bImFrameActive = false;
+        if (bImInitialized) {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplSDL3_NewFrame();
+            auto& io = ImGui::GetIO();
+            if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f) {
+                ImGui::NewFrame();
+                bImFrameActive = true;
+            }
+        }
+        return;
+    }
+
+    // ---- Forward path (non-deferred): begin main render pass ----
     // When MSAA: 3 attachments (color, depth, resolve); otherwise 2
     // Use stack array to avoid per-frame heap allocation
     VkClearValue clearValues[3];
@@ -351,6 +421,28 @@ void VulkanRenderer::EndRender() {
     if (!bRender || !bFrameStarted)
         return;
 
+    // Safety: if geometry pass is still open (ExecuteDeferredLightingPass not called),
+    // end it now so we don't have a dangling render pass.
+    if (m_gbufferResourcesCreated && m_deferredEnabled && m_inGeometryPass) {
+        vkCmdEndRenderPass(command);
+        m_inGeometryPass = false;
+    }
+
+    // In deferred mode, we always need a render pass open for ImGui.
+    // BeginForwardTransparentPass opens one (m_forwardPassOpen=true).
+    // If it wasn't called (no transparent objects), open one now.
+    if (m_gbufferResourcesCreated && m_deferredEnabled && !m_forwardPassOpen && !m_inGeometryPass) {
+        VkRenderPassBeginInfo rpBegin{};
+        rpBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpBegin.renderPass        = m_forwardRenderPass;
+        rpBegin.framebuffer       = m_forwardFramebuffers[CurrentFrameIndex];
+        rpBegin.renderArea.offset = {0, 0};
+        rpBegin.renderArea.extent = scExtent;
+        rpBegin.clearValueCount   = 0;
+        vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+        m_forwardPassOpen = true;
+    }
+
     if (bImFrameActive) {
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
@@ -420,6 +512,11 @@ void VulkanRenderer::EndRender() {
     } else if (presentResult != VK_SUCCESS) {
         SLEAK_ERROR("Failed to present render!");
     }
+
+    // Reset per-frame deferred state flags
+    m_forwardPassOpen = false;
+    m_inForwardTransparentPass = false;
+    m_inGeometryPass = false;
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     m_semaphoreIndex = (m_semaphoreIndex + 1) %
@@ -845,6 +942,9 @@ void VulkanRenderer::Cleanup() {
 
     // Destroy MSAA color resources
     CleanupMSAAColorResources();
+
+    // Destroy deferred GBuffer resources
+    CleanupGBufferResources();
 
     // Destroy shadow mapping resources
     CleanupShadowResources();
@@ -1393,6 +1493,11 @@ bool VulkanRenderer::CreateSwapChain() {
 bool VulkanRenderer::RecreateSwapChain() {
     vkDeviceWaitIdle(device);
 
+    // Cleanup GBuffer BEFORE CleanupSwapChain (which destroys depth image)
+    // to avoid dangling image view references in GBuffer framebuffer
+    bool hadGBuffer = m_gbufferResourcesCreated;
+    CleanupGBufferResources();
+
     CleanupMSAAColorResources();
     CleanupSwapChain();
 
@@ -1419,6 +1524,12 @@ bool VulkanRenderer::RecreateSwapChain() {
 
     // Resize imagesInFlight in case swapchain image count changed
     imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
+
+    // Recreate GBuffer resources if they were previously created
+    if (hadGBuffer && m_deferredEnabled) {
+        if (!CreateGBufferResources())
+            SLEAK_WARN("RecreateSwapChain: Failed to recreate GBuffer resources!");
+    }
 
     return true;
 }
@@ -1567,6 +1678,9 @@ void VulkanRenderer::ApplyMSAAChange() {
         debugLinePipeline = VK_NULL_HANDLE;
     }
 
+    // Cleanup GBuffer BEFORE swapchain/depth (avoids dangling image view refs)
+    CleanupGBufferResources();
+
     // Shutdown ImGUI
     if (bImInitialized) {
         ImGui_ImplVulkan_Shutdown();
@@ -1590,6 +1704,7 @@ void VulkanRenderer::ApplyMSAAChange() {
     CreateSkyboxPipeline();
     CreateSkinnedPipeline();
     CreateDebugLinePipeline();
+    if (m_deferredEnabled) CreateGBufferResources();
     CreateImGUI();
 
     // Re-bind skybox cubemap texture to the new descriptor sets
@@ -1679,8 +1794,13 @@ bool VulkanRenderer::CreateDepthResources() {
     imageInfo.format = depthFormat;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    imageInfo.samples = m_msaaSamples;
+    // Always add SAMPLED_BIT so deferred lighting pass can read depth.
+    // When deferred is enabled, force 1x samples (GBuffer is non-MSAA).
+    VkSampleCountFlagBits depthSamples = m_deferredEnabled
+                                        ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                    | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples = depthSamples;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     if (vkCreateImage(device, &imageInfo, nullptr, &depthImage) !=
@@ -2168,7 +2288,8 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLay;
     pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                              ? m_forwardRenderPass : renderPass;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -2507,7 +2628,15 @@ VkBool32 VulkanRenderer::Validation(
 }
 
 bool VulkanRenderer::CreateImGUI() {
-    if (!device || !instance || !graphicsQueue || !renderPass)
+    if (!device || !instance || !graphicsQueue)
+        return false;
+
+    // In deferred mode, ImGui renders inside the forward transparent pass
+    VkRenderPass imguiRenderPass = (m_gbufferResourcesCreated && m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                                 ? m_forwardRenderPass
+                                 : renderPass;
+
+    if (!imguiRenderPass)
         return false;
 
     // Create a dedicated descriptor pool for ImGUI (extra sets for user textures)
@@ -2546,8 +2675,9 @@ bool VulkanRenderer::CreateImGUI() {
     initInfo.MinImageCount = 2;
     initInfo.ImageCount =
         static_cast<uint32_t>(swapChainImages.size());
-    initInfo.MSAASamples = m_msaaSamples;
-    initInfo.RenderPass = renderPass;
+    initInfo.MSAASamples = (m_gbufferResourcesCreated && m_deferredEnabled)
+                          ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
+    initInfo.RenderPass = imguiRenderPass;
     initInfo.Subpass = 0;
 
     if (!ImGui_ImplVulkan_Init(&initInfo))
@@ -2736,7 +2866,8 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLay;  // Reuse same pipeline layout
     pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                              ? m_forwardRenderPass : renderPass;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -2863,7 +2994,8 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLay;
     pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                              ? m_forwardRenderPass : renderPass;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -3165,7 +3297,8 @@ bool VulkanRenderer::CreateSkinnedPipeline() {
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLay;  // Reuse same pipeline layout (set 0 + set 1)
     pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                              ? m_forwardRenderPass : renderPass;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -3783,6 +3916,1217 @@ void VulkanRenderer::SetLightVP(const float* lightVP) {
     if (lightVP) {
         memcpy(m_lightVP, lightVP, sizeof(m_lightVP));
     }
+}
+
+// ============================================================
+// Deferred Rendering — GBuffer format table
+// ============================================================
+const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] = {
+    VK_FORMAT_R8G8B8A8_UNORM,       // RT0: AlbedoAO
+    VK_FORMAT_R16G16B16A16_SFLOAT,  // RT1: NormalRough
+    VK_FORMAT_R8G8B8A8_UNORM,       // RT2: MetalEmit
+};
+
+// ============================================================
+// CreateGBufferResources — top-level orchestrator
+// The depth image is created by CreateDepthResources() with SAMPLED_BIT
+// already set, so we can share it directly.
+// ============================================================
+bool VulkanRenderer::CreateGBufferResources() {
+    if (m_gbufferResourcesCreated) return true;
+
+    // Create GBuffer color attachment images
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width  = scExtent.width;
+        imageInfo.extent.height = scExtent.height;
+        imageInfo.extent.depth  = 1;
+        imageInfo.mipLevels     = 1;
+        imageInfo.arrayLayers   = 1;
+        imageInfo.format        = m_gbufferFormats[i];
+        imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                                | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateImage(device, &imageInfo, nullptr, &m_gbufferImages[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to create GBuffer image {}!", i);
+            return false;
+        }
+
+        VkMemoryRequirements memReqs;
+        vkGetImageMemoryRequirements(device, m_gbufferImages[i], &memReqs);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize  = memReqs.size;
+        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
+                                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &m_gbufferMemory[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to allocate GBuffer memory {}!", i);
+            return false;
+        }
+        vkBindImageMemory(device, m_gbufferImages[i], m_gbufferMemory[i], 0);
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image    = m_gbufferImages[i];
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format   = m_gbufferFormats[i];
+        viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel   = 0;
+        viewInfo.subresourceRange.levelCount     = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount     = 1;
+
+        if (vkCreateImageView(device, &viewInfo, nullptr, &m_gbufferViews[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to create GBuffer image view {}!", i);
+            return false;
+        }
+    }
+
+    if (!CreateGBufferRenderPass())    { SLEAK_ERROR("GBuffer: render pass failed!");    return false; }
+    if (!CreateGBufferFramebuffer())   { SLEAK_ERROR("GBuffer: framebuffer failed!");    return false; }
+    if (!CreateGBufferDescriptorSets()){ SLEAK_ERROR("GBuffer: descriptor sets failed!"); return false; }
+    if (!CreateDeferredCBResources())  { SLEAK_ERROR("GBuffer: deferred CB failed!");    return false; }
+    if (!CreateLightingRenderPass())   { SLEAK_ERROR("GBuffer: lighting RP failed!");    return false; }
+    if (!CreateLightingFramebuffers()) { SLEAK_ERROR("GBuffer: lighting FBs failed!");   return false; }
+    if (!CreateLightingPipeline())     { SLEAK_ERROR("GBuffer: lighting pipeline failed!"); return false; }
+    if (!CreateForwardRenderPass())    { SLEAK_ERROR("GBuffer: forward RP failed!");     return false; }
+    if (!CreateForwardFramebuffers())  { SLEAK_ERROR("GBuffer: forward FBs failed!");    return false; }
+    if (!CreateGBufferPipeline())      { SLEAK_ERROR("GBuffer: gbuffer pipeline failed!"); return false; }
+
+    // Recreate forward-pass pipelines so they use m_forwardRenderPass instead
+    // of the main renderPass (which may have different attachments when MSAA
+    // is active, or an incompatible finalLayout).
+    if (m_forwardRenderPass != VK_NULL_HANDLE) {
+        if (pipeline)         { vkDestroyPipeline(device, pipeline, nullptr);         pipeline = VK_NULL_HANDLE; }
+        if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
+        if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
+        if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
+        // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
+        if (skyboxDescriptorPool) {
+            vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
+            skyboxDescriptorPool = VK_NULL_HANDLE;
+        }
+        skyboxDescriptorSets.clear();
+        delete skyboxShader;
+        skyboxShader = nullptr;
+
+        CreateGraphicsPipeline();
+        CreateSkyboxPipeline();
+        CreateDebugLinePipeline();
+        CreateSkinnedPipeline();
+
+        // Re-bind skybox cubemap to the newly allocated descriptor sets
+        if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
+            for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
+                VkDescriptorImageInfo imageInfo{};
+                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                imageInfo.imageView   = m_skyboxCubemapView;
+                imageInfo.sampler     = m_skyboxCubemapSampler;
+
+                VkWriteDescriptorSet descriptorWrite{};
+                descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrite.dstSet          = skyboxDescriptorSets[i];
+                descriptorWrite.dstBinding      = 0;
+                descriptorWrite.dstArrayElement = 0;
+                descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrite.descriptorCount = 1;
+                descriptorWrite.pImageInfo      = &imageInfo;
+
+                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+            }
+            m_skyboxDescriptorsWritten = true;
+        }
+    }
+
+    m_gbufferResourcesCreated = true;
+    SLEAK_INFO("VulkanRenderer: Deferred GBuffer resources created ({}x{})",
+               scExtent.width, scExtent.height);
+    return true;
+}
+
+// ============================================================
+// CreateGBufferRenderPass
+// 4 attachments: RT0, RT1, RT2, Depth
+// ============================================================
+bool VulkanRenderer::CreateGBufferRenderPass() {
+    // Attachment 0-2: GBuffer color RTs (CLEAR → SHADER_READ_ONLY)
+    VkAttachmentDescription colorAtts[GBUFFER_COUNT] = {};
+    VkAttachmentReference   colorRefs[GBUFFER_COUNT] = {};
+
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
+        colorAtts[i].format         = m_gbufferFormats[i];
+        colorAtts[i].samples        = VK_SAMPLE_COUNT_1_BIT;
+        colorAtts[i].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAtts[i].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAtts[i].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAtts[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAtts[i].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAtts[i].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        colorRefs[i].attachment = i;
+        colorRefs[i].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    // Attachment 3: Depth (CLEAR → DEPTH_STENCIL_READ_ONLY)
+    VkAttachmentDescription depthAtt{};
+    depthAtt.format         = depthFormat;
+    depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference depthRef{};
+    depthRef.attachment = GBUFFER_COUNT;  // index 3
+    depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = GBUFFER_COUNT;
+    subpass.pColorAttachments       = colorRefs;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    // Two external dependencies:
+    // 1. External → subpass (color attachment write)
+    // 2. Subpass → external (shader read in lighting pass)
+    std::array<VkSubpassDependency, 2> deps{};
+
+    deps[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass      = 0;
+    deps[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    deps[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
+    deps[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    deps[1].srcSubpass      = 0;
+    deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+    deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    std::array<VkAttachmentDescription, GBUFFER_COUNT + 1> attachments;
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) attachments[i] = colorAtts[i];
+    attachments[GBUFFER_COUNT] = depthAtt;
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    rpInfo.pAttachments    = attachments.data();
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies   = deps.data();
+
+    return vkCreateRenderPass(device, &rpInfo, nullptr, &m_gbufferRenderPass) == VK_SUCCESS;
+}
+
+// ============================================================
+// CreateGBufferFramebuffer
+// ============================================================
+bool VulkanRenderer::CreateGBufferFramebuffer() {
+    std::array<VkImageView, GBUFFER_COUNT + 1> views;
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) views[i] = m_gbufferViews[i];
+    views[GBUFFER_COUNT] = depthImageView;
+
+    VkFramebufferCreateInfo fbInfo{};
+    fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbInfo.renderPass      = m_gbufferRenderPass;
+    fbInfo.attachmentCount = static_cast<uint32_t>(views.size());
+    fbInfo.pAttachments    = views.data();
+    fbInfo.width           = scExtent.width;
+    fbInfo.height          = scExtent.height;
+    fbInfo.layers          = 1;
+
+    return vkCreateFramebuffer(device, &fbInfo, nullptr, &m_gbufferFramebuffer) == VK_SUCCESS;
+}
+
+// ============================================================
+// CreateGBufferPipeline — reuses pipelineLay (same sets 0-3)
+// ============================================================
+bool VulkanRenderer::CreateGBufferPipeline() {
+    m_gbufferShader = new VulkanShader(device);
+    if (!m_gbufferShader->compile("assets/shaders/gbuffer.vert.spv",
+                                   "assets/shaders/gbuffer.frag.spv")) {
+        SLEAK_ERROR("GBuffer: Failed to compile gbuffer shaders!");
+        delete m_gbufferShader;
+        m_gbufferShader = nullptr;
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        m_gbufferShader->GetVertexInfo(),
+        m_gbufferShader->GetFragInfo()
+    };
+
+    // Dynamic state
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates    = dynamicStates.data();
+
+    // Vertex input — identical to main pipeline
+    VkVertexInputBindingDescription bindingDesc{};
+    bindingDesc.binding   = 0;
+    bindingDesc.stride    = sizeof(Vertex);
+    bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 7> attrDescs{};
+    attrDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(Vertex, px)};
+    attrDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(Vertex, nx)};
+    attrDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, tx)};
+    attrDescs[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, r)};
+    attrDescs[4] = {4, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(Vertex, u)};
+    attrDescs[5] = {5, 0, VK_FORMAT_R32G32B32A32_SINT,   offsetof(Vertex, boneIDs)};
+    attrDescs[6] = {6, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, boneWeights)};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount   = 1;
+    vertexInputInfo.pVertexBindingDescriptions      = &bindingDesc;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions    = attrDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable        = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth               = 1.0f;
+    rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable         = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable   = VK_FALSE;
+    msaa.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;  // GBuffer is always 1 sample
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable       = VK_TRUE;
+    depthStencil.depthWriteEnable      = VK_TRUE;
+    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable     = VK_FALSE;
+
+    // 3 color blend attachments — opaque, no blending
+    VkPipelineColorBlendAttachmentState opaqueBlend{};
+    opaqueBlend.blendEnable    = VK_FALSE;
+    opaqueBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> colorBlendAtts;
+    colorBlendAtts.fill(opaqueBlend);
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable   = VK_FALSE;
+    colorBlendInfo.attachmentCount = static_cast<uint32_t>(colorBlendAtts.size());
+    colorBlendInfo.pAttachments    = colorBlendAtts.data();
+
+    // Reuse main pipeline layout
+    m_gbufferPipelineLayout = pipelineLay;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = shaderStages;
+    pipelineInfo.pVertexInputState   = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &msaa;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlendInfo;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = m_gbufferPipelineLayout;
+    pipelineInfo.renderPass          = m_gbufferRenderPass;
+    pipelineInfo.subpass             = 0;
+    pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex   = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_gbufferPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create GBuffer pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: GBuffer pipeline created");
+    return true;
+}
+
+// ============================================================
+// CreateLightingRenderPass
+// 1 color attachment, no depth, loadOp=DONT_CARE → COLOR_ATTACHMENT_OPTIMAL
+// ============================================================
+bool VulkanRenderer::CreateLightingRenderPass() {
+    VkAttachmentDescription colorAtt{};
+    colorAtt.format         = scImageFormat;
+    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
+    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments    = &colorRef;
+
+    std::array<VkSubpassDependency, 2> deps{};
+    deps[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass      = 0;
+    deps[0].srcStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+    deps[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    deps[1].srcSubpass      = 0;
+    deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+    deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = 1;
+    rpInfo.pAttachments    = &colorAtt;
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies   = deps.data();
+
+    return vkCreateRenderPass(device, &rpInfo, nullptr, &m_lightingRenderPass) == VK_SUCCESS;
+}
+
+// ============================================================
+// CreateLightingFramebuffers — one per swapchain image (color only)
+// ============================================================
+bool VulkanRenderer::CreateLightingFramebuffers() {
+    m_lightingFramebuffers.resize(swapChainImageViews.size());
+
+    for (size_t i = 0; i < swapChainImageViews.size(); ++i) {
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass      = m_lightingRenderPass;
+        fbInfo.attachmentCount = 1;
+        fbInfo.pAttachments    = &swapChainImageViews[i];
+        fbInfo.width           = scExtent.width;
+        fbInfo.height          = scExtent.height;
+        fbInfo.layers          = 1;
+
+        if (vkCreateFramebuffer(device, &fbInfo, nullptr, &m_lightingFramebuffers[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to create lighting framebuffer {}!", i);
+            return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================
+// CreateLightingPipeline — fullscreen triangle, no vertex input
+// Layout: sets 0 (gbuffer samplers), 1 (deferredCB), 2 (lightUBO), 3 (shadowSampler)
+// ============================================================
+bool VulkanRenderer::CreateLightingPipeline() {
+    m_lightingShader = new VulkanShader(device);
+    if (!m_lightingShader->compile("assets/shaders/lighting_pass.vert.spv",
+                                    "assets/shaders/lighting_pass.frag.spv")) {
+        SLEAK_ERROR("GBuffer: Failed to compile lighting pass shaders!");
+        delete m_lightingShader;
+        m_lightingShader = nullptr;
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        m_lightingShader->GetVertexInfo(),
+        m_lightingShader->GetFragInfo()
+    };
+
+    // No vertex input — fullscreen triangle from gl_VertexIndex
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates    = dynamicStates.data();
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable        = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth               = 1.0f;
+    rasterizer.cullMode                = VK_CULL_MODE_NONE;
+    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable         = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable  = VK_FALSE;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Depth test OFF, depth write OFF
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType             = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable   = VK_FALSE;
+    depthStencil.depthWriteEnable  = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAtt{};
+    colorBlendAtt.blendEnable    = VK_FALSE;
+    colorBlendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                    VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable   = VK_FALSE;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments    = &colorBlendAtt;
+
+    // Build lighting pipeline layout:
+    // Set 0: m_gbufferSamplerDSL  (5 combined image samplers)
+    // Set 1: m_deferredCBDSL      (1 UBO)
+    // Set 2: m_lightUBODescriptorSetLayout  (reuse)
+    // Set 3: m_shadowSamplerDescriptorSetLayout (reuse — unused in frag, but must match)
+    std::array<VkDescriptorSetLayout, 4> setLayouts = {
+        m_gbufferSamplerDSL,
+        m_deferredCBDSL,
+        m_lightUBODescriptorSetLayout,
+        m_shadowSamplerDescriptorSetLayout
+    };
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    layoutInfo.pSetLayouts    = setLayouts.data();
+
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_lightingPipelineLayout) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create lighting pipeline layout!");
+        return false;
+    }
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = shaderStages;
+    pipelineInfo.pVertexInputState   = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &msaa;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlendInfo;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = m_lightingPipelineLayout;
+    pipelineInfo.renderPass          = m_lightingRenderPass;
+    pipelineInfo.subpass             = 0;
+    pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex   = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_lightingPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create lighting pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Lighting pass pipeline created");
+    return true;
+}
+
+// ============================================================
+// CreateForwardRenderPass
+// Color LOAD → STORE, Depth LOAD → DONT_CARE
+// Compatible with swapChainFramebuffers (same formats/attachments)
+// ============================================================
+bool VulkanRenderer::CreateForwardRenderPass() {
+    VkAttachmentDescription colorAtt{};
+    colorAtt.format         = scImageFormat;
+    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
+    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentDescription depthAtt{};
+    depthAtt.format         = depthFormat;
+    depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthRef{};
+    depthRef.attachment = 1;
+    depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 1;
+    subpass.pColorAttachments       = &colorRef;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass    = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    std::array<VkAttachmentDescription, 2> attachments = {colorAtt, depthAtt};
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    rpInfo.pAttachments    = attachments.data();
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = 1;
+    rpInfo.pDependencies   = &dep;
+
+    return vkCreateRenderPass(device, &rpInfo, nullptr, &m_forwardRenderPass) == VK_SUCCESS;
+}
+
+// ============================================================
+// CreateForwardFramebuffers
+// Non-MSAA forward framebuffers (color swapchain image + shared depth)
+// Used by BeginForwardTransparentPass and EndRender (ImGui)
+// ============================================================
+bool VulkanRenderer::CreateForwardFramebuffers() {
+    m_forwardFramebuffers.resize(swapChainImageViews.size());
+
+    for (size_t i = 0; i < swapChainImageViews.size(); ++i) {
+        std::array<VkImageView, 2> views = {swapChainImageViews[i], depthImageView};
+
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass      = m_forwardRenderPass;
+        fbInfo.attachmentCount = static_cast<uint32_t>(views.size());
+        fbInfo.pAttachments    = views.data();
+        fbInfo.width           = scExtent.width;
+        fbInfo.height          = scExtent.height;
+        fbInfo.layers          = 1;
+
+        if (vkCreateFramebuffer(device, &fbInfo, nullptr, &m_forwardFramebuffers[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to create forward framebuffer {}!", i);
+            return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================
+// CreateGBufferDescriptorSets
+// m_gbufferSamplerDSL: 5 combined image samplers for lighting pass set 0
+// ============================================================
+bool VulkanRenderer::CreateGBufferDescriptorSets() {
+    // Create GBuffer sampler (nearest for encoded data reads in lighting pass)
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter    = VK_FILTER_NEAREST;
+    samplerInfo.minFilter    = VK_FILTER_NEAREST;
+    samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.minLod       = 0.0f;
+    samplerInfo.maxLod       = 1.0f;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &m_gbufferSampler) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create gbuffer sampler!");
+        return false;
+    }
+
+    // Depth sampler — nearest, no comparison (we read raw depth to reconstruct position)
+    VkSamplerCreateInfo depthSamplerInfo{};
+    depthSamplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    depthSamplerInfo.magFilter    = VK_FILTER_NEAREST;
+    depthSamplerInfo.minFilter    = VK_FILTER_NEAREST;
+    depthSamplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    depthSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depthSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depthSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depthSamplerInfo.minLod       = 0.0f;
+    depthSamplerInfo.maxLod       = 1.0f;
+
+    if (vkCreateSampler(device, &depthSamplerInfo, nullptr, &m_depthSampler) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create depth sampler!");
+        return false;
+    }
+
+    // DSL for set 0 of lighting pass:
+    // binding 0: RT0, 1: RT1, 2: RT2, 3: depth, 4: shadow
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+    for (uint32_t b = 0; b < 5; ++b) {
+        bindings[b].binding         = b;
+        bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[b].descriptorCount = 1;
+        bindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    VkDescriptorSetLayoutCreateInfo dslInfo{};
+    dslInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    dslInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    dslInfo.pBindings    = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &m_gbufferSamplerDSL) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create gbuffer sampler DSL!");
+        return false;
+    }
+
+    // Pool: 5 samplers × MAX_FRAMES_IN_FLIGHT sets
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 5 * MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes    = &poolSize;
+    poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_gbufferSamplerPool) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create gbuffer sampler pool!");
+        return false;
+    }
+
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+    layouts.fill(m_gbufferSamplerDSL);
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_gbufferSamplerPool;
+    allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    allocInfo.pSetLayouts        = layouts.data();
+
+    if (vkAllocateDescriptorSets(device, &allocInfo, m_gbufferSamplerSets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to allocate gbuffer sampler descriptor sets!");
+        return false;
+    }
+
+    // Initial write — no rendering is in flight yet, so update all frames.
+    // After this, per-frame updates happen in UpdateGBufferDescriptors().
+    for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
+        uint32_t saved = currentFrame;
+        currentFrame = f;
+        UpdateGBufferDescriptors();
+        currentFrame = saved;
+    }
+
+    return true;
+}
+
+// ============================================================
+// UpdateGBufferDescriptors — called just before lighting pass
+// ============================================================
+void VulkanRenderer::UpdateGBufferDescriptors() {
+    // Only update the descriptor set for the current frame slot.
+    // BeginRender() already waited on this frame's fence, so its
+    // descriptor set is safe to update.  Updating other slots would
+    // race with the GPU still consuming them.
+    uint32_t f = currentFrame;
+    std::array<VkDescriptorImageInfo, 5> imageInfos{};
+
+    // RT0, RT1, RT2
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
+        imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[i].imageView   = m_gbufferViews[i];
+        imageInfos[i].sampler     = m_gbufferSampler;
+    }
+
+    // Depth (binding 3)
+    imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    imageInfos[3].imageView   = depthImageView;
+    imageInfos[3].sampler     = m_depthSampler;
+
+    // Shadow map (binding 4) — use the comparison sampler from shadow resources
+    imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfos[4].imageView   = m_shadowImageView ? m_shadowImageView
+                                                   : (m_defaultTexture ? m_defaultTexture->GetImageView() : VK_NULL_HANDLE);
+    imageInfos[4].sampler     = m_shadowSampler ? m_shadowSampler
+                                                 : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+
+    std::array<VkWriteDescriptorSet, 5> writes{};
+    for (uint32_t b = 0; b < 5; ++b) {
+        writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[b].dstSet          = m_gbufferSamplerSets[f];
+        writes[b].dstBinding      = b;
+        writes[b].dstArrayElement = 0;
+        writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[b].descriptorCount = 1;
+        writes[b].pImageInfo      = &imageInfos[b];
+    }
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+}
+
+// ============================================================
+// CreateDeferredCBResources — UBO for InvViewProj + screen size
+// ============================================================
+bool VulkanRenderer::CreateDeferredCBResources() {
+    if (m_deferredCBCreated) return true;
+
+    static constexpr VkDeviceSize uboSize = sizeof(DeferredCBData);
+
+    // Per-frame UBO buffers
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkBufferCreateInfo bufInfo{};
+        bufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufInfo.size        = uboSize;
+        bufInfo.usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(device, &bufInfo, nullptr, &m_deferredCBBuffers[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to create deferred CB buffer!");
+            return false;
+        }
+
+        VkMemoryRequirements memReqs;
+        vkGetBufferMemoryRequirements(device, m_deferredCBBuffers[i], &memReqs);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize  = memReqs.size;
+        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &m_deferredCBMemory[i]) != VK_SUCCESS) {
+            SLEAK_ERROR("GBuffer: Failed to allocate deferred CB memory!");
+            return false;
+        }
+
+        vkBindBufferMemory(device, m_deferredCBBuffers[i], m_deferredCBMemory[i], 0);
+        vkMapMemory(device, m_deferredCBMemory[i], 0, uboSize, 0, &m_deferredCBMapped[i]);
+        memset(m_deferredCBMapped[i], 0, uboSize);
+    }
+
+    // DSL: binding 0 = uniform buffer
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding         = 0;
+    uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo dslInfo{};
+    dslInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    dslInfo.bindingCount = 1;
+    dslInfo.pBindings    = &uboBinding;
+
+    if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &m_deferredCBDSL) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create deferred CB DSL!");
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes    = &poolSize;
+    poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_deferredCBPool) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to create deferred CB pool!");
+        return false;
+    }
+
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+    layouts.fill(m_deferredCBDSL);
+
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool     = m_deferredCBPool;
+    dsAllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    dsAllocInfo.pSetLayouts        = layouts.data();
+
+    if (vkAllocateDescriptorSets(device, &dsAllocInfo, m_deferredCBSets.data()) != VK_SUCCESS) {
+        SLEAK_ERROR("GBuffer: Failed to allocate deferred CB descriptor sets!");
+        return false;
+    }
+
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorBufferInfo bufInfo{};
+        bufInfo.buffer = m_deferredCBBuffers[i];
+        bufInfo.offset = 0;
+        bufInfo.range  = uboSize;
+
+        VkWriteDescriptorSet write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = m_deferredCBSets[i];
+        write.dstBinding      = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo     = &bufInfo;
+
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+
+    m_deferredCBCreated = true;
+    return true;
+}
+
+// ============================================================
+// CleanupGBufferResources
+// ============================================================
+void VulkanRenderer::CleanupGBufferResources() {
+    if (!m_gbufferResourcesCreated) return;
+
+    // GBuffer pipeline
+    if (m_gbufferPipeline) {
+        vkDestroyPipeline(device, m_gbufferPipeline, nullptr);
+        m_gbufferPipeline = VK_NULL_HANDLE;
+    }
+    // m_gbufferPipelineLayout == pipelineLay — do NOT destroy here
+    m_gbufferPipelineLayout = VK_NULL_HANDLE;
+    delete m_gbufferShader;
+    m_gbufferShader = nullptr;
+
+    // Lighting pipeline
+    if (m_lightingPipeline) {
+        vkDestroyPipeline(device, m_lightingPipeline, nullptr);
+        m_lightingPipeline = VK_NULL_HANDLE;
+    }
+    if (m_lightingPipelineLayout) {
+        vkDestroyPipelineLayout(device, m_lightingPipelineLayout, nullptr);
+        m_lightingPipelineLayout = VK_NULL_HANDLE;
+    }
+    delete m_lightingShader;
+    m_lightingShader = nullptr;
+
+    // Lighting framebuffers
+    for (auto& fb : m_lightingFramebuffers) {
+        if (fb) vkDestroyFramebuffer(device, fb, nullptr);
+    }
+    m_lightingFramebuffers.clear();
+
+    // Lighting render pass
+    if (m_lightingRenderPass) {
+        vkDestroyRenderPass(device, m_lightingRenderPass, nullptr);
+        m_lightingRenderPass = VK_NULL_HANDLE;
+    }
+
+    // GBuffer framebuffer
+    if (m_gbufferFramebuffer) {
+        vkDestroyFramebuffer(device, m_gbufferFramebuffer, nullptr);
+        m_gbufferFramebuffer = VK_NULL_HANDLE;
+    }
+
+    // GBuffer render pass
+    if (m_gbufferRenderPass) {
+        vkDestroyRenderPass(device, m_gbufferRenderPass, nullptr);
+        m_gbufferRenderPass = VK_NULL_HANDLE;
+    }
+
+    // Forward framebuffers
+    for (auto& fb : m_forwardFramebuffers) {
+        if (fb) vkDestroyFramebuffer(device, fb, nullptr);
+    }
+    m_forwardFramebuffers.clear();
+
+    // Forward render pass
+    if (m_forwardRenderPass) {
+        vkDestroyRenderPass(device, m_forwardRenderPass, nullptr);
+        m_forwardRenderPass = VK_NULL_HANDLE;
+    }
+
+    // GBuffer sampler descriptor resources
+    if (m_gbufferSamplerPool) {
+        vkDestroyDescriptorPool(device, m_gbufferSamplerPool, nullptr);
+        m_gbufferSamplerPool = VK_NULL_HANDLE;
+    }
+    if (m_gbufferSamplerDSL) {
+        vkDestroyDescriptorSetLayout(device, m_gbufferSamplerDSL, nullptr);
+        m_gbufferSamplerDSL = VK_NULL_HANDLE;
+    }
+    if (m_gbufferSampler) {
+        vkDestroySampler(device, m_gbufferSampler, nullptr);
+        m_gbufferSampler = VK_NULL_HANDLE;
+    }
+    if (m_depthSampler) {
+        vkDestroySampler(device, m_depthSampler, nullptr);
+        m_depthSampler = VK_NULL_HANDLE;
+    }
+
+    // Deferred CB resources
+    if (m_deferredCBCreated) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            if (m_deferredCBMapped[i]) {
+                vkUnmapMemory(device, m_deferredCBMemory[i]);
+                m_deferredCBMapped[i] = nullptr;
+            }
+            if (m_deferredCBBuffers[i]) {
+                vkDestroyBuffer(device, m_deferredCBBuffers[i], nullptr);
+                m_deferredCBBuffers[i] = VK_NULL_HANDLE;
+            }
+            if (m_deferredCBMemory[i]) {
+                vkFreeMemory(device, m_deferredCBMemory[i], nullptr);
+                m_deferredCBMemory[i] = VK_NULL_HANDLE;
+            }
+        }
+        m_deferredCBCreated = false;
+    }
+    if (m_deferredCBPool) {
+        vkDestroyDescriptorPool(device, m_deferredCBPool, nullptr);
+        m_deferredCBPool = VK_NULL_HANDLE;
+    }
+    if (m_deferredCBDSL) {
+        vkDestroyDescriptorSetLayout(device, m_deferredCBDSL, nullptr);
+        m_deferredCBDSL = VK_NULL_HANDLE;
+    }
+
+    // GBuffer images
+    for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
+        if (m_gbufferViews[i]) {
+            vkDestroyImageView(device, m_gbufferViews[i], nullptr);
+            m_gbufferViews[i] = VK_NULL_HANDLE;
+        }
+        if (m_gbufferImages[i]) {
+            vkDestroyImage(device, m_gbufferImages[i], nullptr);
+            m_gbufferImages[i] = VK_NULL_HANDLE;
+        }
+        if (m_gbufferMemory[i]) {
+            vkFreeMemory(device, m_gbufferMemory[i], nullptr);
+            m_gbufferMemory[i] = VK_NULL_HANDLE;
+        }
+    }
+
+    m_gbufferResourcesCreated    = false;
+    m_inGeometryPass             = false;
+    m_inForwardTransparentPass   = false;
+}
+
+// ============================================================
+// BindGBufferShader — switches to the GBuffer pipeline
+// Called by RenderCommandQueue when deferred is active
+// ============================================================
+void VulkanRenderer::BindGBufferShader() {
+    if (!bFrameStarted || !m_gbufferResourcesCreated) return;
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
+}
+
+// ============================================================
+// ExecuteDeferredLightingPass
+// ============================================================
+void VulkanRenderer::ExecuteDeferredLightingPass() {
+    if (!bFrameStarted || !m_gbufferResourcesCreated) return;
+
+    // 1. End GBuffer render pass — transitions color RTs → SHADER_READ_ONLY,
+    //    depth → DEPTH_STENCIL_READ_ONLY via finalLayout in CreateGBufferRenderPass
+    vkCmdEndRenderPass(command);
+    m_inGeometryPass = false;
+
+    // 2. Update GBuffer sampler descriptor sets for current frame
+    UpdateGBufferDescriptors();
+
+    // 3. Begin lighting render pass
+    VkClearValue clearVal{};
+    clearVal.color = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    VkRenderPassBeginInfo rpBegin{};
+    rpBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpBegin.renderPass        = m_lightingRenderPass;
+    rpBegin.framebuffer       = m_lightingFramebuffers[CurrentFrameIndex];
+    rpBegin.renderArea.offset = {0, 0};
+    rpBegin.renderArea.extent = scExtent;
+    rpBegin.clearValueCount   = 1;
+    rpBegin.pClearValues      = &clearVal;
+
+    vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+    // 4. Set viewport and scissor
+    VkViewport viewport{};
+    viewport.x        = 0.0f;
+    viewport.y        = 0.0f;
+    viewport.width    = static_cast<float>(scExtent.width);
+    viewport.height   = static_cast<float>(scExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(command, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = scExtent;
+    vkCmdSetScissor(command, 0, 1, &scissor);
+
+    // 5. Bind lighting pipeline
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline);
+
+    // 6. Bind descriptor sets:
+    //    set 0: GBuffer samplers, set 1: DeferredCB, set 2: LightUBO, set 3: ShadowSampler
+    VkDescriptorSet lightingSets[4] = {
+        m_gbufferSamplerSets[currentFrame],
+        m_deferredCBSets[currentFrame],
+        m_lightUBODescriptorSets[currentFrame],
+        m_shadowSamplerDescriptorSets[currentFrame]
+    };
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_lightingPipelineLayout, 0, 4,
+                            lightingSets, 0, nullptr);
+
+    // 7. Fullscreen triangle draw (3 vertices, no VBO)
+    vkCmdDraw(command, 3, 1, 0, 0);
+
+    // 8. End lighting render pass
+    vkCmdEndRenderPass(command);
+
+    // 9. Transition depth back to DEPTH_STENCIL_ATTACHMENT_OPTIMAL for forward pass
+    VkImageMemoryBarrier depthBarrier{};
+    depthBarrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    depthBarrier.oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depthBarrier.newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    depthBarrier.srcAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+    depthBarrier.dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    depthBarrier.image               = depthImage;
+    depthBarrier.subresourceRange    = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+    vkCmdPipelineBarrier(command,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
+}
+
+// ============================================================
+// BeginForwardTransparentPass
+// ============================================================
+void VulkanRenderer::BeginForwardTransparentPass() {
+    if (!bFrameStarted || !m_gbufferResourcesCreated) return;
+
+    VkRenderPassBeginInfo rpBegin{};
+    rpBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpBegin.renderPass        = m_forwardRenderPass;
+    rpBegin.framebuffer       = m_forwardFramebuffers[CurrentFrameIndex];
+    rpBegin.renderArea.offset = {0, 0};
+    rpBegin.renderArea.extent = scExtent;
+    rpBegin.clearValueCount   = 0;  // LOAD_OP — no clear needed
+
+    vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport{};
+    viewport.x        = 0.0f;
+    viewport.y        = 0.0f;
+    viewport.width    = static_cast<float>(scExtent.width);
+    viewport.height   = static_cast<float>(scExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(command, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = scExtent;
+    vkCmdSetScissor(command, 0, 1, &scissor);
+
+    // Bind main forward pipeline (transparent objects use the same shading)
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+    // Bind descriptor sets 0-3 (same as normal forward pass)
+    if (m_textureDescriptorsWritten && CurrentFrameIndex < descriptorSets.size()) {
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 0, 1,
+                                &descriptorSets[CurrentFrameIndex], 0, nullptr);
+    }
+    if (m_boneUBOCreated) {
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 1, 1,
+                                &boneDescriptorSets[currentFrame], 0, nullptr);
+    }
+    if (m_lightUBOCreated) {
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 2, 1,
+                                &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 3, 1,
+                                &m_shadowSamplerDescriptorSets[currentFrame], 0, nullptr);
+    }
+
+    m_inForwardTransparentPass = true;
+    m_forwardPassOpen = true;
+}
+
+// ============================================================
+// EndForwardTransparentPass
+// Do NOT end the render pass here — EndRender will call vkCmdEndRenderPass
+// ============================================================
+void VulkanRenderer::EndForwardTransparentPass() {
+    m_inForwardTransparentPass = false;
+    // m_forwardPassOpen stays true — the RP remains open until EndRender
+}
+
+// ============================================================
+// UpdateDeferredCB — CPU writes InvViewProj + screen size
+// ============================================================
+void VulkanRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
+    if (!m_deferredCBCreated || !data) return;
+    uint32_t copySize = std::min(size, static_cast<uint32_t>(sizeof(DeferredCBData)));
+    memcpy(m_deferredCBMapped[currentFrame], data, copySize);
 }
 
 }

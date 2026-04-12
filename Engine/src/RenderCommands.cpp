@@ -140,7 +140,15 @@ BindMaterialCommand::BindMaterialCommand(::Sleak::Material* material)
 
 void BindMaterialCommand::Execute(RenderContext* context) {
     if (m_material) {
-        m_material->Bind();
+        if (context->IsInGeometryPass()) {
+            // Deferred geometry pass: use the GBuffer shader instead of the
+            // material's forward shader, but still bind all textures and the
+            // material CB so the GBuffer shader can read albedo/roughness/etc.
+            context->BindGBufferShader();
+            m_material->BindTexturesAndCB();
+        } else {
+            m_material->Bind();
+        }
 
         // Bind diffuse texture through RenderContext (needed for Vulkan
         // descriptor set switching — OpenGL already binds via Texture::Bind())

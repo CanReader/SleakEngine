@@ -15,6 +15,8 @@
 
 #include <Runtime/InternalGeometry.hpp>
 #include <Camera/Camera.hpp>
+
+namespace Sleak { class MeshBatch { public: static void Shutdown(); }; }
 #include <Core/GameObject.hpp>
 #include <Math/Quaternion.hpp>
 #include <Math/Random.hpp>
@@ -97,13 +99,16 @@ namespace Sleak {
     }
 
     Application::~Application() {
-        // Wait for GPU to finish before destroying any resources
+        // Game holds render resources (buffers, textures) that require
+        // the GPU context to be alive when destroyed.  Delete it first,
+        // then release the static MeshBatch buffer, then clean up the
+        // renderer context itself.
+        delete Game;
+        Sleak::MeshBatch::Shutdown();
+
         if (renderer)
             renderer->Cleanup();
 
-        // Game must be deleted first — scene cleanup destroys objects
-        // whose components hold render resources (buffers, etc.)
-        delete Game;
         delete m_benchmark;
         delete m_DebugOverlay;
         delete renderer;

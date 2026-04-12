@@ -134,6 +134,14 @@ namespace Sleak {
         void SetTwoSided(bool twoSided);
         bool IsTwoSided() const;
 
+        // Returns true if this material must be rendered in a forward pass
+        // (transparent, alpha-blended). Opaque and cutout materials return false.
+        bool IsForwardRendered() const;
+
+        // Bind only textures and material CB (skips shader bind).
+        // Used by the deferred geometry pass which overrides the shader.
+        void BindTexturesAndCB();
+
     private:
         // Build GPU-aligned data struct from current properties
         RenderEngine::MaterialGPUData BuildGPUData() const;
