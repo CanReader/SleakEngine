@@ -27,6 +27,10 @@ public:
     virtual void WaitIdle() {}
     virtual void FlushPendingTransfers() {}
 
+    // GPU memory tracking (overridden by VulkanRenderer)
+    virtual size_t GetGPUMemoryUsed() const { return 0; }
+    virtual size_t GetGPUMemoryBudget() const { return 0; }
+
     virtual void Resize(uint32_t width, uint32_t height) = 0;
 
     virtual bool CreateImGUI() = 0;
@@ -153,6 +157,12 @@ public:
         if (samples > m_maxMsaaSampleCount)
             samples = m_maxMsaaSampleCount;
         if (samples == m_msaaSampleCount)
+            return;
+        // MSAA is incompatible with the deferred GBuffer resolve model:
+        // GBuffer color/depth attachments are 1-sample, so a render pass
+        // built with >1 samples produces attachment/pipeline sample
+        // mismatches. Silently reject — keep the current sample count.
+        if (m_deferredEnabled && samples > 1)
             return;
         m_pendingMsaaSampleCount = samples;
         m_msaaChangeRequested = true;

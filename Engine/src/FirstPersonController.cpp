@@ -186,6 +186,9 @@ void FirstPersonController::OnKeyReleased(const Events::Input::KeyReleasedEvent&
         case Input::KEY_CODE::KEY__S: translationInput.SetZ(0.0f); break;
         case Input::KEY_CODE::KEY__A:
         case Input::KEY_CODE::KEY__D: translationInput.SetX(0.0f); break;
+        case Input::KEY_CODE::KEY__SPACE:
+            translationInput.SetY(0.0f);
+            break;
         case Input::KEY_CODE::KEY__LSHIFT:
         case Input::KEY_CODE::KEY__RSHIFT:
             m_sprinting = false;

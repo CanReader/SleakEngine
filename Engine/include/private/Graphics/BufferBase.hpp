@@ -32,6 +32,10 @@ namespace Sleak {
                 Slot = slot;
             }
 
+            // Mark as compact voxel vertex buffer (48-byte stride)
+            bool IsVoxelFormat() const { return m_isVoxelFormat; }
+            void SetVoxelFormat(bool v) { m_isVoxelFormat = v; }
+
             // CPU-side shadow copy for shadow pass (avoids GPU readback)
             const void* GetCPUShadowCopy() const { return m_cpuShadowCopy; }
             size_t GetCPUShadowCopySize() const { return m_cpuShadowCopySize; }
@@ -48,6 +52,7 @@ namespace Sleak {
             int Slot = 0;
             void* Data = nullptr;
             bool bIsMapped = false;
+            bool m_isVoxelFormat = false;
             // Small inline storage for transform CB shadow copy (128 bytes = 2 matrices)
             const void* m_cpuShadowCopy = nullptr;
             size_t m_cpuShadowCopySize = 0;

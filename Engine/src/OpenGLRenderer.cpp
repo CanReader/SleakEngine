@@ -4,6 +4,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
 #include "Graphics/Vertex.hpp"
+#include <Runtime/MeshData.hpp>
 #include "Graphics/ResourceManager.hpp"
 #include "Graphics/ConstantBuffer.hpp"
 #include "Graphics/RenderCommandQueue.hpp"
@@ -329,40 +330,69 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
     glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLBuffer());
 
-    // Position: 3 floats at offset 0
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, px));
+    if (buffer->IsVoxelFormat()) {
+        // Compact VoxelVertex layout: 48-byte stride, 4 attributes
+        // Position: float3 at offset 0
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+                              sizeof(VoxelVertex),
+                              (void*)offsetof(VoxelVertex, px));
+        // Normal: float3 at offset 12
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+                              sizeof(VoxelVertex),
+                              (void*)offsetof(VoxelVertex, nx));
+        // Color: float4 at offset 24
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE,
+                              sizeof(VoxelVertex),
+                              (void*)offsetof(VoxelVertex, r));
+        // UV: float2 at offset 40
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE,
+                              sizeof(VoxelVertex),
+                              (void*)offsetof(VoxelVertex, u));
+        // Disable unused attributes from previous binds
+        glDisableVertexAttribArray(4);
+        glDisableVertexAttribArray(5);
+        glDisableVertexAttribArray(6);
+    } else {
+        // Standard 96-byte Vertex layout: 7 attributes
+        // Position: 3 floats at offset 0
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, px));
 
-    // Normal: 3 floats at offset 12
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, nx));
+        // Normal: 3 floats at offset 12
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, nx));
 
-    // Tangent: 4 floats at offset 24
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, tx));
+        // Tangent: 4 floats at offset 24
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, tx));
 
-    // Color: 4 floats at offset 40
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, r));
+        // Color: 4 floats at offset 40
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, r));
 
-    // UV: 2 floats at offset 56
-    glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, u));
+        // UV: 2 floats at offset 56
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, u));
 
-    // BoneIDs: 4 ints (must use IPointer for integer attributes)
-    glEnableVertexAttribArray(5);
-    glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
-                           (void*)offsetof(Vertex, boneIDs));
+        // BoneIDs: 4 ints (must use IPointer for integer attributes)
+        glEnableVertexAttribArray(5);
+        glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
+                               (void*)offsetof(Vertex, boneIDs));
 
-    // BoneWeights: 4 floats
-    glEnableVertexAttribArray(6);
-    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void*)offsetof(Vertex, boneWeights));
+        // BoneWeights: 4 floats
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, boneWeights));
+    }
 }
 
 void OpenGLRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,

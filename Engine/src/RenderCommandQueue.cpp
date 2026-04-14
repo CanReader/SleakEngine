@@ -165,7 +165,7 @@ namespace Sleak {
                 // Transition: geometry pass → lighting pass → forward transparent pass
                 context->ExecuteDeferredLightingPass();
 
-                context->BeginForwardTransparentPass();
+                    context->BeginForwardTransparentPass();
                 for (auto& cmd : forwardCmds)
                     cmd->Execute(context);
                 context->EndForwardTransparentPass();
@@ -181,11 +181,6 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::ExecuteShadowPass(RenderContext* context) {
-            static int shadowPassDbg = 0;
-            if (shadowPassDbg < 5) {
-                SLEAK_INFO("ExecuteShadowPass: {} cached shadow draws", cachedShadowDraws.GetSize());
-                ++shadowPassDbg;
-            }
             for (size_t i = 0; i < cachedShadowDraws.GetSize(); ++i) {
                 auto& entry = cachedShadowDraws[i];
                 // Bind the transform buffer (slot 0) before drawing — shadow mode

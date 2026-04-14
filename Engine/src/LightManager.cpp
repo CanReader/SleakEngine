@@ -10,6 +10,7 @@
 #include <Window.hpp>
 #include <Core/Application.hpp>
 #include <Math/Matrix.hpp>
+#include <Core/Timer.hpp>
 #include <Logger.hpp>
 #include <cstring>
 #include <cmath>
@@ -276,10 +277,16 @@ void LightManager::UpdateShadowData() {
     ubo.Ambient[2] = m_ambientB;
     ubo.Ambient[3] = m_ambientIntensity;
 
+    // CameraPos.w carries a monotonic scene clock, consumed by shaders that
+    // need animation time (e.g. water waves on the Vulkan backend — the engine
+    // has no MaterialUBO slot in its Vulkan pipeline layout, so there is
+    // nowhere else to stash time). Using a static Timer keeps this
+    // self-contained and independent of Application state.
+    static Sleak::Timer s_sceneClock;
     ubo.CameraPos[0] = camPos.GetX();
     ubo.CameraPos[1] = camPos.GetY();
     ubo.CameraPos[2] = camPos.GetZ();
-    ubo.CameraPos[3] = 0.0f;
+    ubo.CameraPos[3] = s_sceneClock.Elapsed();
 
     // Copy light VP matrix
     std::memcpy(ubo.LightVP, &lightVP(0, 0), sizeof(float) * 16);

@@ -112,11 +112,18 @@ private:
         uint32_t memoryTypeIndex;
     };
     static std::vector<PooledBuffer> s_bufferPool;
-    static constexpr size_t MAX_POOL_SIZE = 256;
+    static VkDeviceSize s_poolBytes;  // total bytes currently in pool
+    // 64 MB budget — enough to recycle a few dozen column meshes without
+    // hoarding hundreds of MB of dead VRAM on a 6 GB card.
+    static constexpr VkDeviceSize MAX_POOL_BYTES = 64 * 1024 * 1024;
+    static constexpr size_t MAX_POOL_SIZE = 128;  // hard cap on entry count too
 
     bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                           VkMemoryPropertyFlags properties,
                           VkBuffer& buffer, VkDeviceMemory& memory);
+
+    // Evict entries from the pool until it fits within the byte budget.
+    static void EvictPoolOverBudget();
 
 public:
     // Called by the renderer each frame after fence wait to safely
@@ -124,6 +131,15 @@ public:
     static void ProcessDeferredDeletions(uint32_t maxFramesInFlight);
     static void FlushAllDeferredDeletions();
     static void AdvanceDeletionFrame() { s_frameNumber++; }
+
+    // VRAM tracking
+    static VkDeviceSize GetTotalAllocatedBytes();
+    static VkDeviceSize GetDeviceLocalHeapSize();
+    static void SetPhysicalDevice(VkPhysicalDevice device);
+
+private:
+    static VkDeviceSize s_totalAllocatedBytes;
+    static VkPhysicalDevice s_physicalDeviceGlobal;
 };
 
 }  // namespace RenderEngine

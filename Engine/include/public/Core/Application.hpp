@@ -82,6 +82,8 @@ class ENGINE_API Application {
     int GetTriangles() const;
     const char* GetRendererTypeStr() const;
     void GetRendererTypeColor(float& r, float& g, float& b) const;
+    size_t GetGPUMemoryUsed() const;
+    size_t GetGPUMemoryBudget() const;
     uint32_t GetMSAASampleCount() const;
     uint32_t GetMaxMSAASampleCount() const;
     void SetMSAASampleCount(uint32_t samples);

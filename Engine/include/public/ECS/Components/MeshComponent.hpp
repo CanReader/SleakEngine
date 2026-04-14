@@ -8,6 +8,7 @@
 
 namespace Sleak {
     class MeshData;
+    struct VoxelMeshData;
     namespace RenderEngine {
         class TransformBuffer;
         class BufferBase;
@@ -22,6 +23,7 @@ namespace Sleak {
     public:
         MeshComponent(GameObject* object) : Component(object) {}
         MeshComponent(GameObject*, MeshData data);
+        MeshComponent(GameObject*, VoxelMeshData data);
 
         virtual bool Initialize() override;
         

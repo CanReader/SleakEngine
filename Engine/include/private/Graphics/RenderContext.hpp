@@ -80,6 +80,10 @@ enum class DepthCompare {
             virtual void BeginSkinnedPass() {}
             virtual void EndSkinnedPass() {}
 
+            // Voxel pipeline support (compact 48-byte vertex layout for chunk meshes)
+            virtual void BeginVoxelPass() {}
+            virtual void EndVoxelPass() {}
+
             // Debug line rendering pipeline support
             virtual void BeginDebugLinePass() {}
             virtual void EndDebugLinePass() {}

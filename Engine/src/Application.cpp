@@ -223,10 +223,8 @@ namespace Sleak {
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
 
-                #ifdef _DEBUG
                 if (m_benchmark)
                     m_benchmark->Tick(DeltaTime);
-                #endif
 
                 renderer->FlushPendingTransfers();
 
@@ -316,12 +314,10 @@ namespace Sleak {
               CoreWindow->ToggleFullScreen();
             break;
 
-            #ifdef _DEBUG
             case Input::KEY_CODE::KEY__F12:
               if (m_benchmark)
                   m_benchmark->ToggleRecording();
             break;
-            #endif
 
         }
 
@@ -355,6 +351,8 @@ namespace Sleak {
     float Application::GetFrameTime() const { return renderer->GetFrameTime(); }
     int Application::GetVertices() const { return renderer->GetVertices(); }
     int Application::GetTriangles() const { return renderer->GetTriangles(); }
+    size_t Application::GetGPUMemoryUsed() const { return renderer->GetGPUMemoryUsed(); }
+    size_t Application::GetGPUMemoryBudget() const { return renderer->GetGPUMemoryBudget(); }
     const char* Application::GetRendererTypeStr() const { return renderer->GetTypeStr(); }
 
     void Application::GetRendererTypeColor(float& r, float& g, float& b) const {

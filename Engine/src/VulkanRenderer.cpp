@@ -3,6 +3,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
 #include "../../include/private/Graphics/RenderCommandQueue.hpp"
+#include <Runtime/MeshData.hpp>
 
 #include <SDL3/SDL_vulkan.h>
 #include <Window.hpp>
@@ -22,6 +23,7 @@
 #include "Graphics/Vertex.hpp"
 #include "Graphics/ResourceManager.hpp"
 #include "Logger.hpp"
+#include "Core/CommandLine.hpp"
 #include "SDL3/SDL_error.h"
 #include "SDL3/SDL_video.h"
 #ifdef PLATFORM_LINUX
@@ -148,6 +150,7 @@ void VulkanRenderer::BeginRender() {
     m_inGeometryPass = false;
     m_inForwardTransparentPass = false;
     m_forwardPassOpen = false;
+    m_inVoxelPass = false;
     if (!bRender)
         return;
 
@@ -528,15 +531,19 @@ void VulkanRenderer::EndRender() {
 void VulkanRenderer::Draw(uint32_t vertexCount) {
     if (!bFrameStarted) return;
     vkCmdDraw(command, vertexCount, 1, 0, 0);
-    DrawnVertices += vertexCount;
-    DrawnTriangles += vertexCount / 3;
+    if (!m_shadowPassActive) {
+        DrawnVertices += vertexCount;
+        DrawnTriangles += vertexCount / 3;
+    }
 }
 
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
     if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
-    DrawnVertices += indexCount;
-    DrawnTriangles += indexCount / 3;
+    if (!m_shadowPassActive) {
+        DrawnVertices += indexCount;
+        DrawnTriangles += indexCount / 3;
+    }
 }
 
 void VulkanRenderer::DrawInstance(uint32_t instanceCount,
@@ -591,6 +598,17 @@ void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     if (!bFrameStarted) return;
     auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
+
+    // Switch to/from voxel pipeline based on vertex buffer format
+    bool wantVoxel = buffer->IsVoxelFormat();
+    if (wantVoxel != m_inVoxelPass) {
+        if (wantVoxel) {
+            BeginVoxelPass();
+        } else {
+            EndVoxelPass();
+        }
+    }
+
     VkBuffer buffers[] = {vkBuf->GetVkBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(command, slot, 1, buffers, offsets);
@@ -830,6 +848,7 @@ void VulkanRenderer::BeginSkyboxPass() {
     if (skyboxPipeline == VK_NULL_HANDLE || !m_skyboxDescriptorsWritten)
         return;
 
+    m_inVoxelPass = false;  // prevent BindVertexBuffer from overriding this pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       skyboxPipeline);
 
@@ -842,8 +861,9 @@ void VulkanRenderer::BeginSkyboxPass() {
 
 void VulkanRenderer::EndSkyboxPass() {
     if (!bFrameStarted) return;
-    // Restore main pipeline
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    VkPipeline restoreTo = (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE)
+                               ? m_waterPipeline : pipeline;
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
 
     // Rebind main texture descriptor sets
     if (m_textureDescriptorsWritten &&
@@ -877,6 +897,14 @@ void VulkanRenderer::WaitIdle() {
 void VulkanRenderer::FlushPendingTransfers() {
     m_asyncFlush[currentFrame] = VulkanBuffer::FlushPendingCopiesAsync(
         m_transferSemaphores[currentFrame]);
+}
+
+size_t VulkanRenderer::GetGPUMemoryUsed() const {
+    return static_cast<size_t>(VulkanBuffer::GetTotalAllocatedBytes());
+}
+
+size_t VulkanRenderer::GetGPUMemoryBudget() const {
+    return static_cast<size_t>(VulkanBuffer::GetDeviceLocalHeapSize());
 }
 
 void VulkanRenderer::Cleanup() {
@@ -939,6 +967,28 @@ void VulkanRenderer::Cleanup() {
     }
     delete debugLineShader;
     debugLineShader = nullptr;
+
+    // Destroy water pipeline resources
+    if (m_waterPipeline) {
+        vkDestroyPipeline(device, m_waterPipeline, nullptr);
+        m_waterPipeline = VK_NULL_HANDLE;
+    }
+    delete m_waterShader;
+    m_waterShader = nullptr;
+
+    // Destroy voxel pipeline resources
+    if (m_voxelPipeline) {
+        vkDestroyPipeline(device, m_voxelPipeline, nullptr);
+        m_voxelPipeline = VK_NULL_HANDLE;
+    }
+    if (m_gbufferVoxelPipeline) {
+        vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
+        m_gbufferVoxelPipeline = VK_NULL_HANDLE;
+    }
+    if (m_voxelShadowPipeline) {
+        vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr);
+        m_voxelShadowPipeline = VK_NULL_HANDLE;
+    }
 
     // Destroy MSAA color resources
     CleanupMSAAColorResources();
@@ -1132,9 +1182,8 @@ bool VulkanRenderer::InitVulkan() {
             requiredExtensions.push_back(VK_MVK_MOLTENVK_EXTENSION_NAME);
         #endif
 
-        // Check which validation layers are available
         std::vector<const char*> enabledLayers;
-        {
+        if (Sleak::CommandLine::HasFlag("--validate")) {
             uint32_t layerCount = 0;
             vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
             std::vector<VkLayerProperties> availableLayers(layerCount);
@@ -1149,19 +1198,16 @@ bool VulkanRenderer::InitVulkan() {
                     break;
                 }
             }
-            if (enabledLayers.empty()) {
-                SLEAK_WARN("Vulkan validation layer not available, "
-                           "running without validation");
-                // Also remove debug utils extension if no validation
-                auto it = std::find_if(
-                    requiredExtensions.begin(), requiredExtensions.end(),
-                    [](const char* ext) {
-                        return strcmp(ext,
-                                      VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
-                    });
-                if (it != requiredExtensions.end()) {
-                    requiredExtensions.erase(it);
-                }
+        }
+        if (enabledLayers.empty()) {
+            auto it = std::find_if(
+                requiredExtensions.begin(), requiredExtensions.end(),
+                [](const char* ext) {
+                    return strcmp(ext,
+                                  VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
+                });
+            if (it != requiredExtensions.end()) {
+                requiredExtensions.erase(it);
             }
         }
 
@@ -1265,6 +1311,9 @@ bool VulkanRenderer::CreateDevice() {
         if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
             physicalDevice = dev;
     }
+
+    // Make physical device available for VRAM tracking
+    VulkanBuffer::SetPhysicalDevice(physicalDevice);
 
     // Find queue families
     uint32_t familyCount = 0;
@@ -1677,6 +1726,12 @@ void VulkanRenderer::ApplyMSAAChange() {
         vkDestroyPipeline(device, debugLinePipeline, nullptr);
         debugLinePipeline = VK_NULL_HANDLE;
     }
+    if (m_waterPipeline) {
+        vkDestroyPipeline(device, m_waterPipeline, nullptr);
+        m_waterPipeline = VK_NULL_HANDLE;
+    }
+    delete m_waterShader;
+    m_waterShader = nullptr;
 
     // Cleanup GBuffer BEFORE swapchain/depth (avoids dangling image view refs)
     CleanupGBufferResources();
@@ -1705,6 +1760,8 @@ void VulkanRenderer::ApplyMSAAChange() {
     CreateSkinnedPipeline();
     CreateDebugLinePipeline();
     if (m_deferredEnabled) CreateGBufferResources();
+    CreateWaterPipeline();
+    CreateVoxelPipeline();
     CreateImGUI();
 
     // Re-bind skybox cubemap texture to the new descriptor sets
@@ -3010,18 +3067,592 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
     return true;
 }
 
+bool VulkanRenderer::CreateWaterPipeline() {
+    if (m_waterPipeline != VK_NULL_HANDLE) return true;
+
+    m_waterShader = new VulkanShader(device);
+    if (!m_waterShader->compile("assets/shaders/water_shader")) {
+        SLEAK_ERROR("VulkanRenderer: Failed to compile water shaders");
+        delete m_waterShader;
+        m_waterShader = nullptr;
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        m_waterShader->GetVertexInfo(), m_waterShader->GetFragInfo()};
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Compact vertex input: 48-byte VoxelVertex stride, 4 attributes
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
+    // Position: float3 at offset 0
+    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
+    // Normal: float3 at offset 12
+    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
+    // Color: float4 at offset 24
+    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
+    // UV: float2 at offset 40
+    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    inputAssemblyInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportInfo{};
+    viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportInfo.viewportCount = 1;
+    viewportInfo.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    // Water is two-sided (see MainScene waterMat->SetTwoSided(true))
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    // Forward transparent pass runs on m_forwardRenderPass when deferred is
+    // enabled (1 sample); use main renderPass samples otherwise.
+    msaa.rasterizationSamples =
+        (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+            ? VK_SAMPLE_COUNT_1_BIT
+            : m_msaaSamples;
+
+    // Depth: test LESS, write ENABLED (water occludes what's behind it)
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    // Alpha blending: SRC_ALPHA / ONE_MINUS_SRC_ALPHA
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor =
+        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor =
+        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments = &colorBlendAttachment;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;  // reuse main layout (same descriptor sets)
+    pipelineInfo.subpass = 0;
+    pipelineInfo.renderPass =
+        (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+            ? m_forwardRenderPass
+            : renderPass;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_waterPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create water pipeline!");
+        return false;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Water pipeline created successfully");
+    return true;
+}
+
+// ============================================================
+// Voxel pipeline — compact 48-byte VoxelVertex layout
+// Used for chunk opaque meshes (flat_shader SPIR-V).
+// ============================================================
+bool VulkanRenderer::CreateVoxelPipeline() {
+    if (m_voxelPipeline != VK_NULL_HANDLE) return true;
+
+    // Compile flat_shader SPIR-V for voxel opaque rendering
+    auto* voxelShader = new VulkanShader(device);
+    if (!voxelShader->compile("assets/shaders/flat_shader")) {
+        SLEAK_WARN("VulkanRenderer: Failed to compile flat_shader for voxel pipeline — voxels will use default pipeline");
+        delete voxelShader;
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {
+        voxelShader->GetVertexInfo(), voxelShader->GetFragInfo()};
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Compact vertex input: 48-byte stride, 4 attributes
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
+    // Position: float3 at offset 0
+    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
+    // Normal: float3 at offset 12
+    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
+    // Color: float4 at offset 24
+    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
+    // UV: float2 at offset 40
+    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    inputAssemblyInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportInfo{};
+    viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportInfo.viewportCount = 1;
+    viewportInfo.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    msaa.rasterizationSamples = m_msaaSamples;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor =
+        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments = &colorBlendAttachment;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;  // reuse main layout (same descriptor sets)
+    pipelineInfo.subpass = 0;
+    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                              ? m_forwardRenderPass : renderPass;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_voxelPipeline);
+
+    delete voxelShader;
+
+    if (result != VK_SUCCESS) {
+        SLEAK_ERROR("VulkanRenderer: Failed to create voxel pipeline!");
+        return false;
+    }
+
+    // Also create voxel shadow pipeline
+    CreateVoxelShadowPipeline();
+
+    // Create GBuffer-compatible voxel pipeline for deferred geometry pass
+    if (m_gbufferResourcesCreated && m_gbufferRenderPass != VK_NULL_HANDLE) {
+        auto* gbufVoxelShader = new VulkanShader(device);
+        if (gbufVoxelShader->compile("assets/shaders/gbuffer_voxel.vert.spv",
+                                      "assets/shaders/gbuffer.frag.spv")) {
+            VkPipelineShaderStageCreateInfo gbufStages[] = {
+                gbufVoxelShader->GetVertexInfo(),
+                gbufVoxelShader->GetFragInfo()};
+
+            VkVertexInputBindingDescription voxBind{};
+            voxBind.binding = 0;
+            voxBind.stride = sizeof(VoxelVertex);
+            voxBind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+            std::array<VkVertexInputAttributeDescription, 4> voxAttr{};
+            // Position: float3 at offset 0
+            voxAttr[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                          static_cast<uint32_t>(offsetof(VoxelVertex, px))};
+            // Normal: float3 at offset 12
+            voxAttr[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                          static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
+            // Color: float4 at offset 24
+            voxAttr[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                          static_cast<uint32_t>(offsetof(VoxelVertex, r))};
+            // UV: float2 at offset 40
+            voxAttr[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
+                          static_cast<uint32_t>(offsetof(VoxelVertex, u))};
+
+            VkPipelineVertexInputStateCreateInfo voxVertInfo{};
+            voxVertInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            voxVertInfo.vertexBindingDescriptionCount = 1;
+            voxVertInfo.pVertexBindingDescriptions = &voxBind;
+            voxVertInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(voxAttr.size());
+            voxVertInfo.pVertexAttributeDescriptions = voxAttr.data();
+
+            VkPipelineInputAssemblyStateCreateInfo ia{};
+            ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            ia.primitiveRestartEnable = VK_FALSE;
+
+            VkPipelineViewportStateCreateInfo vp{};
+            vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            vp.viewportCount = 1;
+            vp.scissorCount = 1;
+
+            VkPipelineRasterizationStateCreateInfo rs{};
+            rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rs.polygonMode = VK_POLYGON_MODE_FILL;
+            rs.lineWidth = 1.0f;
+            rs.cullMode = VK_CULL_MODE_BACK_BIT;
+            rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+            VkPipelineMultisampleStateCreateInfo ms{};
+            ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+            VkPipelineDepthStencilStateCreateInfo ds{};
+            ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            ds.depthTestEnable = VK_TRUE;
+            ds.depthWriteEnable = VK_TRUE;
+            ds.depthCompareOp = VK_COMPARE_OP_LESS;
+
+            VkPipelineColorBlendAttachmentState opaqueBlend{};
+            opaqueBlend.blendEnable = VK_FALSE;
+            opaqueBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> gbAtts;
+            gbAtts.fill(opaqueBlend);
+
+            VkPipelineColorBlendStateCreateInfo cb{};
+            cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            cb.attachmentCount = static_cast<uint32_t>(gbAtts.size());
+            cb.pAttachments = gbAtts.data();
+
+            VkGraphicsPipelineCreateInfo gbPipeInfo{};
+            gbPipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            gbPipeInfo.stageCount = 2;
+            gbPipeInfo.pStages = gbufStages;
+            gbPipeInfo.pVertexInputState = &voxVertInfo;
+            gbPipeInfo.pInputAssemblyState = &ia;
+            gbPipeInfo.pViewportState = &vp;
+            gbPipeInfo.pRasterizationState = &rs;
+            gbPipeInfo.pMultisampleState = &ms;
+            gbPipeInfo.pDepthStencilState = &ds;
+            gbPipeInfo.pColorBlendState = &cb;
+            gbPipeInfo.pDynamicState = &dynamicState;
+            gbPipeInfo.layout = pipelineLay;
+            gbPipeInfo.renderPass = m_gbufferRenderPass;
+            gbPipeInfo.subpass = 0;
+
+            VkResult gbResult = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &gbPipeInfo, nullptr, &m_gbufferVoxelPipeline);
+            if (gbResult != VK_SUCCESS) {
+                SLEAK_WARN("VulkanRenderer: Failed to create GBuffer voxel pipeline");
+            } else {
+                SLEAK_INFO("VulkanRenderer: GBuffer voxel pipeline created");
+            }
+        }
+        delete gbufVoxelShader;
+    }
+
+    SLEAK_INFO("VulkanRenderer: Voxel pipeline created successfully");
+    return true;
+}
+
+bool VulkanRenderer::CreateVoxelShadowPipeline() {
+    if (m_voxelShadowPipeline != VK_NULL_HANDLE) return true;
+    if (m_shadowRenderPass == VK_NULL_HANDLE) return false;
+    if (!m_shadowShader) return false;
+
+    // Compile voxel-specific shadow shader with compact 4-attribute layout
+    auto* voxelShadowShader = new VulkanShader(device);
+    if (!voxelShadowShader->compileVertexOnly("assets/shaders/shadow_depth_voxel.vert.spv")) {
+        SLEAK_WARN("VulkanRenderer: Failed to compile voxel shadow shader, falling back to default");
+        delete voxelShadowShader;
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStage = voxelShadowShader->GetVertexInfo();
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Compact vertex input: 48-byte stride, only position needed for shadows
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    // Compact VoxelVertex layout: 4 attributes matching the voxel shadow shader
+    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
+    // loc 0: position (float3)
+    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
+    // loc 1: normal (float3)
+    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
+    // loc 2: color (float4)
+    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
+    // loc 3: UV (float2)
+    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
+                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescs.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_TRUE;
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor = 1.75f;
+    rasterizer.depthBiasClamp = 0.0f;
+
+    VkPipelineMultisampleStateCreateInfo msaa{};
+    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.sampleShadingEnable = VK_FALSE;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    colorBlendInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_FALSE;
+    colorBlendInfo.attachmentCount = 0;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 1;
+    pipelineInfo.pStages = &shaderStage;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLay;
+    pipelineInfo.renderPass = m_shadowRenderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_voxelShadowPipeline);
+    if (result != VK_SUCCESS) {
+        SLEAK_WARN("VulkanRenderer: Failed to create voxel shadow pipeline");
+        return false;
+    }
+
+    delete voxelShadowShader;
+    SLEAK_INFO("VulkanRenderer: Voxel shadow pipeline created successfully");
+    return true;
+}
+
+void VulkanRenderer::BeginVoxelPass() {
+    if (!bFrameStarted) return;
+    if (m_inVoxelPass) return;
+    m_inVoxelPass = true;
+
+    if (m_voxelPipeline == VK_NULL_HANDLE) {
+        if (!CreateVoxelPipeline()) return;
+    }
+
+    if (m_shadowPassActive) {
+        if (m_voxelShadowPipeline != VK_NULL_HANDLE) {
+            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              m_voxelShadowPipeline);
+        }
+    } else if (m_inGeometryPass && m_gbufferVoxelPipeline != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_gbufferVoxelPipeline);
+    } else {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_voxelPipeline);
+    }
+}
+
+void VulkanRenderer::EndVoxelPass() {
+    if (!bFrameStarted) return;
+    if (!m_inVoxelPass) return;
+    m_inVoxelPass = false;
+
+    if (m_shadowPassActive) {
+        if (m_shadowPipeline != VK_NULL_HANDLE) {
+            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              m_shadowPipeline);
+        }
+    } else if (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_gbufferPipeline);
+    } else if (m_inForwardTransparentPass) {
+        VkPipeline restoreTo = (m_waterPipeline != VK_NULL_HANDLE)
+                                   ? m_waterPipeline : pipeline;
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
+    } else {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    }
+
+    // Re-bind descriptors after pipeline change
+    if (m_textureDescriptorsWritten && CurrentFrameIndex < descriptorSets.size()) {
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 0, 1,
+                                &descriptorSets[CurrentFrameIndex], 0, nullptr);
+    }
+}
+
 void VulkanRenderer::BeginDebugLinePass() {
     if (!bFrameStarted) return;
     if (debugLinePipeline == VK_NULL_HANDLE) {
         if (!CreateDebugLinePipeline()) return;
     }
+    m_inVoxelPass = false;  // prevent BindVertexBuffer from overriding this pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       debugLinePipeline);
 }
 
 void VulkanRenderer::EndDebugLinePass() {
     if (!bFrameStarted) return;
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    VkPipeline restoreTo = (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE)
+                               ? m_waterPipeline : pipeline;
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
 
     // Rebind main texture descriptor sets
     if (m_textureDescriptorsWritten &&
@@ -4009,6 +4640,12 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
         if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
+        if (m_waterPipeline)  { vkDestroyPipeline(device, m_waterPipeline, nullptr);  m_waterPipeline = VK_NULL_HANDLE; }
+        if (m_voxelPipeline)  { vkDestroyPipeline(device, m_voxelPipeline, nullptr);  m_voxelPipeline = VK_NULL_HANDLE; }
+        if (m_gbufferVoxelPipeline) { vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr); m_gbufferVoxelPipeline = VK_NULL_HANDLE; }
+        if (m_voxelShadowPipeline) { vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr); m_voxelShadowPipeline = VK_NULL_HANDLE; }
+        delete m_waterShader;
+        m_waterShader = nullptr;
         // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
         if (skyboxDescriptorPool) {
             vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
@@ -4022,6 +4659,11 @@ bool VulkanRenderer::CreateGBufferResources() {
         CreateSkyboxPipeline();
         CreateDebugLinePipeline();
         CreateSkinnedPipeline();
+
+        m_gbufferResourcesCreated = true;
+
+        CreateWaterPipeline();
+        CreateVoxelPipeline();
 
         // Re-bind skybox cubemap to the newly allocated descriptor sets
         if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
@@ -4046,7 +4688,6 @@ bool VulkanRenderer::CreateGBufferResources() {
         }
     }
 
-    m_gbufferResourcesCreated = true;
     SLEAK_INFO("VulkanRenderer: Deferred GBuffer resources created ({}x{})",
                scExtent.width, scExtent.height);
     return true;
@@ -4842,6 +5483,10 @@ void VulkanRenderer::CleanupGBufferResources() {
         vkDestroyPipeline(device, m_gbufferPipeline, nullptr);
         m_gbufferPipeline = VK_NULL_HANDLE;
     }
+    if (m_gbufferVoxelPipeline) {
+        vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
+        m_gbufferVoxelPipeline = VK_NULL_HANDLE;
+    }
     // m_gbufferPipelineLayout == pipelineLay — do NOT destroy here
     m_gbufferPipelineLayout = VK_NULL_HANDLE;
     delete m_gbufferShader;
@@ -4968,6 +5613,11 @@ void VulkanRenderer::CleanupGBufferResources() {
 void VulkanRenderer::BindGBufferShader() {
     if (!bFrameStarted || !m_gbufferResourcesCreated) return;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
+    // Reset voxel flag — this binds the default GBuffer pipeline (96-byte Vertex stride).
+    // Without this reset, the next voxel draw's BindVertexBuffer sees m_inVoxelPass==true,
+    // skips switching to the voxel pipeline, and draws 48-byte VoxelVertex data with
+    // a 96-byte stride → corruption.
+    m_inVoxelPass = false;
 }
 
 // ============================================================
@@ -4980,6 +5630,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     //    depth → DEPTH_STENCIL_READ_ONLY via finalLayout in CreateGBufferRenderPass
     vkCmdEndRenderPass(command);
     m_inGeometryPass = false;
+    m_inVoxelPass = false;  // geometry pass is over; pipeline state doesn't survive across render passes
 
     // 2. Update GBuffer sampler descriptor sets for current frame
     UpdateGBufferDescriptors();
@@ -5060,6 +5711,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 void VulkanRenderer::BeginForwardTransparentPass() {
     if (!bFrameStarted || !m_gbufferResourcesCreated) return;
 
+
     VkRenderPassBeginInfo rpBegin{};
     rpBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpBegin.renderPass        = m_forwardRenderPass;
@@ -5084,8 +5736,12 @@ void VulkanRenderer::BeginForwardTransparentPass() {
     scissor.extent = scExtent;
     vkCmdSetScissor(command, 0, 1, &scissor);
 
-    // Bind main forward pipeline (transparent objects use the same shading)
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    // Bind water pipeline when available (uses water_shader SPIR-V for
+    // Gerstner waves, Fresnel, sky reflection, GGX specular, SSS, caustics).
+    // Fall back to the default forward pipeline otherwise.
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      m_waterPipeline != VK_NULL_HANDLE ? m_waterPipeline
+                                                        : pipeline);
 
     // Bind descriptor sets 0-3 (same as normal forward pass)
     if (m_textureDescriptorsWritten && CurrentFrameIndex < descriptorSets.size()) {
@@ -5109,6 +5765,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
 
     m_inForwardTransparentPass = true;
     m_forwardPassOpen = true;
+    m_inVoxelPass = false;  // new render pass; voxel pipeline state is stale
 }
 
 // ============================================================

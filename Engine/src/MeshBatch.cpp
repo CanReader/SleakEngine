@@ -29,6 +29,28 @@ MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
     return h;
 }
 
+MeshHandle MeshBatch::CreateVoxelMesh(VoxelVertexGroup& vertices,
+                                       IndexGroup& indices) {
+    MeshHandle h;
+    if (vertices.GetSize() == 0 || indices.GetSize() == 0) return h;
+
+    auto* vb = RenderEngine::ResourceManager::CreateBuffer(
+        RenderEngine::BufferType::Vertex,
+        static_cast<uint32_t>(vertices.GetSizeInBytes()),
+        vertices.GetRawData());
+    if (vb) vb->SetVoxelFormat(true);
+    h.vertexBuffer = RefPtr(vb);
+
+    h.indexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
+        RenderEngine::BufferType::Index,
+        static_cast<uint32_t>(indices.GetByteSize()),
+        indices.GetRawData()));
+
+    h.indexCount = static_cast<uint32_t>(indices.GetSize());
+    h.isVoxelFormat = true;
+    return h;
+}
+
 void MeshBatch::BeginBatch(Material* material) {
     auto* queue = RenderEngine::RenderCommandQueue::GetInstance();
 

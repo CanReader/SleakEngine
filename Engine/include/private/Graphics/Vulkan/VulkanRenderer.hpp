@@ -53,6 +53,10 @@ public:
     virtual void WaitIdle() override;
     virtual void FlushPendingTransfers() override;
 
+    // GPU memory tracking
+    virtual size_t GetGPUMemoryUsed() const override;
+    virtual size_t GetGPUMemoryBudget() const override;
+
     virtual void Resize(uint32_t width, uint32_t height) override;
 
     inline void SetRender(bool value) { bRender = value; }
@@ -104,6 +108,8 @@ public:
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
     virtual void BeginSkinnedPass() override;
     virtual void EndSkinnedPass() override;
+    virtual void BeginVoxelPass() override;
+    virtual void EndVoxelPass() override;
     virtual void BeginDebugLinePass() override;
     virtual void EndDebugLinePass() override;
 
@@ -290,6 +296,19 @@ private:
     VkPipeline debugLinePipeline = VK_NULL_HANDLE;
     VulkanShader* debugLineShader = nullptr;
     bool CreateDebugLinePipeline();
+
+    // Voxel pipeline (compact 48-byte vertex layout for chunk meshes)
+    VkPipeline m_voxelPipeline = VK_NULL_HANDLE;
+    VkPipeline m_voxelShadowPipeline = VK_NULL_HANDLE;
+    VkPipeline m_gbufferVoxelPipeline = VK_NULL_HANDLE;
+    bool m_inVoxelPass = false;
+    bool CreateVoxelPipeline();
+    bool CreateVoxelShadowPipeline();
+
+    // Water pipeline (forward transparent, uses water_shader SPIR-V)
+    VkPipeline m_waterPipeline = VK_NULL_HANDLE;
+    VulkanShader* m_waterShader = nullptr;
+    bool CreateWaterPipeline();
 
     // Bone UBO (for skeletal animation — set 1, binding 0)
     VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;

@@ -22,6 +22,7 @@ namespace Sleak {
         RefPtr<RenderEngine::BufferBase> vertexBuffer;
         RefPtr<RenderEngine::BufferBase> indexBuffer;
         uint32_t indexCount = 0;
+        bool isVoxelFormat = false;
 
         bool IsValid() const {
             return vertexBuffer.IsValid() && indexBuffer.IsValid() && indexCount > 0;
@@ -32,6 +33,10 @@ namespace Sleak {
     public:
         // Create GPU vertex+index buffers from CPU mesh data.
         static MeshHandle CreateMesh(VertexGroup& vertices, IndexGroup& indices);
+
+        // Create GPU vertex+index buffers from compact voxel mesh data.
+        static MeshHandle CreateVoxelMesh(VoxelVertexGroup& vertices,
+                                          IndexGroup& indices);
 
         // Begin a batch: binds the material and an identity-transform
         // constant buffer once.  All subsequent Draw() calls share them.

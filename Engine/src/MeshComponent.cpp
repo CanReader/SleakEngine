@@ -4,6 +4,7 @@
 #include "../../include/private/Graphics/ConstantBuffer.hpp"
 #include "../../include/private/Graphics/RenderCommandQueue.hpp"
 #include <ECS/Components/MeshComponent.hpp>
+#include <Runtime/MeshData.hpp>
 
 namespace Sleak {
 MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(object) {
@@ -11,10 +12,27 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
             RenderEngine::BufferType::Vertex,
             data.vertices.GetSizeInBytes(),
             data.vertices.GetRawData()));
-        
+
         IndexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
             RenderEngine::BufferType::Index,
-            data.indices.GetByteSize(), 
+            data.indices.GetByteSize(),
+            data.indices.GetRawData()));
+
+            VertexCount = data.vertices.GetSize();
+            IndexCount = data.indices.GetSize();
+    }
+
+MeshComponent::MeshComponent(GameObject* object, VoxelMeshData data) : Component(object) {
+        auto* vb = RenderEngine::ResourceManager::CreateBuffer(
+            RenderEngine::BufferType::Vertex,
+            data.vertices.GetSizeInBytes(),
+            data.vertices.GetRawData());
+        if (vb) vb->SetVoxelFormat(true);
+        VertexBuffer = RefPtr(vb);
+
+        IndexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
+            RenderEngine::BufferType::Index,
+            data.indices.GetByteSize(),
             data.indices.GetRawData()));
 
             VertexCount = data.vertices.GetSize();
