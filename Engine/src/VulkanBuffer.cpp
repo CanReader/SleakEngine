@@ -1,3 +1,4 @@
+// TODO: migrate to VMA for suballocation
 #include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
 #include <Logger.hpp>
 #include <cstring>
@@ -354,6 +355,7 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     if (!allocated) {
         // OOM Step 2: flush ALL deferred deletions (may include in-flight buffers).
         SLEAK_WARN("Vulkan alloc still failing, flushing all deferred deletions");
+        vkDeviceWaitIdle(m_device);
         FlushAllDeferredDeletions();
         allocated = (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) == VK_SUCCESS);
     }
