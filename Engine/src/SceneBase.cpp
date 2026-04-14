@@ -9,6 +9,7 @@
 #include <Physics/PhysicsWorld.hpp>
 #include <Physics/ColliderComponent.hpp>
 #include <Debug/DebugLineRenderer.hpp>
+#include "../../include/private/Graphics/RenderCommandQueue.hpp"
 
 namespace Sleak {
 
@@ -60,6 +61,10 @@ void SceneBase::Unload() {
     OnUnload();
 
     DestroyAllObjects();
+
+    if (auto* q = RenderEngine::RenderCommandQueue::GetInstance())
+        q->ClearAll();
+
     bInitialized = false;
     state = SceneState::Unloaded;
 }

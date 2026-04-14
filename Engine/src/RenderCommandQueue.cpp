@@ -206,8 +206,25 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::Clear() {
-            while (!commands.isEmpty()) 
+            while (!commands.isEmpty())
                 commands.pop();
+        }
+
+        void RenderCommandQueue::ClearAll() {
+            while (!commands.isEmpty())
+                commands.pop();
+            cachedShadowDraws.clear();
+            for (int i = 0; i < RETIRE_FRAMES; ++i)
+                m_retiredShadowDraws[i].clear();
+            m_retireIndex = 0;
+        }
+
+        void RenderCommandQueue::Shutdown() {
+            if (Instance) {
+                Instance->ClearAll();
+                delete Instance;
+                Instance = nullptr;
+            }
         }
     }
 }

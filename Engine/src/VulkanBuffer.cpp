@@ -27,6 +27,9 @@ VkDeviceSize VulkanBuffer::s_poolBytes = 0;
 // VRAM tracking
 VkDeviceSize VulkanBuffer::s_totalAllocatedBytes = 0;
 VkPhysicalDevice VulkanBuffer::s_physicalDeviceGlobal = VK_NULL_HANDLE;
+VkDeviceSize VulkanBuffer::s_perTypeBytes[VK_MAX_MEMORY_TYPES] = {};
+bool VulkanBuffer::s_memTypeIsDeviceLocal[VK_MAX_MEMORY_TYPES] = {};
+uint32_t VulkanBuffer::s_memTypeCount = 0;
 
 VulkanBuffer::VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                            uint32_t size, BufferType type,
@@ -336,8 +339,14 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
 
     bool allocated = (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) == VK_SUCCESS);
 
+    if (!allocated) {
+        // OOM step 1: same-type eviction
+        EvictPoolForMemType(memTypeIdx);
+        allocated = (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) == VK_SUCCESS);
+    }
+
     if (!allocated && !s_bufferPool.empty()) {
-        // OOM Step 1: evict the recycling pool (safe — these are past fence).
+        // OOM step 2: evict whole pool
         SLEAK_WARN("Vulkan alloc failed, evicting {} pooled buffers ({:.1f} MB)",
                    s_bufferPool.size(),
                    static_cast<double>(s_poolBytes) / (1024.0 * 1024.0));
@@ -346,6 +355,8 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
             if (e.memory != VK_NULL_HANDLE)
                 vkFreeMemory(e.device, e.memory, nullptr);
             s_totalAllocatedBytes -= e.allocSize;
+            if (e.memoryTypeIndex < s_memTypeCount)
+                s_perTypeBytes[e.memoryTypeIndex] -= e.allocSize;
         }
         s_bufferPool.clear();
         s_poolBytes = 0;
@@ -353,7 +364,7 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     }
 
     if (!allocated) {
-        // OOM Step 2: flush ALL deferred deletions (may include in-flight buffers).
+        // OOM step 3: flush deferred deletions
         SLEAK_WARN("Vulkan alloc still failing, flushing all deferred deletions");
         vkDeviceWaitIdle(m_device);
         FlushAllDeferredDeletions();
@@ -371,6 +382,8 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     vkBindBufferMemory(m_device, buffer, memory, 0);
 
     s_totalAllocatedBytes += memRequirements.size;
+    if (memTypeIdx < s_memTypeCount)
+        s_perTypeBytes[memTypeIdx] += memRequirements.size;
 
     if (outAllocSize) *outAllocSize = memRequirements.size;
 
@@ -568,6 +581,8 @@ void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
                 if (entry.memory != VK_NULL_HANDLE)
                     vkFreeMemory(entry.device, entry.memory, nullptr);
                 s_totalAllocatedBytes -= entry.allocSize;
+                if (entry.memoryTypeIndex < s_memTypeCount)
+                    s_perTypeBytes[entry.memoryTypeIndex] -= entry.allocSize;
             }
             entry = std::move(s_deferredDeletions.back());
             s_deferredDeletions.pop_back();
@@ -634,6 +649,8 @@ void VulkanBuffer::EvictPoolOverBudget() {
             vkFreeMemory(e.device, e.memory, nullptr);
         s_totalAllocatedBytes -= e.allocSize;
         s_poolBytes -= e.allocSize;
+        if (e.memoryTypeIndex < s_memTypeCount)
+            s_perTypeBytes[e.memoryTypeIndex] -= e.allocSize;
         s_bufferPool[maxIdx] = s_bufferPool.back();
         s_bufferPool.pop_back();
     }
@@ -645,6 +662,8 @@ void VulkanBuffer::FlushAllDeferredDeletions() {
         if (entry.memory != VK_NULL_HANDLE)
             vkFreeMemory(entry.device, entry.memory, nullptr);
         s_totalAllocatedBytes -= entry.allocSize;
+        if (entry.memoryTypeIndex < s_memTypeCount)
+            s_perTypeBytes[entry.memoryTypeIndex] -= entry.allocSize;
     }
     s_deferredDeletions.clear();
 
@@ -654,6 +673,8 @@ void VulkanBuffer::FlushAllDeferredDeletions() {
         if (entry.memory != VK_NULL_HANDLE)
             vkFreeMemory(entry.device, entry.memory, nullptr);
         s_totalAllocatedBytes -= entry.allocSize;
+        if (entry.memoryTypeIndex < s_memTypeCount)
+            s_perTypeBytes[entry.memoryTypeIndex] -= entry.allocSize;
     }
     s_bufferPool.clear();
     s_poolBytes = 0;
@@ -681,6 +702,43 @@ VkDeviceSize VulkanBuffer::GetDeviceLocalHeapSize() {
 
 void VulkanBuffer::SetPhysicalDevice(VkPhysicalDevice device) {
     s_physicalDeviceGlobal = device;
+    if (device == VK_NULL_HANDLE) return;
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(device, &memProps);
+    s_memTypeCount = memProps.memoryTypeCount;
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+        uint32_t heapIdx = memProps.memoryTypes[i].heapIndex;
+        s_memTypeIsDeviceLocal[i] = (memProps.memoryHeaps[heapIdx].flags &
+                                     VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0;
+        s_perTypeBytes[i] = 0;
+    }
+}
+
+VkDeviceSize VulkanBuffer::GetDeviceLocalAllocatedBytes() {
+    VkDeviceSize total = 0;
+    for (uint32_t i = 0; i < s_memTypeCount; ++i) {
+        if (s_memTypeIsDeviceLocal[i]) total += s_perTypeBytes[i];
+    }
+    return total;
+}
+
+void VulkanBuffer::EvictPoolForMemType(uint32_t memTypeIdx) {
+    for (size_t i = 0; i < s_bufferPool.size(); ) {
+        auto& e = s_bufferPool[i];
+        if (e.memoryTypeIndex == memTypeIdx) {
+            vkDestroyBuffer(e.device, e.buffer, nullptr);
+            if (e.memory != VK_NULL_HANDLE)
+                vkFreeMemory(e.device, e.memory, nullptr);
+            s_totalAllocatedBytes -= e.allocSize;
+            s_poolBytes -= e.allocSize;
+            if (memTypeIdx < s_memTypeCount)
+                s_perTypeBytes[memTypeIdx] -= e.allocSize;
+            s_bufferPool[i] = s_bufferPool.back();
+            s_bufferPool.pop_back();
+        } else {
+            ++i;
+        }
+    }
 }
 
 }  // namespace RenderEngine

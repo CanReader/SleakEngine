@@ -916,6 +916,8 @@ void VulkanRenderer::Cleanup() {
         vkDeviceWaitIdle(device);
     }
 
+    RenderCommandQueue::Shutdown();
+
     // Flush all deferred buffer deletions now that GPU is idle
     VulkanBuffer::FlushAllDeferredDeletions();
 

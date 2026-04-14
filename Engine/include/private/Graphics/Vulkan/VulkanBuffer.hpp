@@ -138,12 +138,17 @@ public:
     // VRAM tracking
     static VkDeviceSize GetTotalAllocatedBytes();
     static VkDeviceSize GetDeviceLocalHeapSize();
+    static VkDeviceSize GetDeviceLocalAllocatedBytes();
     static void SetPhysicalDevice(VkPhysicalDevice device);
     static void UntrackAllocation(VkDeviceSize size) { s_totalAllocatedBytes -= size; }
 
 private:
     static VkDeviceSize s_totalAllocatedBytes;
     static VkPhysicalDevice s_physicalDeviceGlobal;
+    static VkDeviceSize s_perTypeBytes[VK_MAX_MEMORY_TYPES];
+    static bool s_memTypeIsDeviceLocal[VK_MAX_MEMORY_TYPES];
+    static uint32_t s_memTypeCount;
+    static void EvictPoolForMemType(uint32_t memTypeIdx);
 };
 
 }  // namespace RenderEngine

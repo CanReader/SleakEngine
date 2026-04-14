@@ -99,18 +99,16 @@ namespace Sleak {
     }
 
     Application::~Application() {
-        // Game holds render resources (buffers, textures) that require
-        // the GPU context to be alive when destroyed.  Delete it first,
-        // then release the static MeshBatch buffer, then clean up the
-        // renderer context itself.
         delete Game;
         Sleak::MeshBatch::Shutdown();
+        delete m_benchmark;
+        m_benchmark = nullptr;
+        delete m_DebugOverlay;
+        m_DebugOverlay = nullptr;
 
         if (renderer)
             renderer->Cleanup();
 
-        delete m_benchmark;
-        delete m_DebugOverlay;
         delete renderer;
         delete CoreWindow;
         SLEAK_LOG("The application has been successfully closed, have a good day sir");

@@ -57,6 +57,9 @@ namespace Sleak {
 
         void Clear();
 
+        void ClearAll();
+        static void Shutdown();
+
         void SortCommands();
         void OptimizeBatching();
         
