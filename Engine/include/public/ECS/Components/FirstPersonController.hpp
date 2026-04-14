@@ -32,6 +32,15 @@ namespace Sleak {
         void SetMaxAcceleration(float accel) { m_maxAcceleration = accel; }
         void SetBrakingDeceleration(float decel) { m_brakingDeceleration = decel; }
         void SetGroundFriction(float friction) { m_groundFriction = friction; }
+        void SetAirControl(float airControl) { m_airControl = airControl; }
+
+        // Fly
+        void SetFlying(bool flying);
+        bool IsFlying() const { return m_flying; }
+        void SetMaxFlySpeed(float speed) { m_maxFlySpeed = speed; }
+        float GetMaxFlySpeed() const { return m_maxFlySpeed; }
+        void SetFlySprintMultiplier(float mult) { m_flySprintMultiplier = mult; }
+        void SetVerticalFlyInput(float v) { m_flyVerticalInput = v; }
 
         float GetPitch() const { return m_pitch; }
         float GetYaw() const { return m_yaw; }
@@ -57,6 +66,13 @@ namespace Sleak {
         // Jump — gentle hop, ~0.45m height
         // v = sqrt(2 * 9.81 * 0.45) ≈ 2.97
         float m_jumpZVelocity = 3.0f;
+
+        // Fly state
+        bool  m_flying = false;
+        float m_maxFlySpeed = 10.0f;
+        float m_flySprintMultiplier = 2.5f;
+        float m_flyVerticalInput = 0.0f;
+        float m_flyVerticalVelocity = 0.0f;
 
         // Mouse look
         float m_pitch = 0.0f;

@@ -99,30 +99,38 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
 
     bool isGrounded = m_rigidbody && m_rigidbody->IsGrounded();
 
+    // Horizontal speed + accel (per mode)
+    float currentMaxSpeed;
+    float effectiveAccel;
+    float effectiveBraking;
+    if (m_flying) {
+        currentMaxSpeed = m_sprinting ? m_maxFlySpeed * m_flySprintMultiplier
+                                      : m_maxFlySpeed;
+        float walkRef = (m_maxWalkSpeed > 0.001f) ? m_maxWalkSpeed : 1.0f;
+        float speedRatio = currentMaxSpeed / walkRef;
+        effectiveAccel   = m_maxAcceleration   * speedRatio;
+        effectiveBraking = m_brakingDeceleration * speedRatio;
+    } else {
+        currentMaxSpeed = m_sprinting ? m_maxWalkSpeed * m_sprintMultiplier
+                                      : m_maxWalkSpeed;
+        effectiveAccel = m_maxAcceleration;
+        if (!isGrounded) effectiveAccel *= m_airControl;
+        effectiveBraking = m_brakingDeceleration;
+        if (isGrounded) effectiveBraking *= m_groundFriction;
+    }
+
     float speed = m_velocity.Magnitude();
 
     if (hasInput) {
-        float accel = m_maxAcceleration;
-        if (!isGrounded) {
-            accel *= m_airControl; // Greatly reduced in air
-        }
+        m_velocity = m_velocity + inputDir * effectiveAccel * deltaTime;
 
-        m_velocity = m_velocity + inputDir * accel * deltaTime;
-
-        // Clamp to current max speed (walk or sprint)
-        float currentMaxSpeed = m_sprinting ? m_maxWalkSpeed * m_sprintMultiplier : m_maxWalkSpeed;
         float newSpeed = m_velocity.Magnitude();
         if (newSpeed > currentMaxSpeed) {
             m_velocity = m_velocity * (currentMaxSpeed / newSpeed);
         }
     } else {
         if (speed > 0.01f) {
-            // UE applies: braking = brakingDeceleration * groundFriction
-            float braking = m_brakingDeceleration;
-            if (isGrounded) {
-                braking *= m_groundFriction;
-            }
-            float drop = braking * deltaTime;
+            float drop = effectiveBraking * deltaTime;
             float newSpeed = speed - drop;
             if (newSpeed < 0.0f) newSpeed = 0.0f;
             m_velocity = m_velocity * (newSpeed / speed);
@@ -140,15 +148,38 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
         }
     }
 
-    camera->AddPosition(m_velocity * deltaTime);
+    // Vertical: jump (ground) or fly
+    if (m_flying) {
+        if (m_flyVerticalInput > 0.001f || m_flyVerticalInput < -0.001f) {
+            m_flyVerticalVelocity += m_flyVerticalInput * effectiveAccel * deltaTime;
+            if (m_flyVerticalVelocity >  currentMaxSpeed) m_flyVerticalVelocity =  currentMaxSpeed;
+            if (m_flyVerticalVelocity < -currentMaxSpeed) m_flyVerticalVelocity = -currentMaxSpeed;
+        } else {
+            float vSpeed = std::fabs(m_flyVerticalVelocity);
+            if (vSpeed > 0.01f) {
+                float drop = effectiveBraking * deltaTime;
+                float newSpeed = vSpeed - drop;
+                if (newSpeed < 0.0f) newSpeed = 0.0f;
+                m_flyVerticalVelocity *= (newSpeed / vSpeed);
+            } else {
+                m_flyVerticalVelocity = 0.0f;
+            }
+        }
+        Math::Vector3D moveVel(m_velocity.GetX(),
+                               m_flyVerticalVelocity,
+                               m_velocity.GetZ());
+        camera->AddPosition(moveVel * deltaTime);
+    } else {
+        camera->AddPosition(m_velocity * deltaTime);
 
-    if (m_rigidbody && isGrounded) {
-        if (translationInput.GetY() > 0.0f) {
-            Math::Vector3D vel = m_rigidbody->GetVelocity();
-            vel = Math::Vector3D(vel.GetX(), m_jumpZVelocity, vel.GetZ());
-            m_rigidbody->SetVelocity(vel);
-            m_rigidbody->SetGrounded(false);
-            translationInput.SetY(0.0f);
+        if (m_rigidbody && isGrounded) {
+            if (translationInput.GetY() > 0.0f) {
+                Math::Vector3D vel = m_rigidbody->GetVelocity();
+                vel = Math::Vector3D(vel.GetX(), m_jumpZVelocity, vel.GetZ());
+                m_rigidbody->SetVelocity(vel);
+                m_rigidbody->SetGrounded(false);
+                translationInput.SetY(0.0f);
+            }
         }
     }
 
@@ -195,6 +226,14 @@ void FirstPersonController::OnKeyReleased(const Events::Input::KeyReleasedEvent&
             break;
         default: break;
     }
+}
+
+void FirstPersonController::SetFlying(bool flying) {
+    if (m_flying == flying) return;
+    m_flying = flying;
+    m_flyVerticalVelocity = 0.0f;
+    m_flyVerticalInput = 0.0f;
+    translationInput.SetY(0.0f);
 }
 
 void FirstPersonController::SetEnabled(bool enabled) {
