@@ -68,6 +68,17 @@ namespace Sleak {
         float m_fogR = 0.3f, m_fogG = 0.4f, m_fogB = 1.0f;
         float m_fogStart = 80.0f;
         float m_fogEnd = 128.0f;
+
+        // Previous frame's lightVP — sent to lighting UBO so it matches what
+        // is actually in the shadow map (which was rendered this frame using
+        // the renderer's m_lightVP, set at the END of the previous frame).
+        // Without this lag, the lighting pass samples shadow texels using a
+        // different transform than what produced them → static-geometry shake
+        // when the camera moves.
+        float m_prevLightVP[16] = {
+            1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+        };
+        bool m_hasPrevLightVP = false;
     };
 
 }  // namespace Sleak

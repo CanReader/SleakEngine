@@ -8,11 +8,12 @@
 in  vec2 fragUV;
 out vec4 outColor;
 
-// GBuffer samplers (bound at texture units 8-11)
+// GBuffer samplers (bound at texture units 8-12)
 layout(binding = 8)  uniform sampler2D gbAlbedoAO;
 layout(binding = 9)  uniform sampler2D gbNormalRough;
 layout(binding = 10) uniform sampler2D gbMetalEmit;
 layout(binding = 11) uniform sampler2D gbDepth;
+layout(binding = 12) uniform sampler2D gbWorldPos;
 
 // Shadow map (already bound at unit 3 by the shadow pass)
 layout(binding = 3) uniform sampler2DShadow shadowMap;
@@ -149,10 +150,12 @@ void main() {
     float metallic  = metalEmit.r;
     float emitScale = metalEmit.g;
 
-    // ---- Reconstruct world position ----
-    vec4 ndcPos  = vec4(fragUV * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    vec4 worldH  = InvViewProj * ndcPos;
-    vec3 worldPos = worldH.xyz / worldH.w;
+    // ---- World position ----
+    // Read directly from GBuffer RT3 instead of reconstructing from depth
+    // + InvViewProj. Reconstruction produces rotation-dependent FP noise
+    // that makes shadow sample UVs drift by fractions of a texel each
+    // frame, which is what "shadow swim" on pure rotation was.
+    vec3 worldPos = texture(gbWorldPos, fragUV).xyz;
 
     vec3 V  = normalize(CameraPos - worldPos);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);

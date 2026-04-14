@@ -2,10 +2,13 @@
 
 // ============================================================
 // GBuffer Geometry Pass - Vulkan Fragment Shader
-// Writes material data into 3 MRT attachments:
-//   RT0 (location=0): AlbedoAO   — albedo.rgb + AO in alpha
+// Writes material data into 4 MRT attachments:
+//   RT0 (location=0): AlbedoAO    — albedo.rgb + AO in alpha
 //   RT1 (location=1): NormalRough — world normal.xyz + roughness in alpha
 //   RT2 (location=2): MetalEmit   — metallic in R, emissive scale in G
+//   RT3 (location=3): WorldPos    — world-space position (avoids
+//                                   InvViewProj reconstruction noise that
+//                                   produces shadow shimmer on rotation)
 // ============================================================
 
 layout(location = 0) in vec3 fragWorldPos;
@@ -23,6 +26,7 @@ layout(set = 0, binding = 0) uniform sampler2D diffuseTexture;
 layout(location = 0) out vec4 outAlbedoAO;     // RT0
 layout(location = 1) out vec4 outNormalRough;  // RT1
 layout(location = 2) out vec4 outMetalEmit;    // RT2
+layout(location = 3) out vec4 outWorldPos;     // RT3
 
 void main() {
     vec4 texColor = texture(diffuseTexture, fragUV);
@@ -43,4 +47,7 @@ void main() {
 
     // Metallic = 0 (non-metallic geometry), emissive scale = 0
     outMetalEmit = vec4(0.0, 0.0, 0.0, 1.0);
+
+    // World position written directly — never reconstructed via InvViewProj
+    outWorldPos = vec4(fragWorldPos, 1.0);
 }

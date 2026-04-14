@@ -2,13 +2,12 @@
 
 // ============================================================
 // Deferred Lighting Pass - Vulkan Fragment Shader
-// Reconstructs world position from depth, applies
+// Samples world position directly from GBuffer RT3, applies
 // diffuse shading with PCF shadow mapping.
 //
-// Set 0: GBuffer samplers (binding 0-3) + shadow map (binding 4)
+// Set 0: GBuffer samplers (binding 0-4) + shadow map (binding 5)
 // Set 1: DeferredCB UBO (InvViewProj + screen size + near/far)
 // Set 2: ShadowLightUBO (directional light parameters)
-// Set 3: Shadow map sampler (legacy slot — unused here, shadow is in set 0 binding 4)
 // ============================================================
 
 layout(location = 0) in vec2 fragUV;
@@ -19,8 +18,9 @@ layout(location = 0) in vec2 fragUV;
 layout(set = 0, binding = 0) uniform sampler2D gAlbedoAO;     // Albedo.rgb + AO.a
 layout(set = 0, binding = 1) uniform sampler2D gNormalRough;  // Normal.xyz (encoded) + Roughness.a
 layout(set = 0, binding = 2) uniform sampler2D gMetalEmit;    // Metallic.r + EmissiveScale.g
-layout(set = 0, binding = 3) uniform sampler2D gDepth;        // Depth buffer
-layout(set = 0, binding = 4) uniform sampler2DShadow gShadow; // Shadow map
+layout(set = 0, binding = 3) uniform sampler2D gWorldPos;     // World position (RT3)
+layout(set = 0, binding = 4) uniform sampler2D gDepth;        // Depth buffer
+layout(set = 0, binding = 5) uniform sampler2DShadow gShadow; // Shadow map
 
 // ----------------------------------------------------------
 // Set 1: Deferred constant buffer
@@ -110,15 +110,6 @@ vec3 ACESFilm(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3(0.0), vec3(1.0));
 }
 
-// Reconstruct world-space position from depth
-vec3 ReconstructWorldPos(vec2 uv, float depth) {
-    // GBuffer was rendered with gl_Position.y = -gl_Position.y (Vulkan Y-flip),
-    // so UV.y=0 (top) corresponds to unflipped NDC.y=+1. Flip Y to undo.
-    vec4 ndcPos = vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    vec4 worldPos = InvViewProj * ndcPos;
-    return worldPos.xyz / worldPos.w;
-}
-
 void main() {
     // Sample depth — early discard for sky pixels
     float depth = texture(gDepth, fragUV).r;
@@ -127,8 +118,12 @@ void main() {
         return;
     }
 
-    // Reconstruct world position
-    vec3 worldPos = ReconstructWorldPos(fragUV, depth);
+    // World position read DIRECTLY from GBuffer RT3 — never reconstructed
+    // via InvViewProj * ndcPos. Reconstruction depends on the camera
+    // view-projection matrix, so under pure rotation it produces sub-pixel
+    // FP drift in worldPos that propagates into shadow-map sample coords
+    // and shows up as visible "shadow shimmer" on every rotation tick.
+    vec3 worldPos = texture(gWorldPos, fragUV).xyz;
 
     // Sample GBuffer
     vec4 albedoAO     = texture(gAlbedoAO,    fragUV);

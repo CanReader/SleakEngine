@@ -99,13 +99,15 @@ private:
     void SetupVertexLayout();
 
     // Shadow mapping
-    static constexpr int SHADOW_MAP_SIZE = 2048;
+    static constexpr int SHADOW_MAP_SIZE = 4096;
     GLuint m_shadowFBO = 0;
     GLuint m_shadowDepthTex = 0;
     GLuint m_shadowUBO = 0;
     bool m_shadowMapCreated = false;
     bool m_shadowUBOCreated = false;
     float m_lightVP[16] = {};
+    float m_pendingLightVP[16] = {};
+    bool  m_hasPendingLightVP = false;
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
     void SetLightVP(const float* mat) override;
@@ -129,6 +131,7 @@ private:
     GLuint m_gbufferAlbedoAO     = 0;   // RT0: RGBA8  — Albedo + AO
     GLuint m_gbufferNormalRough  = 0;   // RT1: RGBA16F — Normal + Roughness
     GLuint m_gbufferMetalEmit    = 0;   // RT2: RGBA8  — Metallic + EmissiveScale
+    GLuint m_gbufferWorldPos     = 0;   // RT3: RGBA32F — WorldPos.xyz (a unused)
     GLuint m_gbufferDepth        = 0;   // Depth texture (for lighting pass sampling)
     bool   m_gbufferCreated      = false;
     int    m_gbufferWidth        = 0;

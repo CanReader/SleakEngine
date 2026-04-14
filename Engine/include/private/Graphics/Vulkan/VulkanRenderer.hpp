@@ -325,7 +325,7 @@ private:
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
 
     // Shadow mapping resources
-    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
+    static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
     VkImage m_shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
     VkImageView m_shadowImageView = VK_NULL_HANDLE;
@@ -339,6 +339,11 @@ private:
 
     // Light VP matrix (stored as raw floats for push constant computation)
     float m_lightVP[16] = {};
+    // Staging slot: SetLightVP writes here; BeginRender copies it to
+    // m_lightVP before the shadow pass. Keeps m_lightVP stable for the
+    // entire frame so shadow pass and main pass agree on the transform.
+    float m_pendingLightVP[16] = {};
+    bool  m_hasPendingLightVP = false;
 
     // Light/Shadow UBO (set 2, binding 0)
     VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
@@ -359,7 +364,10 @@ private:
     std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 
     // ---- Deferred GBuffer ----
-    static constexpr uint32_t GBUFFER_COUNT = 3;
+    // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
+    // RT3=WorldPos (written directly to avoid InvViewProj reconstruction
+    // noise that produces shadow shimmer under camera rotation).
+    static constexpr uint32_t GBUFFER_COUNT = 4;
     VkImage        m_gbufferImages[GBUFFER_COUNT]   = {};
     VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT]   = {};
     VkImageView    m_gbufferViews[GBUFFER_COUNT]    = {};

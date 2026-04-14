@@ -155,6 +155,11 @@ void DirectX11Renderer::BeginRender() {
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
+    // Commit staged lightVP before shadow pass so shadow + main agree.
+    if (m_hasPendingLightVP) {
+        std::memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
+    }
+
     // Create tonemap resources on demand
     if (m_tonemapEnabled && !m_tonemapResourcesCreated)
         CreateTonemapResources();
@@ -1044,7 +1049,10 @@ void DirectX11Renderer::CleanupShadowResources() {
 }
 
 void DirectX11Renderer::SetLightVP(const float* mat) {
-    if (mat) std::memcpy(m_lightVP, mat, sizeof(m_lightVP));
+    if (mat) {
+        std::memcpy(m_pendingLightVP, mat, sizeof(m_pendingLightVP));
+        m_hasPendingLightVP = true;
+    }
 }
 
 bool DirectX11Renderer::CreateShadowMapResources() {

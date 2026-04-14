@@ -112,6 +112,11 @@ void OpenGLRenderer::BeginRender() {
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
 
+    // Commit staged lightVP before shadow pass so shadow + main agree.
+    if (m_hasPendingLightVP) {
+        memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
+    }
+
     // Shadow pass before main rendering
     if (m_shadowPassEnabled) {
         RenderShadowPass();
@@ -617,7 +622,10 @@ bool OpenGLRenderer::CreateImGUI() {
 }
 
 void OpenGLRenderer::SetLightVP(const float* mat) {
-    if (mat) memcpy(m_lightVP, mat, sizeof(m_lightVP));
+    if (mat) {
+        memcpy(m_pendingLightVP, mat, sizeof(m_pendingLightVP));
+        m_hasPendingLightVP = true;
+    }
 }
 
 bool OpenGLRenderer::CreateShadowUBO() {
@@ -768,9 +776,12 @@ bool OpenGLRenderer::CreateGBufferResources() {
     auto makeColorTex = [](GLuint& tex, GLenum internalFmt, int w, int h) {
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, w, h, 0,
-                     (internalFmt == GL_RGBA16F) ? GL_RGBA : GL_RGBA,
-                     (internalFmt == GL_RGBA16F) ? GL_FLOAT : GL_UNSIGNED_BYTE, nullptr);
+        GLenum fmt  = GL_RGBA;
+        GLenum type = GL_UNSIGNED_BYTE;
+        if (internalFmt == GL_RGBA16F || internalFmt == GL_RGBA32F) {
+            type = GL_FLOAT;
+        }
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, w, h, 0, fmt, type, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -789,6 +800,15 @@ bool OpenGLRenderer::CreateGBufferResources() {
     makeColorTex(m_gbufferMetalEmit,   GL_RGBA8,   w, h);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, m_gbufferMetalEmit, 0);
 
+    // RT3: World position (RGBA32F). Written directly in the geometry pass so
+    // the lighting pass does not have to invert ViewProj to reconstruct it.
+    // InvViewProj reconstruction produces rotation-dependent FP noise that
+    // makes shadows swim on camera rotation. A directly-written worldPos has
+    // only per-vertex barycentric interpolation noise, which is invariant
+    // under rotation for a given world point.
+    makeColorTex(m_gbufferWorldPos,    GL_RGBA32F, w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, m_gbufferWorldPos, 0);
+
     // Depth texture (read back in lighting pass for world pos reconstruction)
     glGenTextures(1, &m_gbufferDepth);
     glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
@@ -800,8 +820,9 @@ bool OpenGLRenderer::CreateGBufferResources() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_gbufferDepth, 0);
 
-    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-    glDrawBuffers(3, drawBuffers);
+    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
+                              GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+    glDrawBuffers(4, drawBuffers);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
@@ -852,6 +873,7 @@ void OpenGLRenderer::CleanupGBufferResources() {
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
+    if (m_gbufferWorldPos)    { glDeleteTextures(1, &m_gbufferWorldPos);    m_gbufferWorldPos    = 0; }
     if (m_gbufferDepth)       { glDeleteTextures(1, &m_gbufferDepth);       m_gbufferDepth       = 0; }
     if (m_gbufferFBO)         { glDeleteFramebuffers(1, &m_gbufferFBO);     m_gbufferFBO         = 0; }
     if (m_lightingVAO)        { glDeleteVertexArrays(1, &m_lightingVAO);    m_lightingVAO        = 0; }
@@ -880,6 +902,10 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
+    // Resize WorldPos
+    glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+
     // Resize depth
     glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
@@ -891,10 +917,12 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
 
 void OpenGLRenderer::BindGBufferShader() {
     if (m_gbufferShader) {
-        // Ensure GBuffer FBO is active with all 3 color attachments
+        // Ensure GBuffer FBO is active with all 4 color attachments
+        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit, RT3=WorldPos)
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-        glDrawBuffers(3, drawBuffers);
+        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
+                                 GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+        glDrawBuffers(4, drawBuffers);
         // Ensure depth writes are enabled for geometry pass
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -956,6 +984,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
     glActiveTexture(GL_TEXTURE0);
 
     // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid

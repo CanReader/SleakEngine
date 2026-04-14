@@ -224,20 +224,6 @@ void LightManager::UpdateShadowData() {
 
         Math::Matrix4 lightView = Math::Matrix4::LookTo(lp, ld, up);
 
-        // ---- Texel snapping: stabilize shadow map when camera moves ----
-        // Snap the light-space origin to shadow map texel boundaries so
-        // sub-texel camera movement doesn't shift the entire shadow map.
-        constexpr float shadowMapSize = 2048.0f;
-        float texelStep = (2.0f * frustumSize) / shadowMapSize;
-
-        // Transform world origin through the light view to get the
-        // current light-space offset, then snap X/Y to texel grid.
-        // Row-major convention: point * Matrix → row 3 holds translation.
-        float lsX = lightView(3, 0);
-        float lsY = lightView(3, 1);
-        lightView(3, 0) = std::floor(lsX / texelStep) * texelStep;
-        lightView(3, 1) = std::floor(lsY / texelStep) * texelStep;
-
         // Build Vulkan-compatible orthographic projection (LH, [0,1] depth range)
         // Engine stores row-major, GLSL reads column-major (transposed) —
         // translations go in ROW 3 so they end up in GLSL column 3.
@@ -250,6 +236,55 @@ void LightManager::UpdateShadowData() {
         lightProj(3, 0) = -(right + left) / (right - left);
         lightProj(3, 1) = -(top + bottom) / (top - bottom);
         lightProj(3, 2) = -nearP / (farP - nearP);
+
+        // ---- Texel snap (DirectX SDK standard technique) ----
+        // Project world origin through the raw lightVP, measure its XY in
+        // shadow-map texel space, snap to nearest texel, apply the delta
+        // back to the projection matrix. This guarantees the sampling grid
+        // is aligned to world-space texel cells so sub-texel camera motion
+        // never shifts which texel a world point lands on → no shimmer.
+        //
+        // Using round() (not floor) — floor flips by a full texel when
+        // the fractional part crosses 0 due to float noise.
+        constexpr float shadowMapSize = 4096.0f;
+        constexpr float halfShadow = shadowMapSize * 0.5f;
+
+        Math::Matrix4 lightVP_raw = lightView * lightProj;
+        // Project the CAMERA position through lightVP — NOT the world origin.
+        // The world origin is a fixed point: snapping it produces zero offset
+        // whenever it already lies on a texel boundary, so the snap becomes a
+        // no-op and shadows still shimmer. The camera position drifts
+        // fractionally through the light-texel grid as the player moves, and
+        // snapping THAT point's projected location produces the corrective
+        // offset that keeps every world texel locked to the same shadow texel.
+        // Row-vector convention: (cx, cy, cz, 1) * M.
+        // Y is forced to 0 — using the eye-height Y here lets every physics
+        // sub-tick of the camera (gravity / MTV correction even while
+        // "stationary" on the ground) feed sub-mm oscillations into the snap
+        // input, which can flip round() between adjacent texels and produce a
+        // visible 1-texel shadow shake every frame. The ground plane below
+        // the camera is the correct anchor for a directional sun light.
+        float cx = camPos.GetX();
+        float cy = 0.0f;
+        float cz = camPos.GetZ();
+        float clipX = cx*lightVP_raw(0,0) + cy*lightVP_raw(1,0)
+                    + cz*lightVP_raw(2,0) +    lightVP_raw(3,0);
+        float clipY = cx*lightVP_raw(0,1) + cy*lightVP_raw(1,1)
+                    + cz*lightVP_raw(2,1) +    lightVP_raw(3,1);
+        float clipW = cx*lightVP_raw(0,3) + cy*lightVP_raw(1,3)
+                    + cz*lightVP_raw(2,3) +    lightVP_raw(3,3);
+        if (clipW != 0.0f) {
+            float ndcX = clipX / clipW;
+            float ndcY = clipY / clipW;
+            float texX = ndcX * halfShadow;
+            float texY = ndcY * halfShadow;
+            float roundedX = std::round(texX);
+            float roundedY = std::round(texY);
+            float offsetNdcX = (roundedX - texX) / halfShadow;
+            float offsetNdcY = (roundedY - texY) / halfShadow;
+            lightProj(3, 0) += offsetNdcX;
+            lightProj(3, 1) += offsetNdcY;
+        }
 
         // LightVP = View * Projection (row-major convention)
         lightVP = lightView * lightProj;
@@ -288,12 +323,22 @@ void LightManager::UpdateShadowData() {
     ubo.CameraPos[2] = camPos.GetZ();
     ubo.CameraPos[3] = s_sceneClock.Elapsed();
 
-    // Copy light VP matrix
-    std::memcpy(ubo.LightVP, &lightVP(0, 0), sizeof(float) * 16);
+    // Copy PREVIOUS frame's lightVP into the UBO. The shadow map currently
+    // bound for sampling was rendered this frame using the renderer's
+    // m_lightVP, which was set at the END of the previous UpdateAndBind call.
+    // Sending the freshly-computed lightVP would mismatch the shadow texels
+    // and produce a sub-texel shake on static geometry when the camera moves.
+    if (m_hasPrevLightVP) {
+        std::memcpy(ubo.LightVP, m_prevLightVP, sizeof(float) * 16);
+    } else {
+        std::memcpy(ubo.LightVP, &lightVP(0, 0), sizeof(float) * 16);
+    }
+    std::memcpy(m_prevLightVP, &lightVP(0, 0), sizeof(float) * 16);
+    m_hasPrevLightVP = true;
 
     ubo.ShadowBias = shadowLight ? shadowLight->GetShadowBias() : 0.0f;
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
-    ubo.ShadowTexelSize = 1.0f / 2048.0f;  // Match SHADOW_MAP_SIZE
+    ubo.ShadowTexelSize = 1.0f / 4096.0f;  // Match SHADOW_MAP_SIZE
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
 
     // Fog

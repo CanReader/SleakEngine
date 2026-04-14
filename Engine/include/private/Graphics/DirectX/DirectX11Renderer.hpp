@@ -147,7 +147,7 @@ public:
     void CleanupShadowResources();
 
     // Shadow depth map
-    static constexpr UINT SHADOW_MAP_SIZE = 2048;
+    static constexpr UINT SHADOW_MAP_SIZE = 4096;
     ID3D11Texture2D*          m_shadowDepthTex = nullptr;
     ID3D11DepthStencilView*   m_shadowDSV = nullptr;
     ID3D11ShaderResourceView* m_shadowSRV = nullptr;
@@ -155,6 +155,8 @@ public:
     ID3D11RasterizerState*    m_shadowRasterState = nullptr;
     bool m_shadowMapCreated = false;
     float m_lightVP[16] = {};
+    float m_pendingLightVP[16] = {};
+    bool  m_hasPendingLightVP = false;
     ID3D11Buffer* m_shadowTransformCB = nullptr;  // Dedicated CB for shadow pass transforms
     bool m_inShadowPass = false;
     void SetLightVP(const float* mat) override;

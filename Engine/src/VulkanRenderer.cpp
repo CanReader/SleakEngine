@@ -154,6 +154,12 @@ void VulkanRenderer::BeginRender() {
     if (!bRender)
         return;
 
+    // Commit staged lightVP. Do this BEFORE the shadow pass so the shadow
+    // map and the main pass both read the same m_lightVP this frame.
+    if (m_hasPendingLightVP) {
+        memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
+    }
+
     // Apply pending changes between frames
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
@@ -4547,8 +4553,14 @@ void VulkanRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
 }
 
 void VulkanRenderer::SetLightVP(const float* lightVP) {
+    // Stage only — commit happens at the next BeginRender. This keeps
+    // m_lightVP frozen for the duration of a frame so the shadow pass and
+    // the main pass agree on the transform (fixes per-frame shadow jitter
+    // caused by LightManager::UpdateAndBind mutating m_lightVP mid-frame,
+    // between the shadow pass and the main pass).
     if (lightVP) {
-        memcpy(m_lightVP, lightVP, sizeof(m_lightVP));
+        memcpy(m_pendingLightVP, lightVP, sizeof(m_pendingLightVP));
+        m_hasPendingLightVP = true;
     }
 }
 
@@ -4556,9 +4568,10 @@ void VulkanRenderer::SetLightVP(const float* lightVP) {
 // Deferred Rendering — GBuffer format table
 // ============================================================
 const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] = {
-    VK_FORMAT_R8G8B8A8_UNORM,       // RT0: AlbedoAO
-    VK_FORMAT_R16G16B16A16_SFLOAT,  // RT1: NormalRough
-    VK_FORMAT_R8G8B8A8_UNORM,       // RT2: MetalEmit
+    VK_FORMAT_R8G8B8A8_UNORM,        // RT0: AlbedoAO
+    VK_FORMAT_R16G16B16A16_SFLOAT,   // RT1: NormalRough
+    VK_FORMAT_R8G8B8A8_UNORM,        // RT2: MetalEmit
+    VK_FORMAT_R32G32B32A32_SFLOAT,   // RT3: WorldPos
 };
 
 // ============================================================
@@ -4731,7 +4744,7 @@ bool VulkanRenderer::CreateGBufferRenderPass() {
     depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     VkAttachmentReference depthRef{};
-    depthRef.attachment = GBUFFER_COUNT;  // index 3
+    depthRef.attachment = GBUFFER_COUNT;  // depth slot follows the color RTs
     depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subpass{};
@@ -4882,7 +4895,7 @@ bool VulkanRenderer::CreateGBufferPipeline() {
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
 
-    // 3 color blend attachments — opaque, no blending
+    // GBUFFER_COUNT color blend attachments — opaque, no blending
     VkPipelineColorBlendAttachmentState opaqueBlend{};
     opaqueBlend.blendEnable    = VK_FALSE;
     opaqueBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -5224,7 +5237,9 @@ bool VulkanRenderer::CreateForwardFramebuffers() {
 
 // ============================================================
 // CreateGBufferDescriptorSets
-// m_gbufferSamplerDSL: 5 combined image samplers for lighting pass set 0
+// m_gbufferSamplerDSL: 6 combined image samplers for lighting pass set 0
+//   binding 0..3 = GBuffer color RTs (RT0=AlbedoAO, RT1=NormalRough,
+//   RT2=MetalEmit, RT3=WorldPos), binding 4 = depth, binding 5 = shadow.
 // ============================================================
 bool VulkanRenderer::CreateGBufferDescriptorSets() {
     // Create GBuffer sampler (nearest for encoded data reads in lighting pass)
@@ -5262,9 +5277,9 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
     }
 
     // DSL for set 0 of lighting pass:
-    // binding 0: RT0, 1: RT1, 2: RT2, 3: depth, 4: shadow
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
-    for (uint32_t b = 0; b < 5; ++b) {
+    // binding 0: RT0, 1: RT1, 2: RT2, 3: RT3 (WorldPos), 4: depth, 5: shadow
+    std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+    for (uint32_t b = 0; b < 6; ++b) {
         bindings[b].binding         = b;
         bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[b].descriptorCount = 1;
@@ -5281,10 +5296,10 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
         return false;
     }
 
-    // Pool: 5 samplers × MAX_FRAMES_IN_FLIGHT sets
+    // Pool: 6 samplers × MAX_FRAMES_IN_FLIGHT sets
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 5 * MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount = 6 * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -5332,29 +5347,29 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
     // descriptor set is safe to update.  Updating other slots would
     // race with the GPU still consuming them.
     uint32_t f = currentFrame;
-    std::array<VkDescriptorImageInfo, 5> imageInfos{};
+    std::array<VkDescriptorImageInfo, 6> imageInfos{};
 
-    // RT0, RT1, RT2
+    // RT0..RT3 (AlbedoAO, NormalRough, MetalEmit, WorldPos)
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
         imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfos[i].imageView   = m_gbufferViews[i];
         imageInfos[i].sampler     = m_gbufferSampler;
     }
 
-    // Depth (binding 3)
-    imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    imageInfos[3].imageView   = depthImageView;
-    imageInfos[3].sampler     = m_depthSampler;
+    // Depth (binding 4)
+    imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    imageInfos[4].imageView   = depthImageView;
+    imageInfos[4].sampler     = m_depthSampler;
 
-    // Shadow map (binding 4) — use the comparison sampler from shadow resources
-    imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfos[4].imageView   = m_shadowImageView ? m_shadowImageView
+    // Shadow map (binding 5) — use the comparison sampler from shadow resources
+    imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfos[5].imageView   = m_shadowImageView ? m_shadowImageView
                                                    : (m_defaultTexture ? m_defaultTexture->GetImageView() : VK_NULL_HANDLE);
-    imageInfos[4].sampler     = m_shadowSampler ? m_shadowSampler
+    imageInfos[5].sampler     = m_shadowSampler ? m_shadowSampler
                                                  : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
 
-    std::array<VkWriteDescriptorSet, 5> writes{};
-    for (uint32_t b = 0; b < 5; ++b) {
+    std::array<VkWriteDescriptorSet, 6> writes{};
+    for (uint32_t b = 0; b < 6; ++b) {
         writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[b].dstSet          = m_gbufferSamplerSets[f];
         writes[b].dstBinding      = b;

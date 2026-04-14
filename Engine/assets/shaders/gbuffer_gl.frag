@@ -16,6 +16,7 @@ in vec4 fragShadowCoord;
 layout(location = 0) out vec4 outAlbedoAO;
 layout(location = 1) out vec4 outNormalRough;
 layout(location = 2) out vec4 outMetalEmit;
+layout(location = 3) out vec4 outWorldPos;
 
 // Material textures (binding must match TEXTURE_SLOT defines)
 layout(binding = 0) uniform sampler2D diffuseTexture;
@@ -79,4 +80,5 @@ void main() {
     outAlbedoAO    = vec4(albedo.rgb, ao);
     outNormalRough = vec4(N * 0.5 + 0.5, roughness);  // pack normal to [0,1]
     outMetalEmit   = vec4(metallic, clamp(emitScale, 0.0, 1.0), 0.0, 1.0);
+    outWorldPos    = vec4(fragWorldPos, 1.0);
 }
