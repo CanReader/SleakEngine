@@ -11,6 +11,13 @@ namespace Sleak {
 // Shared identity transform buffer — allocated once, reused every frame
 static RefPtr<RenderEngine::BufferBase> s_batchTransformBuffer;
 
+MeshHandle::MeshHandle() = default;
+MeshHandle::~MeshHandle() = default;
+MeshHandle::MeshHandle(const MeshHandle&) = default;
+MeshHandle::MeshHandle(MeshHandle&&) noexcept = default;
+MeshHandle& MeshHandle::operator=(const MeshHandle&) = default;
+MeshHandle& MeshHandle::operator=(MeshHandle&&) noexcept = default;
+
 MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
     MeshHandle h;
     if (vertices.GetSize() == 0 || indices.GetSize() == 0) return h;

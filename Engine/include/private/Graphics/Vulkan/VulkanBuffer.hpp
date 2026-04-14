@@ -36,6 +36,7 @@ public:
         VkBuffer buffer;
         VkDeviceMemory memory;
         VkDeviceSize allocSize = 0;
+        uint32_t memoryTypeIndex = 0;
     };
     struct AsyncFlushResult {
         bool submitted = false;
@@ -54,7 +55,8 @@ private:
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
                       VkBuffer& buffer, VkDeviceMemory& memory,
-                      VkDeviceSize* outAllocSize = nullptr);
+                      VkDeviceSize* outAllocSize = nullptr,
+                      uint32_t* outMemTypeIdx = nullptr);
 
     void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
                     VkDeviceSize size);
@@ -141,6 +143,12 @@ public:
     static VkDeviceSize GetDeviceLocalAllocatedBytes();
     static void SetPhysicalDevice(VkPhysicalDevice device);
     static void UntrackAllocation(VkDeviceSize size) { s_totalAllocatedBytes -= size; }
+    static void UntrackAllocation(VkDeviceSize size, uint32_t memTypeIdx) {
+        s_totalAllocatedBytes -= size;
+        if (memTypeIdx < s_memTypeCount)
+            s_perTypeBytes[memTypeIdx] -= size;
+    }
+    static void DumpPerFrameAllocStats();
 
 private:
     static VkDeviceSize s_totalAllocatedBytes;

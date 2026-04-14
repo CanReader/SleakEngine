@@ -180,7 +180,8 @@ void VulkanRenderer::BeginRender() {
         for (auto& pending : flush.stagingBuffers) {
             vkDestroyBuffer(device, pending.buffer, nullptr);
             vkFreeMemory(device, pending.memory, nullptr);
-            VulkanBuffer::UntrackAllocation(pending.allocSize);
+            VulkanBuffer::UntrackAllocation(pending.allocSize,
+                                            pending.memoryTypeIndex);
         }
         flush = {};
     }

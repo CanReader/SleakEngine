@@ -161,7 +161,16 @@ class List {
     const T* end() const { return data + size; }
 
     // Modifiers
-    void clear() { size = 0; }
+    void clear() {
+        // Reset each live slot to a default-constructed T so that any
+        // resources the elements own (e.g. RefPtr refcounts) are released.
+        // Setting size=0 alone leaks everything until the backing array
+        // is reallocated or destroyed.
+        for (size_t i = 0; i < size; ++i) {
+            data[i] = T();
+        }
+        size = 0;
+    }
 
     void release() {
         delete[] data;
@@ -202,8 +211,11 @@ class List {
         if (index >= size) throw Sleak::IndexOutOfBoundsException();
 
         for (size_t i = index; i < size - 1; ++i) {
-            data[i] = data[i + 1];
+            data[i] = std::move(data[i + 1]);
         }
+        // Release the now-unused tail slot; otherwise it keeps owning
+        // the last element (RefPtrs pin their pointees forever).
+        data[size - 1] = T();
         --size;
     }
 

@@ -31,6 +31,7 @@ VkDeviceSize VulkanBuffer::s_perTypeBytes[VK_MAX_MEMORY_TYPES] = {};
 bool VulkanBuffer::s_memTypeIsDeviceLocal[VK_MAX_MEMORY_TYPES] = {};
 uint32_t VulkanBuffer::s_memTypeCount = 0;
 
+
 VulkanBuffer::VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                            uint32_t size, BufferType type,
                            VkCommandPool commandPool, VkQueue graphicsQueue)
@@ -52,12 +53,14 @@ bool VulkanBuffer::Initialize(void* data) {
     switch (Type) {
         case BufferType::Vertex: {
             VkDeviceSize stagingAllocSize = 0;
+            uint32_t stagingMemTypeIdx = 0;
             CreateBuffer(
                 Size,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_stagingBuffer, m_stagingMemory, &stagingAllocSize);
+                m_stagingBuffer, m_stagingMemory, &stagingAllocSize,
+                &stagingMemTypeIdx);
             if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             // Copy data to staging buffer
@@ -85,6 +88,8 @@ bool VulkanBuffer::Initialize(void* data) {
                     vkFreeMemory(m_device, m_stagingMemory, nullptr);
                     m_stagingMemory = VK_NULL_HANDLE;
                     s_totalAllocatedBytes -= stagingAllocSize;
+                    if (stagingMemTypeIdx < s_memTypeCount)
+                        s_perTypeBytes[stagingMemTypeIdx] -= stagingAllocSize;
                 }
                 return false;
             }
@@ -94,11 +99,13 @@ bool VulkanBuffer::Initialize(void* data) {
             }
 
             if (s_batchActive) {
-                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize});
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize, stagingMemTypeIdx});
             } else {
                 vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
                 vkFreeMemory(m_device, m_stagingMemory, nullptr);
                 s_totalAllocatedBytes -= stagingAllocSize;
+                if (stagingMemTypeIdx < s_memTypeCount)
+                    s_perTypeBytes[stagingMemTypeIdx] -= stagingAllocSize;
             }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
@@ -106,12 +113,14 @@ bool VulkanBuffer::Initialize(void* data) {
         }
         case BufferType::Index: {
             VkDeviceSize stagingAllocSize = 0;
+            uint32_t stagingMemTypeIdx = 0;
             CreateBuffer(
                 Size,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_stagingBuffer, m_stagingMemory, &stagingAllocSize);
+                m_stagingBuffer, m_stagingMemory, &stagingAllocSize,
+                &stagingMemTypeIdx);
             if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             if (data) {
@@ -137,6 +146,8 @@ bool VulkanBuffer::Initialize(void* data) {
                     vkFreeMemory(m_device, m_stagingMemory, nullptr);
                     m_stagingMemory = VK_NULL_HANDLE;
                     s_totalAllocatedBytes -= stagingAllocSize;
+                    if (stagingMemTypeIdx < s_memTypeCount)
+                        s_perTypeBytes[stagingMemTypeIdx] -= stagingAllocSize;
                 }
                 return false;
             }
@@ -146,11 +157,13 @@ bool VulkanBuffer::Initialize(void* data) {
             }
 
             if (s_batchActive) {
-                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize});
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize, stagingMemTypeIdx});
             } else {
                 vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
                 vkFreeMemory(m_device, m_stagingMemory, nullptr);
                 s_totalAllocatedBytes -= stagingAllocSize;
+                if (stagingMemTypeIdx < s_memTypeCount)
+                    s_perTypeBytes[stagingMemTypeIdx] -= stagingAllocSize;
             }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
@@ -213,12 +226,13 @@ void VulkanBuffer::Update(void* data, size_t size) {
         VkBuffer staging;
         VkDeviceMemory stagingMem;
         VkDeviceSize stagingAllocSize = 0;
+        uint32_t stagingMemTypeIdx = 0;
         CreateBuffer(
             size,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            staging, stagingMem, &stagingAllocSize);
+            staging, stagingMem, &stagingAllocSize, &stagingMemTypeIdx);
 
         void* mapped;
         vkMapMemory(m_device, stagingMem, 0, size, 0, &mapped);
@@ -228,11 +242,13 @@ void VulkanBuffer::Update(void* data, size_t size) {
         CopyBuffer(staging, m_buffer, size);
 
         if (s_batchActive) {
-            s_pendingCleanup.push_back({staging, stagingMem, stagingAllocSize});
+            s_pendingCleanup.push_back({staging, stagingMem, stagingAllocSize, stagingMemTypeIdx});
         } else {
             vkDestroyBuffer(m_device, staging, nullptr);
             vkFreeMemory(m_device, stagingMem, nullptr);
             s_totalAllocatedBytes -= stagingAllocSize;
+            if (stagingMemTypeIdx < s_memTypeCount)
+                s_perTypeBytes[stagingMemTypeIdx] -= stagingAllocSize;
         }
     }
 }
@@ -310,8 +326,10 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
                                 VkMemoryPropertyFlags properties,
                                 VkBuffer& buffer,
                                 VkDeviceMemory& memory,
-                                VkDeviceSize* outAllocSize) {
+                                VkDeviceSize* outAllocSize,
+                                uint32_t* outMemTypeIdx) {
     if (TryRecycleBuffer(size, usage, properties, buffer, memory, outAllocSize)) {
+        if (outMemTypeIdx && &buffer == &m_buffer) *outMemTypeIdx = m_memoryTypeIndex;
         return;
     }
 
@@ -385,7 +403,15 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     if (memTypeIdx < s_memTypeCount)
         s_perTypeBytes[memTypeIdx] += memRequirements.size;
 
+    if (usage & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) {
+    } else if (usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) {
+    } else if (usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
+    } else if (usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) {
+    } else {
+    }
+
     if (outAllocSize) *outAllocSize = memRequirements.size;
+    if (outMemTypeIdx) *outMemTypeIdx = memTypeIdx;
 
     if (&buffer == &m_buffer) {
         m_allocSize = memRequirements.size;
@@ -505,6 +531,8 @@ void VulkanBuffer::FlushPendingCopies() {
         vkDestroyBuffer(s_batchDevice, pending.buffer, nullptr);
         vkFreeMemory(s_batchDevice, pending.memory, nullptr);
         s_totalAllocatedBytes -= pending.allocSize;
+        if (pending.memoryTypeIndex < s_memTypeCount)
+            s_perTypeBytes[pending.memoryTypeIndex] -= pending.allocSize;
     }
     s_pendingCleanup.clear();
 
@@ -562,28 +590,19 @@ uint32_t VulkanBuffer::FindMemoryType(uint32_t typeFilter,
 }
 
 void VulkanBuffer::ProcessDeferredDeletions(uint32_t maxFramesInFlight) {
-    // Process ALL eligible buffers each frame to prevent VRAM exhaustion.
-    // Old buffers must be freed at least as fast as new ones are created,
-    // otherwise the deferred queue grows unbounded and OOMs the GPU.
-    // Use swap-and-pop instead of erase() to avoid O(n²) cost
+    // Always destroy eligible buffers. The recycling pool is disabled because
+    // chunk VBOs have highly variable sizes and the size-match heuristic
+    // (allocSize <= size*4) causes the pool to fill with large entries that
+    // never match incoming requests, producing unbounded net VRAM growth.
     for (size_t i = 0; i < s_deferredDeletions.size(); ) {
         auto& entry = s_deferredDeletions[i];
         if (s_frameNumber - entry.frameNumber >= maxFramesInFlight) {
-            // Recycle into pool only if both count and byte budget allow
-            if (s_bufferPool.size() < MAX_POOL_SIZE &&
-                entry.allocSize > 0 &&
-                s_poolBytes + entry.allocSize <= MAX_POOL_BYTES) {
-                s_bufferPool.push_back({entry.buffer, entry.memory, entry.device,
-                                        entry.allocSize, entry.usage, entry.memoryTypeIndex});
-                s_poolBytes += entry.allocSize;
-            } else {
-                vkDestroyBuffer(entry.device, entry.buffer, nullptr);
-                if (entry.memory != VK_NULL_HANDLE)
-                    vkFreeMemory(entry.device, entry.memory, nullptr);
-                s_totalAllocatedBytes -= entry.allocSize;
-                if (entry.memoryTypeIndex < s_memTypeCount)
-                    s_perTypeBytes[entry.memoryTypeIndex] -= entry.allocSize;
-            }
+            vkDestroyBuffer(entry.device, entry.buffer, nullptr);
+            if (entry.memory != VK_NULL_HANDLE)
+                vkFreeMemory(entry.device, entry.memory, nullptr);
+            s_totalAllocatedBytes -= entry.allocSize;
+            if (entry.memoryTypeIndex < s_memTypeCount)
+                s_perTypeBytes[entry.memoryTypeIndex] -= entry.allocSize;
             entry = std::move(s_deferredDeletions.back());
             s_deferredDeletions.pop_back();
         } else {
@@ -598,36 +617,9 @@ bool VulkanBuffer::TryRecycleBuffer(VkDeviceSize size,
                                      VkBuffer& buffer,
                                      VkDeviceMemory& memory,
                                      VkDeviceSize* outAllocSize) {
-    // Find a pooled buffer with matching usage and sufficient size.
-    // Prefer smallest fitting buffer to minimize waste.
-    int bestIdx = -1;
-    VkDeviceSize bestSize = UINT64_MAX;
-    for (size_t i = 0; i < s_bufferPool.size(); ++i) {
-        auto& p = s_bufferPool[i];
-        if (p.device == m_device && p.usage == usage &&
-            p.allocSize >= size && p.allocSize < bestSize) {
-            // Don't recycle if way too large (>4x waste)
-            if (p.allocSize <= size * 4) {
-                bestIdx = static_cast<int>(i);
-                bestSize = p.allocSize;
-            }
-        }
-    }
-    if (bestIdx >= 0) {
-        auto& p = s_bufferPool[bestIdx];
-        buffer = p.buffer;
-        memory = p.memory;
-        if (outAllocSize) *outAllocSize = p.allocSize;
-        if (&buffer == &m_buffer) {
-            m_allocSize = p.allocSize;
-            m_usage = p.usage;
-            m_memoryTypeIndex = p.memoryTypeIndex;
-        }
-        s_poolBytes -= p.allocSize;
-        s_bufferPool[bestIdx] = s_bufferPool.back();
-        s_bufferPool.pop_back();
-        return true;
-    }
+    // Pool disabled — see ProcessDeferredDeletions.
+    (void)size; (void)usage; (void)properties;
+    (void)buffer; (void)memory; (void)outAllocSize;
     return false;
 }
 
@@ -683,6 +675,8 @@ void VulkanBuffer::FlushAllDeferredDeletions() {
 VkDeviceSize VulkanBuffer::GetTotalAllocatedBytes() {
     return s_totalAllocatedBytes;
 }
+
+void VulkanBuffer::DumpPerFrameAllocStats() {}
 
 VkDeviceSize VulkanBuffer::GetDeviceLocalHeapSize() {
     if (s_physicalDeviceGlobal == VK_NULL_HANDLE) return 0;

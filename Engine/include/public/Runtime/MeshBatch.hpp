@@ -18,11 +18,23 @@ namespace Sleak {
     // GameObject/Component system.  Allows bulk draw submission with
     // minimal per-object overhead (no TransformComponent recalcs, no
     // per-draw material binds).
-    struct MeshHandle {
+    struct ENGINE_API MeshHandle {
         RefPtr<RenderEngine::BufferBase> vertexBuffer;
         RefPtr<RenderEngine::BufferBase> indexBuffer;
         uint32_t indexCount = 0;
         bool isVoxelFormat = false;
+
+        // Special members defined out-of-line in MeshBatch.cpp so that
+        // RefPtr<BufferBase>::release() is instantiated where BufferBase
+        // is a complete type. With only a forward declaration, `delete`
+        // inside release() skips ~BufferBase() entirely and leaks the
+        // underlying VkBuffer/VkDeviceMemory forever.
+        MeshHandle();
+        ~MeshHandle();
+        MeshHandle(const MeshHandle&);
+        MeshHandle(MeshHandle&&) noexcept;
+        MeshHandle& operator=(const MeshHandle&);
+        MeshHandle& operator=(MeshHandle&&) noexcept;
 
         bool IsValid() const {
             return vertexBuffer.IsValid() && indexBuffer.IsValid() && indexCount > 0;
