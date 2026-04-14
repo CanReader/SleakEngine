@@ -180,12 +180,11 @@ void VulkanRenderer::BeginRender() {
         for (auto& pending : flush.stagingBuffers) {
             vkDestroyBuffer(device, pending.buffer, nullptr);
             vkFreeMemory(device, pending.memory, nullptr);
+            VulkanBuffer::UntrackAllocation(pending.allocSize);
         }
         flush = {};
     }
 
-    // Process deferred buffer deletions — safe now that the fence
-    // guarantees the previous use of this frame slot is complete.
     VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
     VulkanBuffer::AdvanceDeletionFrame();
 
@@ -1077,6 +1076,7 @@ void VulkanRenderer::Cleanup() {
         for (auto& pending : af.stagingBuffers) {
             vkDestroyBuffer(device, pending.buffer, nullptr);
             vkFreeMemory(device, pending.memory, nullptr);
+            VulkanBuffer::UntrackAllocation(pending.allocSize);
         }
         af = {};
     }

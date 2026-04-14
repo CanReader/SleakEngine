@@ -35,6 +35,7 @@ public:
     struct PendingStagingCleanup {
         VkBuffer buffer;
         VkDeviceMemory memory;
+        VkDeviceSize allocSize = 0;
     };
     struct AsyncFlushResult {
         bool submitted = false;
@@ -52,7 +53,8 @@ public:
 private:
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
-                      VkBuffer& buffer, VkDeviceMemory& memory);
+                      VkBuffer& buffer, VkDeviceMemory& memory,
+                      VkDeviceSize* outAllocSize = nullptr);
 
     void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
                     VkDeviceSize size);
@@ -120,7 +122,8 @@ private:
 
     bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                           VkMemoryPropertyFlags properties,
-                          VkBuffer& buffer, VkDeviceMemory& memory);
+                          VkBuffer& buffer, VkDeviceMemory& memory,
+                          VkDeviceSize* outAllocSize = nullptr);
 
     // Evict entries from the pool until it fits within the byte budget.
     static void EvictPoolOverBudget();
@@ -136,6 +139,7 @@ public:
     static VkDeviceSize GetTotalAllocatedBytes();
     static VkDeviceSize GetDeviceLocalHeapSize();
     static void SetPhysicalDevice(VkPhysicalDevice device);
+    static void UntrackAllocation(VkDeviceSize size) { s_totalAllocatedBytes -= size; }
 
 private:
     static VkDeviceSize s_totalAllocatedBytes;

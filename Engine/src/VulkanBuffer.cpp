@@ -47,13 +47,13 @@ bool VulkanBuffer::Initialize(void* data) {
 
     switch (Type) {
         case BufferType::Vertex: {
-            // Create staging buffer
+            VkDeviceSize stagingAllocSize = 0;
             CreateBuffer(
                 Size,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_stagingBuffer, m_stagingMemory);
+                m_stagingBuffer, m_stagingMemory, &stagingAllocSize);
             if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             // Copy data to staging buffer
@@ -73,7 +73,6 @@ bool VulkanBuffer::Initialize(void* data) {
                 m_buffer, m_memory);
 
             if (m_buffer == VK_NULL_HANDLE) {
-                // OOM — clean up staging and fail gracefully
                 if (m_stagingBuffer != VK_NULL_HANDLE) {
                     vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
                     m_stagingBuffer = VK_NULL_HANDLE;
@@ -81,33 +80,34 @@ bool VulkanBuffer::Initialize(void* data) {
                 if (m_stagingMemory != VK_NULL_HANDLE) {
                     vkFreeMemory(m_device, m_stagingMemory, nullptr);
                     m_stagingMemory = VK_NULL_HANDLE;
+                    s_totalAllocatedBytes -= stagingAllocSize;
                 }
                 return false;
             }
 
-            // Copy from staging to device-local
             if (data) {
                 CopyBuffer(m_stagingBuffer, m_buffer, Size);
             }
 
-            // Defer staging cleanup if batch is active
             if (s_batchActive) {
-                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory});
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize});
             } else {
                 vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
                 vkFreeMemory(m_device, m_stagingMemory, nullptr);
+                s_totalAllocatedBytes -= stagingAllocSize;
             }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
             break;
         }
         case BufferType::Index: {
+            VkDeviceSize stagingAllocSize = 0;
             CreateBuffer(
                 Size,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_stagingBuffer, m_stagingMemory);
+                m_stagingBuffer, m_stagingMemory, &stagingAllocSize);
             if (m_stagingBuffer == VK_NULL_HANDLE) return false;
 
             if (data) {
@@ -132,6 +132,7 @@ bool VulkanBuffer::Initialize(void* data) {
                 if (m_stagingMemory != VK_NULL_HANDLE) {
                     vkFreeMemory(m_device, m_stagingMemory, nullptr);
                     m_stagingMemory = VK_NULL_HANDLE;
+                    s_totalAllocatedBytes -= stagingAllocSize;
                 }
                 return false;
             }
@@ -140,12 +141,12 @@ bool VulkanBuffer::Initialize(void* data) {
                 CopyBuffer(m_stagingBuffer, m_buffer, Size);
             }
 
-            // Defer staging cleanup if batch is active
             if (s_batchActive) {
-                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory});
+                s_pendingCleanup.push_back({m_stagingBuffer, m_stagingMemory, stagingAllocSize});
             } else {
                 vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
                 vkFreeMemory(m_device, m_stagingMemory, nullptr);
+                s_totalAllocatedBytes -= stagingAllocSize;
             }
             m_stagingBuffer = VK_NULL_HANDLE;
             m_stagingMemory = VK_NULL_HANDLE;
@@ -205,15 +206,15 @@ void VulkanBuffer::Update(void* data, size_t size) {
         // Constant buffer is persistently mapped
         memcpy(m_mappedData, data, size);
     } else if (Type == BufferType::Vertex || Type == BufferType::Index) {
-        // Need staging buffer for device-local buffers
         VkBuffer staging;
         VkDeviceMemory stagingMem;
+        VkDeviceSize stagingAllocSize = 0;
         CreateBuffer(
             size,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            staging, stagingMem);
+            staging, stagingMem, &stagingAllocSize);
 
         void* mapped;
         vkMapMemory(m_device, stagingMem, 0, size, 0, &mapped);
@@ -222,12 +223,12 @@ void VulkanBuffer::Update(void* data, size_t size) {
 
         CopyBuffer(staging, m_buffer, size);
 
-        // Defer staging cleanup if batch is active
         if (s_batchActive) {
-            s_pendingCleanup.push_back({staging, stagingMem});
+            s_pendingCleanup.push_back({staging, stagingMem, stagingAllocSize});
         } else {
             vkDestroyBuffer(m_device, staging, nullptr);
             vkFreeMemory(m_device, stagingMem, nullptr);
+            s_totalAllocatedBytes -= stagingAllocSize;
         }
     }
 }
@@ -304,14 +305,9 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
                                 VkBufferUsageFlags usage,
                                 VkMemoryPropertyFlags properties,
                                 VkBuffer& buffer,
-                                VkDeviceMemory& memory) {
-    // Try to recycle a pooled buffer to avoid expensive vkAllocateMemory
-    if (TryRecycleBuffer(size, usage, properties, buffer, memory)) {
-        // Track the recycled buffer's info (keep existing alloc metadata)
-        if (&buffer == &m_buffer) {
-            m_usage = usage;
-            // m_allocSize and m_memoryTypeIndex stay from pool
-        }
+                                VkDeviceMemory& memory,
+                                VkDeviceSize* outAllocSize) {
+    if (TryRecycleBuffer(size, usage, properties, buffer, memory, outAllocSize)) {
         return;
     }
 
@@ -374,7 +370,8 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
 
     s_totalAllocatedBytes += memRequirements.size;
 
-    // Track allocation metadata for recycling
+    if (outAllocSize) *outAllocSize = memRequirements.size;
+
     if (&buffer == &m_buffer) {
         m_allocSize = memRequirements.size;
         m_usage = usage;
@@ -489,10 +486,10 @@ void VulkanBuffer::FlushPendingCopies() {
     vkDestroyFence(s_batchDevice, batchFence, nullptr);
     vkFreeCommandBuffers(s_batchDevice, s_batchCommandPool, 1, &s_batchCommandBuffer);
 
-    // Free all deferred staging buffers
     for (auto& pending : s_pendingCleanup) {
         vkDestroyBuffer(s_batchDevice, pending.buffer, nullptr);
         vkFreeMemory(s_batchDevice, pending.memory, nullptr);
+        s_totalAllocatedBytes -= pending.allocSize;
     }
     s_pendingCleanup.clear();
 
@@ -582,7 +579,8 @@ bool VulkanBuffer::TryRecycleBuffer(VkDeviceSize size,
                                      VkBufferUsageFlags usage,
                                      VkMemoryPropertyFlags properties,
                                      VkBuffer& buffer,
-                                     VkDeviceMemory& memory) {
+                                     VkDeviceMemory& memory,
+                                     VkDeviceSize* outAllocSize) {
     // Find a pooled buffer with matching usage and sufficient size.
     // Prefer smallest fitting buffer to minimize waste.
     int bestIdx = -1;
@@ -599,10 +597,16 @@ bool VulkanBuffer::TryRecycleBuffer(VkDeviceSize size,
         }
     }
     if (bestIdx >= 0) {
-        buffer = s_bufferPool[bestIdx].buffer;
-        memory = s_bufferPool[bestIdx].memory;
-        s_poolBytes -= s_bufferPool[bestIdx].allocSize;
-        // Remove from pool (swap with last for O(1))
+        auto& p = s_bufferPool[bestIdx];
+        buffer = p.buffer;
+        memory = p.memory;
+        if (outAllocSize) *outAllocSize = p.allocSize;
+        if (&buffer == &m_buffer) {
+            m_allocSize = p.allocSize;
+            m_usage = p.usage;
+            m_memoryTypeIndex = p.memoryTypeIndex;
+        }
+        s_poolBytes -= p.allocSize;
         s_bufferPool[bestIdx] = s_bufferPool.back();
         s_bufferPool.pop_back();
         return true;
