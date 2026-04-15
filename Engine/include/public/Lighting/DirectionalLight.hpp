@@ -34,10 +34,10 @@ namespace Sleak {
 
     private:
         Math::Vector3D m_direction{0.0f, -1.0f, 0.0f};
-        float m_shadowFrustumSize = 15.0f;
-        float m_shadowDistance = 25.0f;
+        float m_shadowFrustumSize = 160.0f;
+        float m_shadowDistance = 160.0f;
         float m_shadowNear = 0.1f;
-        float m_shadowFar = 60.0f;
+        float m_shadowFar = 500.0f;
     };
 
 }  // namespace Sleak
