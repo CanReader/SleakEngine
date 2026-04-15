@@ -27,10 +27,15 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     float uShadowStrength;
     float uShadowTexelSize;
     float uLightSize;
-    vec4  uFogColor;
+    vec4  uFogColor;       // horizon
     float uFogStart;
     float uFogEnd;
-    float _fogPad[2];
+    vec2  _fogPad;         // std140: must be vec2 (8B), NOT float[2] (stride-16 = 32B)
+    vec4  uFogZenithColor; // zenith
+    float uHeightFogTop;
+    float uHeightFogDensity;
+    float uHeightFogFalloff;
+    float uHeightFogEnabled;
 };
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;
@@ -88,6 +93,27 @@ vec3 ACESFilm(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3(0.0), vec3(1.0));
 }
 
+// Sky-matched gradient fog + exponential height fog. View direction picks a
+// blend between horizon and zenith colors so distant terrain dissolves into
+// the same color the sky renders behind it.
+vec3 ApplyFog(vec3 color, vec3 worldPos) {
+    if (uFogEnd <= 0.0) return color;
+    vec3 toFrag = worldPos - uCameraPos.xyz;
+    float dist = length(toFrag.xz);
+    float distFog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1e-4), 0.0, 1.0);
+    float heightFog = 0.0;
+    if (uHeightFogEnabled > 0.5) {
+        float h = max(uHeightFogTop - worldPos.y, 0.0);
+        heightFog = clamp(uHeightFogDensity * (1.0 - exp(-h * uHeightFogFalloff)),
+                          0.0, 1.0);
+    }
+    float fogAmount = 1.0 - (1.0 - distFog) * (1.0 - heightFog);
+    vec3 viewDir = normalize(toFrag);
+    float t = smoothstep(0.0, 1.0, clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0));
+    vec3 fogColor = mix(uFogColor.rgb, uFogZenithColor.rgb, t);
+    return mix(color, fogColor, fogAmount);
+}
+
 void main() {
     vec4 texColor = texture(diffuseTexture, fragUV);
     if (texColor.a < 0.5)
@@ -119,12 +145,7 @@ void main() {
     // ACES tone mapping
     lit = ACESFilm(lit);
 
-    // Distance fog (horizontal XZ only — altitude doesn't affect fog)
-    if (uFogEnd > 0.0) {
-        float dist = length(fragWorldPos.xz - uCameraPos.xz);
-        float fogFactor = clamp((uFogEnd - dist) / (uFogEnd - uFogStart), 0.0, 1.0);
-        lit = mix(uFogColor.rgb, lit, fogFactor);
-    }
+    lit = ApplyFog(lit, fragWorldPos);
 
     outColor = vec4(lit, texColor.a);
 }

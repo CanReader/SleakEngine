@@ -42,11 +42,36 @@ cbuffer LightCB : register(b2) {
     float ShadowStrength;
     float ShadowTexelSize;
     float LightSize;
-    float4 FogColor;        // rgb = color
+    float4 FogColor;        // horizon
     float FogStart;
     float FogEnd;
     float2 _fogPad;
+    float4 FogColorZenith;  // zenith
+    float HeightFogTop;
+    float HeightFogDensity;
+    float HeightFogFalloff;
+    float HeightFogEnabled;
 };
+
+// Sky-matched gradient fog + exponential height fog. View direction picks a
+// blend between horizon and zenith colors so distant terrain dissolves into
+// the same color the sky renders behind it.
+float3 ApplyFog(float3 color, float3 worldPos) {
+    if (FogEnd <= 0.0) return color;
+    float3 toFrag = worldPos - CameraPos.xyz;
+    float dist = length(toFrag.xz);
+    float distFog = saturate((dist - FogStart) / max(FogEnd - FogStart, 1e-4));
+    float heightFog = 0.0;
+    if (HeightFogEnabled > 0.5) {
+        float h = max(HeightFogTop - worldPos.y, 0.0);
+        heightFog = saturate(HeightFogDensity * (1.0 - exp(-h * HeightFogFalloff)));
+    }
+    float fogAmount = 1.0 - (1.0 - distFog) * (1.0 - heightFog);
+    float3 viewDir = normalize(toFrag);
+    float t = smoothstep(0.0, 1.0, saturate(viewDir.y * 0.5 + 0.5));
+    float3 fogColor = lerp(FogColor.rgb, FogColorZenith.rgb, t);
+    return lerp(color, fogColor, fogAmount);
+}
 
 // Texture + sampler — root parameter 2, register(t0/s0)
 Texture2D diffuseTexture : register(t0);
@@ -103,12 +128,7 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
     float3 finalColor = baseColor.rgb * (ambient + diffuse)
                       + specular;
 
-    // Distance fog (Minecraft-style linear fog)
-    if (FogEnd > 0.0) {
-        float dist = length(input.WorldPos - CameraPos.xyz);
-        float fogFactor = saturate((FogEnd - dist) / (FogEnd - FogStart));
-        finalColor = lerp(FogColor.rgb, finalColor, fogFactor);
-    }
+    finalColor = ApplyFog(finalColor, input.WorldPos);
 
     return float4(finalColor, baseColor.a);
 }

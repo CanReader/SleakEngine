@@ -53,6 +53,24 @@ namespace Sleak {
         float GetFogStart() const { return m_fogStart; }
         float GetFogEnd() const { return m_fogEnd; }
 
+        // Two-color sky-matched fog gradient. SetFogColor(r,g,b) above sets
+        // the horizon color; the zenith color blends in as the view direction
+        // tilts upward.
+        void SetFogZenithColor(float r, float g, float b) {
+            m_fogZenithR = r; m_fogZenithG = g; m_fogZenithB = b;
+        }
+
+        // Height fog: exponential density that thickens below HeightFogTop.
+        // density(y) = HeightFogDensity * exp(-max(0, y - HeightFogTop) * HeightFogFalloff)
+        void SetHeightFogEnabled(bool enabled) { m_heightFogEnabled = enabled; }
+        void SetHeightFogTop(float worldY)     { m_heightFogTop = worldY; }
+        void SetHeightFogDensity(float d)      { m_heightFogDensity = d; }
+        void SetHeightFogFalloff(float f)      { m_heightFogFalloff = f; }
+        bool  IsHeightFogEnabled() const { return m_heightFogEnabled; }
+        float GetHeightFogTop()     const { return m_heightFogTop; }
+        float GetHeightFogDensity() const { return m_heightFogDensity; }
+        float GetHeightFogFalloff() const { return m_heightFogFalloff; }
+
     private:
         List<Light*> m_lights;
 
@@ -65,9 +83,16 @@ namespace Sleak {
 
         // Fog
         bool  m_fogEnabled = true;
-        float m_fogR = 0.3f, m_fogG = 0.4f, m_fogB = 1.0f;
+        float m_fogR = 0.62f, m_fogG = 0.74f, m_fogB = 0.88f;  // horizon (warm-cool sky tint)
+        float m_fogZenithR = 0.42f, m_fogZenithG = 0.58f, m_fogZenithB = 0.86f;  // zenith
         float m_fogStart = 80.0f;
-        float m_fogEnd = 128.0f;
+        float m_fogEnd = 256.0f;
+
+        // Height fog (denser in valleys / over water)
+        bool  m_heightFogEnabled = true;
+        float m_heightFogTop     = 80.0f;
+        float m_heightFogDensity = 0.55f;
+        float m_heightFogFalloff = 0.04f;
 
         // Previous frame's lightVP — sent to lighting UBO so it matches what
         // is actually in the shadow map (which was rendered this frame using

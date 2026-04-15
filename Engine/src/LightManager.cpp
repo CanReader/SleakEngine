@@ -109,7 +109,10 @@ void LightManager::UpdateAndBind() {
     cbData.AmbientB = m_ambientB;
     cbData.AmbientIntensity = m_ambientIntensity;
 
-    // Fog
+    // Fog — horizon color + sky-zenith blend + exponential height fog.
+    // OpenGL deferred lighting reads its fog parameters from this LightCBData
+    // (binding 2). Vulkan/forward shaders read the same data from
+    // ShadowLightUBO. Keep both blocks in sync.
     if (m_fogEnabled) {
         cbData.FogColorR = m_fogR;
         cbData.FogColorG = m_fogG;
@@ -117,9 +120,20 @@ void LightManager::UpdateAndBind() {
         cbData.FogColorA = 1.0f;
         cbData.FogStart = m_fogStart;
         cbData.FogEnd = m_fogEnd;
+
+        cbData.FogColorZenith[0] = m_fogZenithR;
+        cbData.FogColorZenith[1] = m_fogZenithG;
+        cbData.FogColorZenith[2] = m_fogZenithB;
+        cbData.FogColorZenith[3] = 1.0f;
+
+        cbData.HeightFogTop     = m_heightFogTop;
+        cbData.HeightFogDensity = m_heightFogDensity;
+        cbData.HeightFogFalloff = m_heightFogFalloff;
+        cbData.HeightFogEnabled = m_heightFogEnabled ? 1.0f : 0.0f;
     } else {
         cbData.FogStart = 0.0f;
         cbData.FogEnd = 0.0f;
+        cbData.HeightFogEnabled = 0.0f;
     }
 
     // Collect active lights
@@ -341,7 +355,7 @@ void LightManager::UpdateShadowData() {
     ubo.ShadowTexelSize = 1.0f / 4096.0f;  // Match SHADOW_MAP_SIZE
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
 
-    // Fog
+    // Fog — distance gradient (horizon + zenith) and exponential height fog
     if (m_fogEnabled) {
         ubo.FogColor[0] = m_fogR;
         ubo.FogColor[1] = m_fogG;
@@ -349,9 +363,20 @@ void LightManager::UpdateShadowData() {
         ubo.FogColor[3] = 1.0f;
         ubo.FogStart = m_fogStart;
         ubo.FogEnd = m_fogEnd;
+
+        ubo.FogColorZenith[0] = m_fogZenithR;
+        ubo.FogColorZenith[1] = m_fogZenithG;
+        ubo.FogColorZenith[2] = m_fogZenithB;
+        ubo.FogColorZenith[3] = 1.0f;
+
+        ubo.HeightFogTop     = m_heightFogTop;
+        ubo.HeightFogDensity = m_heightFogDensity;
+        ubo.HeightFogFalloff = m_heightFogFalloff;
+        ubo.HeightFogEnabled = m_heightFogEnabled ? 1.0f : 0.0f;
     } else {
         ubo.FogStart = 0.0f;
         ubo.FogEnd = 0.0f;
+        ubo.HeightFogEnabled = 0.0f;
     }
 
     renderer->UpdateShadowLightUBO(&ubo, sizeof(ubo));

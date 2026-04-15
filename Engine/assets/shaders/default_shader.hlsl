@@ -82,11 +82,17 @@ cbuffer LightCB : register(b2) {
     uint NumActiveLights;
     float3 AmbientColor;
     float AmbientIntensity;
-    float4 FogColor;
+    float4 FogColor;           // horizon
     float FogStart;
     float FogEnd;
     float2 _reserved;
     LightData Lights[16];
+    // Trailing block — must match LightCBData order in ConstantBuffer.hpp.
+    float4 FogColorZenith;     // zenith
+    float HeightFogTop;
+    float HeightFogDensity;
+    float HeightFogFalloff;
+    float HeightFogEnabled;
 };
 
 Texture2D diffuseTexture   : register(t0);
@@ -350,6 +356,26 @@ float AttenuateUE4(float distance, float range) {
     return (falloff * falloff) / (distance * distance + 1.0);
 }
 
+// Sky-matched gradient fog + exponential height fog. View direction picks a
+// blend between horizon and zenith colors so distant terrain dissolves into
+// the same color the sky renders behind it.
+float3 ApplyFog(float3 color, float3 worldPos) {
+    if (FogEnd <= 0.0) return color;
+    float3 toFrag = worldPos - CameraPos;
+    float dist = length(toFrag.xz);
+    float distFog = saturate((dist - FogStart) / max(FogEnd - FogStart, 1e-4));
+    float heightFog = 0.0;
+    if (HeightFogEnabled > 0.5) {
+        float h = max(HeightFogTop - worldPos.y, 0.0);
+        heightFog = saturate(HeightFogDensity * (1.0 - exp(-h * HeightFogFalloff)));
+    }
+    float fogAmount = 1.0 - (1.0 - distFog) * (1.0 - heightFog);
+    float3 viewDir = normalize(toFrag);
+    float t = smoothstep(0.0, 1.0, saturate(viewDir.y * 0.5 + 0.5));
+    float3 fogColor = lerp(FogColor.rgb, FogColorZenith.rgb, t);
+    return lerp(color, fogColor, fogAmount);
+}
+
 float4 PS_Main(VS_OUTPUT input) : SV_Target
 {
     // Apply UV tiling and offset
@@ -510,6 +536,8 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
         emissive *= emissiveTexture.Sample(mainSampler, uv).rgb;
 
     float3 finalColor = ambient + Lo + emissive;
+
+    finalColor = ApplyFog(finalColor, input.WorldPos);
 
     return float4(finalColor, alpha);
 }

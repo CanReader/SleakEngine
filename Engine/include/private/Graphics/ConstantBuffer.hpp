@@ -35,7 +35,10 @@ namespace Sleak {
             float AreaHeight;
         };
 
-        // Full lighting constant buffer (64 + 64*16 = 1088 bytes)
+        // Full lighting constant buffer (64 + 64*16 + 32 trailing = 1120 bytes).
+        // The trailing fog gradient + height-fog block is appended AFTER the
+        // Lights[] array so that older shader UBO declarations (which stop at
+        // Lights[]) still read a valid prefix. Don't reorder.
         static constexpr uint32_t MAX_LIGHTS = 16;
 
         struct alignas(16) LightCBData {
@@ -47,7 +50,7 @@ namespace Sleak {
             float AmbientR, AmbientG, AmbientB;
             float AmbientIntensity;
 
-            // Header Row 2: Fog color
+            // Header Row 2: Fog color (HORIZON)
             float FogColorR, FogColorG, FogColorB, FogColorA;
 
             // Header Row 3: Fog distances + reserved
@@ -56,6 +59,13 @@ namespace Sleak {
 
             // Per-light array
             LightGPUEntry Lights[MAX_LIGHTS];
+
+            // ---- Trailing sky-matched + height fog block ----
+            float FogColorZenith[4];   // ZENITH color of fog gradient
+            float HeightFogTop;        // world Y above which height fog goes to 0
+            float HeightFogDensity;    // max density at low elevations [0..1]
+            float HeightFogFalloff;    // exponential falloff per world unit
+            float HeightFogEnabled;    // 0 = off, 1 = on
         };
 
         struct ConstantBuffer {
@@ -151,20 +161,28 @@ namespace Sleak {
         };
 
         // GPU-aligned struct for light + shadow data, bound via UBO (set 2, binding 0)
+        // NOTE: trailing fog/sky fields are appended in fixed order — do not
+        // reorder. Shader UBO declarations may stop short of the full struct
+        // (size mismatch in that direction is fine for std140/cbuffer reads).
         struct alignas(16) ShadowLightUBO {
-            float LightDir[4];       // xyz + pad
+            float LightDir[4];       // xyz + normalBias
             float LightColor[4];     // rgb + intensity
             float Ambient[4];        // rgb + intensity
-            float CameraPos[4];      // xyz + pad
+            float CameraPos[4];      // xyz + sceneClock
             float LightVP[16];       // mat4 (light view-projection)
             float ShadowBias;
             float ShadowStrength;
             float ShadowTexelSize;
             float LightSize;         // world-space light size for PCSS penumbra
-            float FogColor[4];       // rgb + alpha (matches sky color)
+            float FogColor[4];       // rgb + a — HORIZON color of the fog gradient
             float FogStart;          // distance where fog begins
             float FogEnd;            // distance where fog fully obscures
-            float _fogPad[2];        // padding to 16-byte alignment
+            float _fogPad[2];
+            float FogColorZenith[4]; // rgb + pad — ZENITH color of the fog gradient
+            float HeightFogTop;      // world Y above which height fog density goes to 0
+            float HeightFogDensity;  // max density at low elevations [0..1]
+            float HeightFogFalloff;  // exponential falloff per world unit (e^-(top-y)*falloff)
+            float HeightFogEnabled;  // 0 = off, 1 = on
         };
 
         // GPU-aligned POD struct for post-process settings constant buffer.

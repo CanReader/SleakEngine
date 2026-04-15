@@ -33,7 +33,7 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     vec4  uFogColor;
     float uFogStart;
     float uFogEnd;
-    float _fogPad[2];
+    vec2  _fogPad;            // std140: must be vec2 (8B) not float[2] (stride-16 = 32B)
 };
 
 layout(location = 0) out vec3 fragWorldPos;

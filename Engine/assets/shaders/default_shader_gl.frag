@@ -69,11 +69,17 @@ layout(std140, binding = 2) uniform LightUBO {
     uint NumActiveLights;
     vec3 AmbientColor;
     float AmbientIntensity;
-    vec4 FogColor;
+    vec4 FogColor;             // horizon
     float FogStart;
     float FogEnd;
     float _lightPad0, _lightPad1;
     LightData Lights[16];
+    // Trailing block — must match LightCBData order in ConstantBuffer.hpp.
+    vec4 FogColorZenith;       // zenith
+    float HeightFogTop;
+    float HeightFogDensity;
+    float HeightFogFalloff;
+    float HeightFogEnabled;
 };
 
 // Texture samplers — binding must match TEXTURE_SLOT defines
@@ -282,6 +288,27 @@ float AttenuateUE4(float distance, float range) {
     return (falloff * falloff) / (distance * distance + 1.0);
 }
 
+// Sky-matched gradient fog + exponential height fog. View direction picks a
+// blend between horizon and zenith colors so distant terrain dissolves into
+// the same color the sky renders behind it.
+vec3 ApplyFog(vec3 color, vec3 worldPos) {
+    if (FogEnd <= 0.0) return color;
+    vec3 toFrag = worldPos - CameraPos;
+    float dist = length(toFrag.xz);
+    float distFog = clamp((dist - FogStart) / max(FogEnd - FogStart, 1e-4), 0.0, 1.0);
+    float heightFog = 0.0;
+    if (HeightFogEnabled > 0.5) {
+        float h = max(HeightFogTop - worldPos.y, 0.0);
+        heightFog = clamp(HeightFogDensity * (1.0 - exp(-h * HeightFogFalloff)),
+                          0.0, 1.0);
+    }
+    float fogAmount = 1.0 - (1.0 - distFog) * (1.0 - heightFog);
+    vec3 viewDir = normalize(toFrag);
+    float t = smoothstep(0.0, 1.0, clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0));
+    vec3 fogColor = mix(FogColor.rgb, FogColorZenith.rgb, t);
+    return mix(color, fogColor, fogAmount);
+}
+
 void main() {
     // Apply UV tiling and offset
     vec2 uv = fragUV * matTiling + matOffset;
@@ -433,6 +460,8 @@ void main() {
         emissive *= texture(emissiveTexture, uv).rgb;
 
     vec3 finalColor = ambient + Lo + emissive;
+
+    finalColor = ApplyFog(finalColor, fragWorldPos);
 
     outColor = vec4(finalColor, alpha);
 }
