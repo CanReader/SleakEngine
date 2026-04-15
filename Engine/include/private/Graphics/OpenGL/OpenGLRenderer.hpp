@@ -170,6 +170,13 @@ private:
     void CleanupSSAOResources();
     void RecreateSSAOOnResize(int width, int height);
     void ExecuteSSAOPass();
+
+    // ---- IBL (Image-Based Lighting) ----
+    class OpenGLIBL* m_ibl    = nullptr;
+    GLuint m_iblSettingsUBO   = 0;   // binding 10 in lighting_pass_gl.frag
+    GLuint m_iblBoundCubemap  = 0;   // last skybox cubemap we baked from
+    void EnsureIBL();
+    void CleanupIBL();
 };
 
 }  // namespace RenderEngine

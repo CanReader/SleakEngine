@@ -225,13 +225,16 @@ public:
 
     // Post-process: SSAO
     bool m_ssaoEnabled = false;
-    float m_ssaoRadius = 0.5f;
+    float m_ssaoRadius = 0.8f;
     float m_ssaoBias = 0.025f;
     float m_ssaoPower = 2.0f;
 
     // IBL
     bool m_iblEnabled = false;
-    float m_iblIntensity = 1.0f;
+    // 0.5 is balanced for LDR sky panoramas — additive on top of hemisphere
+    // ambient gives noticeable IBL character without blowing out brightness.
+    // Crank toward 1.5+ once you swap in an HDR environment map.
+    float m_iblIntensity = 0.5f;
 
     // PCSS
     bool m_pcssEnabled = true;

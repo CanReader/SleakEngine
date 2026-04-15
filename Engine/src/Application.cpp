@@ -379,4 +379,9 @@ namespace Sleak {
     float Application::GetSSAOPower()  const   { return renderer->GetSSAOPower(); }
     void  Application::SetSSAOPower(float p)   { renderer->SetSSAOPower(p); }
 
+    bool  Application::IsIBLEnabled()  const   { return renderer->IsIBLEnabled(); }
+    void  Application::SetIBLEnabled(bool e)   { renderer->SetIBLEnabled(e); }
+    float Application::GetIBLIntensity() const { return renderer->GetIBLIntensity(); }
+    void  Application::SetIBLIntensity(float i){ renderer->SetIBLIntensity(i); }
+
 }

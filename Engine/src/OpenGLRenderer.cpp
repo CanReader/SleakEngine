@@ -3,6 +3,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
 #include "Graphics/Vertex.hpp"
 #include <Runtime/MeshData.hpp>
 #include "Graphics/ResourceManager.hpp"
@@ -10,6 +11,10 @@
 #include "Graphics/RenderCommandQueue.hpp"
 #include "Graphics/SSAOKernel.hpp"
 #include <Camera/Camera.hpp>
+#include <Core/Application.hpp>
+#include <Core/SceneBase.hpp>
+#include <Runtime/Skybox.hpp>
+#include <GameBase.hpp>
 #include <SDL3/SDL.h>
 #include <vector>
 #include <cstring>
@@ -877,6 +882,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
 
 void OpenGLRenderer::CleanupGBufferResources() {
     CleanupSSAOResources();
+    CleanupIBL();
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
@@ -889,6 +895,54 @@ void OpenGLRenderer::CleanupGBufferResources() {
     delete m_lightingShader; m_lightingShader = nullptr;
     m_gbufferCreated    = false;
     m_deferredCBCreated = false;
+}
+
+// IBL — lazy bake from active scene's skybox cubemap.
+// First call (or when the skybox cubemap changes) reruns the precompute.
+void OpenGLRenderer::EnsureIBL() {
+    auto* app = Application::GetInstance();
+    if (!app) return;
+    auto* game = app->GetGame();
+    if (!game) return;
+    auto* scene = game->GetActiveScene();
+    if (!scene) return;
+    auto* skybox = scene->GetSkybox();
+    if (!skybox || !skybox->IsInitialized()) return;
+    auto* cube = skybox->GetCubemapTexture();
+    if (!cube) return;
+    auto* glCube = dynamic_cast<OpenGLCubemapTexture*>(cube);
+    if (!glCube) return;
+
+    GLuint cubeHandle = glCube->GetGLTexture();
+    if (cubeHandle == 0) return;
+
+    if (!m_ibl) m_ibl = new OpenGLIBL();
+    if (cubeHandle != m_iblBoundCubemap) {
+        m_ibl->Cleanup();
+        if (m_ibl->Initialize(cubeHandle)) {
+            m_iblBoundCubemap = cubeHandle;
+        } else {
+            m_iblBoundCubemap = 0;
+        }
+    }
+
+    if (m_iblSettingsUBO == 0) {
+        glGenBuffers(1, &m_iblSettingsUBO);
+        glBindBuffer(GL_UNIFORM_BUFFER, m_iblSettingsUBO);
+        glBufferData(GL_UNIFORM_BUFFER,
+                     sizeof(IBLSettingsGPUData),
+                     nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+}
+
+void OpenGLRenderer::CleanupIBL() {
+    if (m_ibl) { delete m_ibl; m_ibl = nullptr; }
+    if (m_iblSettingsUBO) {
+        glDeleteBuffers(1, &m_iblSettingsUBO);
+        m_iblSettingsUBO = 0;
+    }
+    m_iblBoundCubemap = 0;
 }
 
 void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
@@ -972,6 +1026,10 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     // available for the lighting shader to multiply against vertex AO.
     ExecuteSSAOPass();
 
+    // IBL precompute (cheap when already baked) — must happen before the
+    // lighting shader binds units 14/15/16 and UBO 10.
+    EnsureIBL();
+
     // Deferred rendering always outputs to the default FBO (framebuffer 0).
     // MSAA is incompatible with deferred (multisampled GBuffer is too expensive),
     // so we skip the MSAA FBO and render directly to the default framebuffer.
@@ -1016,6 +1074,22 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
         glActiveTexture(GL_TEXTURE0);
+    }
+
+    // IBL — bind irradiance/prefilter/BRDF at units 14/15/16 and upload the
+    // settings UBO at slot 10. Disabled if precompute hasn't completed.
+    bool iblReady = (m_ibl && m_ibl->IsInitialized());
+    if (iblReady) m_ibl->Bind();
+    if (m_iblSettingsUBO) {
+        IBLSettingsGPUData ibl{};
+        ibl.IBLEnabled       = (iblReady && m_iblEnabled) ? 1u : 0u;
+        ibl.IBLIntensity     = m_iblIntensity;
+        ibl.MaxReflectionLOD = static_cast<float>(OpenGLIBL::PREFILTER_MIPS - 1);
+        ibl._iblPad0         = 0;
+        glBindBuffer(GL_UNIFORM_BUFFER, m_iblSettingsUBO);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ibl), &ibl);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 10, m_iblSettingsUBO);
     }
 
     // Draw fullscreen triangle — shader writes color + gl_FragDepth
@@ -1243,10 +1317,12 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(camData), camData);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-    // Bind UBOs (indexed binding points in the shader)
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_ssaoSettingsUBO);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_ssaoKernelUBO);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 2, m_ssaoCameraUBO);
+    // Bind UBOs at private slots 7/8/9 — slots 0-6 are used by the lighting
+    // pass (LightUBO=2, ShadowUBO=5, DeferredCB=6, material/transform=0,1,3).
+    // Binding SSAO's UBOs to those would silently nuke the lighting pass.
+    glBindBufferBase(GL_UNIFORM_BUFFER, 7, m_ssaoSettingsUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 8, m_ssaoKernelUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 9, m_ssaoCameraUBO);
 
     // ---- Pass 1: SSAO ----
     glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoFBO);
@@ -1261,6 +1337,7 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, m_ssaoNoiseTex);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
     glActiveTexture(GL_TEXTURE0);
 
     glBindVertexArray(m_lightingVAO);

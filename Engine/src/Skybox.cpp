@@ -32,7 +32,7 @@ Skybox::Skybox(float topR, float topG, float topB,
 
 Skybox::Skybox()
     : m_mode(SkyboxMode::Default),
-      m_panoramaPath("assets/textures/default_skybox.jpg") {}
+      m_panoramaPath("assets/textures/default_skybox.hdr") {}
 
 Skybox::~Skybox() {}
 
@@ -94,7 +94,7 @@ void Skybox::Initialize() {
         if (!m_cubemapTexture.IsValid()) {
             SLEAK_WARN("Skybox: Failed to load cubemap faces, falling back to panorama");
             m_mode = SkyboxMode::Default;
-            m_panoramaPath = "assets/textures/default_skybox.jpg";
+            m_panoramaPath = "assets/textures/default_skybox.hdr";
         }
     }
 

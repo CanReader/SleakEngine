@@ -41,6 +41,10 @@ namespace Sleak {
 
         bool IsInitialized() const { return m_initialized; }
 
+        /// Expose the underlying cubemap (used by IBL precompute).
+        /// May be null if gradient mode or load failed.
+        Texture* GetCubemapTexture() const { return m_cubemapTexture.get(); }
+
     private:
         enum class SkyboxMode { Cubemap, Panorama, Gradient, Default };
         SkyboxMode m_mode = SkyboxMode::Default;

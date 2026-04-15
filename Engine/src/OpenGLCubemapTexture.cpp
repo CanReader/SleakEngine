@@ -61,11 +61,29 @@ bool OpenGLCubemapTexture::LoadEquirectangular(const std::string& path,
                                                  uint32_t faceSize) {
     stbi_set_flip_vertically_on_load(false);
 
-    int panW, panH, channels;
-    unsigned char* panorama = stbi_load(path.c_str(), &panW, &panH, &channels, 3);
-    if (!panorama) {
-        SLEAK_ERROR("OpenGLCubemapTexture: Failed to load panorama: {}", path);
-        return false;
+    // Detect HDR via filename suffix — stb_image's stbi_is_hdr is more
+    // authoritative but also more side-effecty. Path check is enough here.
+    bool isHDR = false;
+    if (path.size() >= 4) {
+        const std::string ext = path.substr(path.size() - 4);
+        if (ext == ".hdr" || ext == ".HDR") isHDR = true;
+    }
+
+    int panW = 0, panH = 0, channels = 0;
+    unsigned char* panoramaLDR = nullptr;
+    float*         panoramaHDR = nullptr;
+    if (isHDR) {
+        panoramaHDR = stbi_loadf(path.c_str(), &panW, &panH, &channels, 3);
+        if (!panoramaHDR) {
+            SLEAK_ERROR("OpenGLCubemapTexture: Failed to load HDR panorama: {}", path);
+            return false;
+        }
+    } else {
+        panoramaLDR = stbi_load(path.c_str(), &panW, &panH, &channels, 3);
+        if (!panoramaLDR) {
+            SLEAK_ERROR("OpenGLCubemapTexture: Failed to load panorama: {}", path);
+            return false;
+        }
     }
 
     glGenTextures(1, &m_texture);
@@ -74,14 +92,35 @@ bool OpenGLCubemapTexture::LoadEquirectangular(const std::string& path,
     m_width = faceSize;
     m_height = faceSize;
 
-    std::vector<unsigned char> faceData(faceSize * faceSize * 3);
+    std::vector<unsigned char> faceLDR;
+    std::vector<float>         faceHDR;
+    if (isHDR) faceHDR.resize(faceSize * faceSize * 3);
+    else       faceLDR.resize(faceSize * faceSize * 3);
+
+    auto sampleChannel = [&](int x0, int y0, int x1, int y1,
+                             float fx, float fy, int c) -> float {
+        if (isHDR) {
+            float c00 = panoramaHDR[(y0 * panW + x0) * 3 + c];
+            float c10 = panoramaHDR[(y0 * panW + x1) * 3 + c];
+            float c01 = panoramaHDR[(y1 * panW + x0) * 3 + c];
+            float c11 = panoramaHDR[(y1 * panW + x1) * 3 + c];
+            return c00 * (1 - fx) * (1 - fy) + c10 * fx * (1 - fy)
+                 + c01 * (1 - fx) * fy + c11 * fx * fy;
+        } else {
+            float c00 = panoramaLDR[(y0 * panW + x0) * 3 + c];
+            float c10 = panoramaLDR[(y0 * panW + x1) * 3 + c];
+            float c01 = panoramaLDR[(y1 * panW + x0) * 3 + c];
+            float c11 = panoramaLDR[(y1 * panW + x1) * 3 + c];
+            return c00 * (1 - fx) * (1 - fy) + c10 * fx * (1 - fy)
+                 + c01 * (1 - fx) * fy + c11 * fx * fy;
+        }
+    };
 
     // For each cubemap face, map each pixel to a 3D direction,
     // convert to equirectangular UV, and sample the panorama.
     for (int face = 0; face < 6; ++face) {
         for (uint32_t y = 0; y < faceSize; ++y) {
             for (uint32_t x = 0; x < faceSize; ++x) {
-                // Map (x, y) to [-1, 1] range
                 float u = (2.0f * (x + 0.5f) / faceSize) - 1.0f;
                 float v = (2.0f * (y + 0.5f) / faceSize) - 1.0f;
 
@@ -96,18 +135,15 @@ bool OpenGLCubemapTexture::LoadEquirectangular(const std::string& path,
                     default: dx = dy = dz = 0.0f; break;
                 }
 
-                // Normalize direction
                 float len = std::sqrt(dx * dx + dy * dy + dz * dz);
                 dx /= len; dy /= len; dz /= len;
 
-                // Convert to equirectangular UV
-                float lon = std::atan2(dz, dx);       // [-PI, PI]
-                float lat = std::asin(std::clamp(dy, -1.0f, 1.0f)); // [-PI/2, PI/2]
+                float lon = std::atan2(dz, dx);
+                float lat = std::asin(std::clamp(dy, -1.0f, 1.0f));
 
                 float panU = 0.5f + lon / (2.0f * 3.14159265f);
                 float panV = 0.5f - lat / 3.14159265f;
 
-                // Bilinear sample the panorama
                 float srcX = panU * (panW - 1);
                 float srcY = panV * (panH - 1);
                 int x0 = static_cast<int>(srcX);
@@ -121,37 +157,51 @@ bool OpenGLCubemapTexture::LoadEquirectangular(const std::string& path,
 
                 size_t idx = (y * faceSize + x) * 3;
                 for (int c = 0; c < 3; ++c) {
-                    float c00 = panorama[(y0 * panW + x0) * 3 + c];
-                    float c10 = panorama[(y0 * panW + x1) * 3 + c];
-                    float c01 = panorama[(y1 * panW + x0) * 3 + c];
-                    float c11 = panorama[(y1 * panW + x1) * 3 + c];
-                    float val = c00 * (1 - fx) * (1 - fy) + c10 * fx * (1 - fy)
-                              + c01 * (1 - fx) * fy + c11 * fx * fy;
-                    faceData[idx + c] = static_cast<unsigned char>(
-                        std::clamp(val, 0.0f, 255.0f));
+                    float val = sampleChannel(x0, y0, x1, y1, fx, fy, c);
+                    if (isHDR) {
+                        faceHDR[idx + c] = val;
+                    } else {
+                        faceLDR[idx + c] = static_cast<unsigned char>(
+                            std::clamp(val, 0.0f, 255.0f));
+                    }
                 }
             }
         }
 
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                     0, GL_RGB,
-                     faceSize, faceSize, 0,
-                     GL_RGB, GL_UNSIGNED_BYTE, faceData.data());
+        if (isHDR) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                         0, GL_RGB16F,
+                         faceSize, faceSize, 0,
+                         GL_RGB, GL_FLOAT, faceHDR.data());
+        } else {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                         0, GL_RGB,
+                         faceSize, faceSize, 0,
+                         GL_RGB, GL_UNSIGNED_BYTE, faceLDR.data());
+        }
     }
 
-    stbi_image_free(panorama);
+    if (panoramaHDR) stbi_image_free(panoramaHDR);
+    if (panoramaLDR) stbi_image_free(panoramaLDR);
 
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Mipmaps are required for the IBL prefilter pass which calls
+    // textureLod(env, dir, mipLevel) with mipLevel > 0 to combat
+    // bright-pixel aliasing on importance sampling.
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER,
+                    GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    // Public TextureFormat enum has no float variant — tag as RGB8 either way;
+    // the actual GL internal format (RGB16F vs RGB) is what matters for sampling.
     m_format = TextureFormat::RGB8;
 
-    SLEAK_INFO("OpenGLCubemapTexture: Loaded equirectangular panorama ({}x{} -> {} face)",
-               panW, panH, faceSize);
+    SLEAK_INFO("OpenGLCubemapTexture: Loaded {} panorama ({}x{} -> {} face)",
+               isHDR ? "HDR" : "LDR", panW, panH, faceSize);
     return true;
 }
 

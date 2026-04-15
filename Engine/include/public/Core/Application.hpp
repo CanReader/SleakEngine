@@ -101,6 +101,12 @@ class ENGINE_API Application {
     float GetSSAOPower() const;
     void  SetSSAOPower(float power);
 
+    // Image-based lighting (deferred path only)
+    bool  IsIBLEnabled() const;
+    void  SetIBLEnabled(bool enabled);
+    float GetIBLIntensity() const;
+    void  SetIBLIntensity(float intensity);
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
