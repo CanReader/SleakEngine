@@ -370,4 +370,13 @@ namespace Sleak {
     bool Application::GetVSync() const { return renderer->GetVSync(); }
     void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
 
+    bool  Application::IsSSAOEnabled()  const { return renderer->IsSSAOEnabled(); }
+    void  Application::SetSSAOEnabled(bool e)  { renderer->SetSSAOEnabled(e); }
+    float Application::GetSSAORadius() const   { return renderer->GetSSAORadius(); }
+    void  Application::SetSSAORadius(float r)  { renderer->SetSSAORadius(r); }
+    float Application::GetSSAOBias()   const   { return renderer->GetSSAOBias(); }
+    void  Application::SetSSAOBias(float b)    { renderer->SetSSAOBias(b); }
+    float Application::GetSSAOPower()  const   { return renderer->GetSSAOPower(); }
+    void  Application::SetSSAOPower(float p)   { renderer->SetSSAOPower(p); }
+
 }

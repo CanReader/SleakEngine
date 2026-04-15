@@ -152,6 +152,24 @@ private:
     bool CreateGBufferResources();
     void CleanupGBufferResources();
     void RecreateGBufferOnResize(int width, int height);
+
+    // ---- SSAO ----
+    GLuint m_ssaoFBO        = 0;
+    GLuint m_ssaoTexture    = 0;   // R8: raw AO
+    GLuint m_ssaoBlurFBO    = 0;
+    GLuint m_ssaoBlurTex    = 0;   // R8: blurred AO (consumed by lighting)
+    GLuint m_ssaoNoiseTex   = 0;   // 4x4 RGBA16F
+    GLuint m_ssaoSettingsUBO = 0;  // binding 0
+    GLuint m_ssaoKernelUBO   = 0;  // binding 1
+    GLuint m_ssaoCameraUBO   = 0;  // binding 2 (Projection/View/InvProjection)
+    class OpenGLShader* m_ssaoShader     = nullptr;
+    class OpenGLShader* m_ssaoBlurShader = nullptr;
+    bool   m_ssaoCreated = false;
+
+    bool CreateSSAOResources();
+    void CleanupSSAOResources();
+    void RecreateSSAOOnResize(int width, int height);
+    void ExecuteSSAOPass();
 };
 
 }  // namespace RenderEngine

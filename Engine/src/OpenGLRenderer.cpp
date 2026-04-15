@@ -8,6 +8,8 @@
 #include "Graphics/ResourceManager.hpp"
 #include "Graphics/ConstantBuffer.hpp"
 #include "Graphics/RenderCommandQueue.hpp"
+#include "Graphics/SSAOKernel.hpp"
+#include <Camera/Camera.hpp>
 #include <SDL3/SDL.h>
 #include <vector>
 #include <cstring>
@@ -866,10 +868,15 @@ bool OpenGLRenderer::CreateGBufferResources() {
 
     m_gbufferCreated = true;
     SLEAK_INFO("OpenGL GBuffer created ({}x{}) — deferred rendering active", w, h);
+
+    if (!CreateSSAOResources()) {
+        SLEAK_WARN("OpenGL SSAO resources failed to initialize — SSAO disabled");
+    }
     return true;
 }
 
 void OpenGLRenderer::CleanupGBufferResources() {
+    CleanupSSAOResources();
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
@@ -912,6 +919,9 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
                  GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    RecreateSSAOOnResize(width, height);
+
     SLEAK_INFO("OpenGL GBuffer resized to {}x{}", width, height);
 }
 
@@ -958,6 +968,10 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
 
     if (!m_gbufferCreated || !m_lightingShader) return;
 
+    // SSAO must run BEFORE the lighting pass so its blurred output is
+    // available for the lighting shader to multiply against vertex AO.
+    ExecuteSSAOPass();
+
     // Deferred rendering always outputs to the default FBO (framebuffer 0).
     // MSAA is incompatible with deferred (multisampled GBuffer is too expensive),
     // so we skip the MSAA FBO and render directly to the default framebuffer.
@@ -985,6 +999,15 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
+    // SSAO result at unit 13 (default to 0 = "fully lit" if SSAO disabled)
+    glActiveTexture(GL_TEXTURE13);
+    glBindTexture(GL_TEXTURE_2D, m_ssaoCreated ? m_ssaoBlurTex : 0);
+    // SSAO enable flag via plain uniform — avoids growing DeferredCBData
+    GLint ssaoLoc = glGetUniformLocation(
+        m_lightingShader->GetProgram(), "uSSAOEnabled");
+    if (ssaoLoc >= 0) {
+        glUniform1i(ssaoLoc, (m_ssaoEnabled && m_ssaoCreated) ? 1 : 0);
+    }
     glActiveTexture(GL_TEXTURE0);
 
     // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid
@@ -1017,6 +1040,246 @@ void OpenGLRenderer::BeginForwardTransparentPass() {
 
 void OpenGLRenderer::EndForwardTransparentPass() {
     m_inForwardTransparentPass = false;
+}
+
+// ============================================================
+// SSAO pass — runs between GBuffer write and deferred lighting
+// Output: R8 half-or-full-res AO in m_ssaoBlurTex, sampled by
+// lighting_pass_gl.frag at texture unit 13 and multiplied into ao.
+// ============================================================
+
+bool OpenGLRenderer::CreateSSAOResources() {
+    if (m_ssaoCreated) return true;
+    if (!m_gbufferCreated) return false;
+
+    int w = m_gbufferWidth;
+    int h = m_gbufferHeight;
+
+    auto makeR8Tex = [](GLuint& tex, int w, int h) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    };
+
+    // ---- Raw SSAO FBO ----
+    makeR8Tex(m_ssaoTexture, w, h);
+    glGenFramebuffers(1, &m_ssaoFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_ssaoTexture, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        SLEAK_ERROR("OpenGL SSAO FBO incomplete");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        CleanupSSAOResources();
+        return false;
+    }
+
+    // ---- Blur FBO ----
+    makeR8Tex(m_ssaoBlurTex, w, h);
+    glGenFramebuffers(1, &m_ssaoBlurFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoBlurFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_ssaoBlurTex, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        SLEAK_ERROR("OpenGL SSAO blur FBO incomplete");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        CleanupSSAOResources();
+        return false;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // ---- 4x4 noise texture ----
+    SSAOKernel kernelGen;
+    kernelGen.Generate();
+
+    glGenTextures(1, &m_ssaoNoiseTex);
+    glBindTexture(GL_TEXTURE_2D, m_ssaoNoiseTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F,
+                 SSAOKernel::NOISE_SIZE, SSAOKernel::NOISE_SIZE, 0,
+                 GL_RGBA, GL_FLOAT, kernelGen.noiseData.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    // ---- Shaders ----
+    m_ssaoShader = new OpenGLShader();
+    if (!m_ssaoShader->compile("assets/shaders/ssao_gl.vert",
+                               "assets/shaders/ssao_gl.frag")) {
+        SLEAK_ERROR("Failed to compile SSAO shader");
+        CleanupSSAOResources();
+        return false;
+    }
+    m_ssaoBlurShader = new OpenGLShader();
+    if (!m_ssaoBlurShader->compile("assets/shaders/ssao_blur_gl.vert",
+                                   "assets/shaders/ssao_blur_gl.frag")) {
+        SLEAK_ERROR("Failed to compile SSAO blur shader");
+        CleanupSSAOResources();
+        return false;
+    }
+
+    // ---- UBOs ----
+    // Settings (binding 0) — 64 bytes
+    glGenBuffers(1, &m_ssaoSettingsUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoSettingsUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(SSAOSettingsGPUData), nullptr, GL_DYNAMIC_DRAW);
+
+    // Kernel (binding 1) — 1024 bytes, upload once (deterministic seed)
+    glGenBuffers(1, &m_ssaoKernelUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoKernelUBO);
+    glBufferData(GL_UNIFORM_BUFFER,
+                 sizeof(SSAOKernel::Sample) * SSAOKernel::MAX_KERNEL_SIZE,
+                 kernelGen.samples.data(), GL_STATIC_DRAW);
+
+    // Camera (binding 2) — Projection + View + InvProjection = 3 * 64 = 192 bytes
+    glGenBuffers(1, &m_ssaoCameraUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoCameraUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(float) * 16 * 3, nullptr, GL_DYNAMIC_DRAW);
+
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    m_ssaoCreated = true;
+    SLEAK_INFO("OpenGL SSAO ready ({}x{})", w, h);
+    return true;
+}
+
+void OpenGLRenderer::CleanupSSAOResources() {
+    if (m_ssaoFBO)         { glDeleteFramebuffers(1, &m_ssaoFBO);     m_ssaoFBO = 0; }
+    if (m_ssaoBlurFBO)     { glDeleteFramebuffers(1, &m_ssaoBlurFBO); m_ssaoBlurFBO = 0; }
+    if (m_ssaoTexture)     { glDeleteTextures(1, &m_ssaoTexture);     m_ssaoTexture = 0; }
+    if (m_ssaoBlurTex)     { glDeleteTextures(1, &m_ssaoBlurTex);     m_ssaoBlurTex = 0; }
+    if (m_ssaoNoiseTex)    { glDeleteTextures(1, &m_ssaoNoiseTex);    m_ssaoNoiseTex = 0; }
+    if (m_ssaoSettingsUBO) { glDeleteBuffers(1, &m_ssaoSettingsUBO);  m_ssaoSettingsUBO = 0; }
+    if (m_ssaoKernelUBO)   { glDeleteBuffers(1, &m_ssaoKernelUBO);    m_ssaoKernelUBO = 0; }
+    if (m_ssaoCameraUBO)   { glDeleteBuffers(1, &m_ssaoCameraUBO);    m_ssaoCameraUBO = 0; }
+    delete m_ssaoShader;     m_ssaoShader = nullptr;
+    delete m_ssaoBlurShader; m_ssaoBlurShader = nullptr;
+    m_ssaoCreated = false;
+}
+
+void OpenGLRenderer::RecreateSSAOOnResize(int width, int height) {
+    if (!m_ssaoCreated) return;
+
+    glBindTexture(GL_TEXTURE_2D, m_ssaoTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+
+    glBindTexture(GL_TEXTURE_2D, m_ssaoBlurTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void OpenGLRenderer::ExecuteSSAOPass() {
+    if (!m_ssaoCreated || !m_ssaoShader || !m_ssaoBlurShader) return;
+
+    // Fast-path: if SSAO is disabled, clear the blur target to white so the
+    // lighting shader's ao * ssao multiply is a no-op.
+    if (!m_ssaoEnabled) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoBlurFBO);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return;
+    }
+
+    // ---- Upload per-frame settings UBO ----
+    SSAOSettingsGPUData s{};
+    s.Radius       = m_ssaoRadius;
+    s.Bias         = m_ssaoBias;
+    s.Power        = m_ssaoPower;
+    s.KernelSize   = SSAOKernel::MAX_KERNEL_SIZE;
+    s.ScreenWidth  = static_cast<float>(m_gbufferWidth);
+    s.ScreenHeight = static_cast<float>(m_gbufferHeight);
+    s.SSAOEnabled  = 1;
+    s.NearPlane    = 0.1f;
+    s.FarPlane     = 2000.0f;
+
+    glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoSettingsUBO);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s), &s);
+
+    // ---- Upload Camera UBO (Projection, View, InvProjection) ----
+    const Math::Matrix4& V = Camera::GetMainViewMatrix();
+    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    float camData[16 * 3];
+    std::memcpy(camData,       &P(0,0), sizeof(float) * 16);
+    std::memcpy(camData + 16,  &V(0,0), sizeof(float) * 16);
+    // InvProjection
+    float invP[16];
+    {
+        // Inline determinant-based 4x4 inverse (Cramer). Returns identity if singular.
+        const float* m = &P(0,0);
+        float i0  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+        float i4  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+        float i8  =  m[4]*m[9] *m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+        float i12 = -m[4]*m[9] *m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+        float det = m[0]*i0 + m[1]*i4 + m[2]*i8 + m[3]*i12;
+        if (std::fabs(det) < 1e-8f) {
+            std::memset(invP, 0, sizeof(invP));
+            invP[0] = invP[5] = invP[10] = invP[15] = 1.0f;
+        } else {
+            float id = 1.0f / det;
+            invP[0]  = i0 * id; invP[4]  = i4 * id; invP[8]  = i8 * id; invP[12] = i12 * id;
+            invP[1]  = (-m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10]) * id;
+            invP[5]  = ( m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10]) * id;
+            invP[9]  = (-m[0]*m[9] *m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9] ) * id;
+            invP[13] = ( m[0]*m[9] *m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9] ) * id;
+            invP[2]  = ( m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6]) * id;
+            invP[6]  = (-m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6]) * id;
+            invP[10] = ( m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5]) * id;
+            invP[14] = (-m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5]) * id;
+            invP[3]  = (-m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6]) * id;
+            invP[7]  = ( m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6]) * id;
+            invP[11] = (-m[0]*m[5]*m[11] + m[0]*m[7]*m[9]  + m[4]*m[1]*m[11] - m[4]*m[3]*m[9]  - m[8]*m[1]*m[7] + m[8]*m[3]*m[5]) * id;
+            invP[15] = ( m[0]*m[5]*m[10] - m[0]*m[6]*m[9]  - m[4]*m[1]*m[10] + m[4]*m[2]*m[9]  + m[8]*m[1]*m[6] - m[8]*m[2]*m[5]) * id;
+        }
+    }
+    std::memcpy(camData + 32, invP, sizeof(float) * 16);
+
+    glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoCameraUBO);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(camData), camData);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    // Bind UBOs (indexed binding points in the shader)
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_ssaoSettingsUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_ssaoKernelUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 2, m_ssaoCameraUBO);
+
+    // ---- Pass 1: SSAO ----
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoFBO);
+    glViewport(0, 0, m_gbufferWidth, m_gbufferHeight);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_BLEND);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    m_ssaoShader->bind();
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, m_ssaoNoiseTex);
+    glActiveTexture(GL_TEXTURE0);
+
+    glBindVertexArray(m_lightingVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // ---- Pass 2: Blur ----
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoBlurFBO);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    m_ssaoBlurShader->bind();
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m_ssaoTexture);
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Restore depth/blend state for the upcoming lighting pass
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 }  // namespace RenderEngine

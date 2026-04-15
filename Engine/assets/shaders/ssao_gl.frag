@@ -58,7 +58,11 @@ void main() {
     }
 
     vec3 fragPos = ReconstructViewPos(fragUV, depth);
-    vec3 normal = normalize(texture(normalTexture, fragUV).rgb * 2.0 - 1.0);
+
+    // GBuffer stores world-space normal packed to [0,1]. Transform to view
+    // space for SSAO's view-space hemisphere kernel to be oriented correctly.
+    vec3 worldN = normalize(texture(normalTexture, fragUV).rgb * 2.0 - 1.0);
+    vec3 normal = normalize((View * vec4(worldN, 0.0)).xyz);
 
     vec2 noiseScale = vec2(screenWidth / 4.0, screenHeight / 4.0);
     vec3 randomVec = texture(noiseTexture, fragUV * noiseScale).xyz;

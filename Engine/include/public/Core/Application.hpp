@@ -91,6 +91,16 @@ class ENGINE_API Application {
     bool GetVSync() const;
     void SetVSync(bool enabled);
 
+    // Screen-space ambient occlusion (deferred path only)
+    bool  IsSSAOEnabled() const;
+    void  SetSSAOEnabled(bool enabled);
+    float GetSSAORadius() const;
+    void  SetSSAORadius(float radius);
+    float GetSSAOBias() const;
+    void  SetSSAOBias(float bias);
+    float GetSSAOPower() const;
+    void  SetSSAOPower(float power);
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
