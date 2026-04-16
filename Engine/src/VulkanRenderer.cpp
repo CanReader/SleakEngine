@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <set>
@@ -3079,6 +3080,13 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
 bool VulkanRenderer::CreateWaterPipeline() {
     if (m_waterPipeline != VK_NULL_HANDLE) return true;
 
+    // Water shaders are optional — skip silently when not present in this project
+    {
+        std::ifstream vCheck("assets/shaders/water_shader.vert.spv");
+        std::ifstream fCheck("assets/shaders/water_shader.frag.spv");
+        if (!vCheck.good() || !fCheck.good()) return false;
+    }
+
     m_waterShader = new VulkanShader(device);
     if (!m_waterShader->compile("assets/shaders/water_shader")) {
         SLEAK_ERROR("VulkanRenderer: Failed to compile water shaders");
@@ -3230,6 +3238,13 @@ bool VulkanRenderer::CreateWaterPipeline() {
 // ============================================================
 bool VulkanRenderer::CreateVoxelPipeline() {
     if (m_voxelPipeline != VK_NULL_HANDLE) return true;
+
+    // Voxel shaders are optional — skip silently when not present in this project
+    {
+        std::ifstream vCheck("assets/shaders/flat_shader.vert.spv");
+        std::ifstream fCheck("assets/shaders/flat_shader.frag.spv");
+        if (!vCheck.good() || !fCheck.good()) return false;
+    }
 
     // Compile flat_shader SPIR-V for voxel opaque rendering
     auto* voxelShader = new VulkanShader(device);
