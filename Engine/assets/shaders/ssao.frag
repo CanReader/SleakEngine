@@ -1,94 +1,110 @@
 #version 450
 
 // ============================================================
-// Screen Space Ambient Occlusion (SSAO) - Vulkan Fragment
+// Screen Space Ambient Occlusion (HBAO-quality hemisphere AO)
+//
+// Reads:
+//   set 0 binding 0: gNormalRough  (world-space normal encoded + roughness.a)
+//   set 0 binding 1: gWorldPos     (world-space position)
+//   set 0 binding 2: gDepth        (depth buffer)
+//   set 0 binding 3: noiseTexture  (4x4 random unit vectors, tiled)
+//
+// UBO (set 1 binding 0): SSAOParams — kernel, view/proj matrices
+//
+// Output: single-channel R8 occlusion factor (1.0 = clear, 0.0 = occluded)
 // ============================================================
 
 layout(location = 0) in vec2 fragUV;
-layout(location = 0) out float outColor;
+layout(location = 0) out float outOcclusion;
 
-layout(set = 0, binding = 0) uniform SSAOUBO {
-    float ssaoRadius;
-    float ssaoBias;
-    float ssaoPower;
-    uint  ssaoKernelSize;
+layout(set = 0, binding = 0) uniform sampler2D gNormalRough;
+layout(set = 0, binding = 1) uniform sampler2D gWorldPos;
+layout(set = 0, binding = 2) uniform sampler2D gDepth;
+layout(set = 0, binding = 3) uniform sampler2D noiseTex;
 
-    float screenWidth;
-    float screenHeight;
-    uint  ssaoEnabled;
-    uint  _ssaoPad0;
-
-    float nearPlane;
-    float farPlane;
-    float _ssaoPad1, _ssaoPad2;
-
-    float _ssaoPad3[4];
+layout(set = 1, binding = 0) uniform SSAOParams {
+    mat4 View;           // world -> view
+    mat4 Projection;     // view  -> clip
+    vec4 Kernel[32];     // hemisphere samples in tangent space (xyz=dir, w=unused)
+    vec2 ScreenSize;     // full-res width, height (for noise tiling)
+    vec2 NoiseScale;     // ScreenSize / 4 for noise UV
+    float Radius;        // world-space sample radius (metres)
+    float Bias;           // depth comparison bias
+    float Power;          // occlusion curve power
+    float Intensity;      // overall darkness multiplier
+    uint  KernelSize;     // number of samples to take (<= 32)
+    float _pad0, _pad1, _pad2;
 };
-
-layout(set = 0, binding = 1) uniform KernelUBO {
-    vec4 ssaoKernel[64];
-};
-
-layout(set = 0, binding = 2) uniform CameraUBO {
-    mat4 Projection;
-    mat4 View;
-    mat4 InvProjection;
-};
-
-layout(set = 1, binding = 0) uniform sampler2D depthTexture;
-layout(set = 1, binding = 1) uniform sampler2D normalTexture;
-layout(set = 1, binding = 2) uniform sampler2D noiseTexture;
-
-vec3 ReconstructViewPos(vec2 uv, float depth) {
-    // Vulkan depth is [0, 1]
-    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
-    vec4 viewPos = InvProjection * clipPos;
-    return viewPos.xyz / viewPos.w;
-}
 
 void main() {
-    if (ssaoEnabled == 0u) {
-        outColor = 1.0;
+    // Skip sky pixels — sky should read 1.0 (no occlusion).
+    float depth = texture(gDepth, fragUV).r;
+    if (depth >= 0.9999) {
+        outOcclusion = 1.0;
         return;
     }
 
-    float depth = texture(depthTexture, fragUV).r;
-    if (depth >= 1.0) {
-        outColor = 1.0;
-        return;
-    }
+    // Sample GBuffer: world-space position and world-space normal.
+    vec3 worldPos = texture(gWorldPos, fragUV).xyz;
+    vec3 worldN   = normalize(texture(gNormalRough, fragUV).rgb * 2.0 - 1.0);
 
-    vec3 fragPos = ReconstructViewPos(fragUV, depth);
-    vec3 normal = normalize(texture(normalTexture, fragUV).rgb * 2.0 - 1.0);
+    // Move into view space — AO is cleanest in the space where the
+    // projection happens, and Z is monotonic along the view ray.
+    vec3 viewPos = (View * vec4(worldPos, 1.0)).xyz;
+    vec3 viewN   = normalize(mat3(View) * worldN);
 
-    vec2 noiseScale = vec2(screenWidth / 4.0, screenHeight / 4.0);
-    vec3 randomVec = texture(noiseTexture, fragUV * noiseScale).xyz;
+    // Random rotation vector (in the tangent plane) — tiled from the 4x4 noise.
+    vec3 randomVec = normalize(texture(noiseTex, fragUV * NoiseScale).xyz * 2.0 - 1.0);
 
-    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-    vec3 bitangent = cross(normal, tangent);
-    mat3 TBN = mat3(tangent, bitangent, normal);
+    // Build a TBN centered at the normal. Gram-Schmidt: orthogonalise
+    // randomVec against the normal, then bitangent = N x T.
+    vec3 tangent   = normalize(randomVec - viewN * dot(randomVec, viewN));
+    vec3 bitangent = cross(viewN, tangent);
+    mat3 TBN       = mat3(tangent, bitangent, viewN);
 
     float occlusion = 0.0;
+    uint kSize = max(KernelSize, 1u);
+    for (uint i = 0u; i < kSize; ++i) {
+        // Transform hemisphere sample from tangent space to view space.
+        vec3 samplePos = viewPos + TBN * Kernel[i].xyz * Radius;
 
-    for (uint i = 0u; i < ssaoKernelSize; ++i) {
-        vec3 sampleDir = TBN * ssaoKernel[i].xyz;
-        vec3 samplePos = fragPos + sampleDir * ssaoRadius;
-
+        // Project sample to clip space, then NDC, then UV.
         vec4 offset = Projection * vec4(samplePos, 1.0);
-        offset.xy /= offset.w;
-        offset.xy = offset.xy * 0.5 + 0.5;
+        offset.xyz /= offset.w;
+        // The GBuffer geometry shaders apply gl_Position.y = -gl_Position.y
+        // so the GBuffer textures have UV.y=0 at the TOP of the screen.
+        // The projection matrix is standard (no Y-flip baked in), so its
+        // clip-space Y=+1 maps to the TOP in OpenGL convention — but in the
+        // stored GBuffer texture that is UV.y=0. We must negate Y here so
+        // the GBuffer sample UV matches the GBuffer's storage layout.
+        vec2 sampleUV;
+        sampleUV.x =  offset.x * 0.5 + 0.5;
+        sampleUV.y = -offset.y * 0.5 + 0.5;
 
-        float sampleDepth = texture(depthTexture, offset.xy).r;
-        vec3 sampleViewPos = ReconstructViewPos(offset.xy, sampleDepth);
+        // Bounds check — any sample outside the screen contributes no occlusion.
+        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
+            sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
 
+        // Read the world-space position at this screen location and
+        // transform into view space for depth comparison.
+        vec3 sampleWorld    = texture(gWorldPos, sampleUV).xyz;
+        float sampleDepth   = texture(gDepth,    sampleUV).r;
+        if (sampleDepth >= 0.9999) continue;  // sky — no occluder
+
+        vec3 sampleViewPos  = (View * vec4(sampleWorld, 1.0)).xyz;
+
+        // Range check — sample contributes less when the depth difference
+        // between the frag and the occluder is much larger than the radius.
+        // (avoids haloing around silhouettes)
         float rangeCheck = smoothstep(0.0, 1.0,
-            ssaoRadius / abs(fragPos.z - sampleViewPos.z));
-        occlusion += (sampleViewPos.z >= samplePos.z + ssaoBias ? 1.0 : 0.0)
-                   * rangeCheck;
+            Radius / max(abs(viewPos.z - sampleViewPos.z), 0.0001));
+
+        // In view space the camera looks down -Z — "closer to the camera"
+        // means a LESS negative Z (i.e. larger value). The occluder blocks
+        // the sample when sampleViewPos.z >= samplePos.z + bias.
+        occlusion += (sampleViewPos.z >= samplePos.z + Bias ? 1.0 : 0.0) * rangeCheck;
     }
 
-    occlusion = 1.0 - (occlusion / float(ssaoKernelSize));
-    occlusion = pow(occlusion, ssaoPower);
-
-    outColor = occlusion;
+    float ao = 1.0 - (occlusion / float(kSize)) * Intensity;
+    outOcclusion = pow(clamp(ao, 0.0, 1.0), Power);
 }

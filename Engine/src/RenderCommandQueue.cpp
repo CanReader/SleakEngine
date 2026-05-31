@@ -22,10 +22,12 @@ namespace Sleak {
         void RenderCommandQueue::SubmitDrawIndexed(
             RefPtr<BufferBase> vertexBuffer, RefPtr<BufferBase> indexBuffer,
             List<RefPtr<BufferBase>> constantBuffers, uint32_t indexCount,
-            uint32_t startIndexLocation, int32_t baseVertexLocation) {
+            uint32_t startIndexLocation, int32_t baseVertexLocation,
+            bool castsShadow) {
             auto command = RefPtr<RenderCommandBase>(new DrawIndexedCommand(
                 vertexBuffer, indexBuffer, constantBuffers, indexCount,
                 startIndexLocation, baseVertexLocation));
+            command->SetCastsShadow(castsShadow);
             commands.push(std::move(command));
         }
 
@@ -74,19 +76,26 @@ namespace Sleak {
             cachedShadowDraws.clear();
             {
                 RefPtr<BufferBase> lastSlot0Buffer;
+                RefPtr<BufferBase> lastSlot3Buffer;
                 for (auto& cmd : commands) {
                     auto type = cmd->GetType();
                     if (type == CommandType::BindConstantBuffer) {
                         auto* bindCmd = static_cast<BindConstantBufferCommand*>(cmd.get());
                         if (bindCmd->GetSlot() == 0) {
                             lastSlot0Buffer = bindCmd->GetBuffer();
+                        } else if (bindCmd->GetSlot() == 3) {
+                            lastSlot3Buffer = bindCmd->GetBuffer();
                         }
                     }
                     if ((type == CommandType::Draw || type == CommandType::DrawIndexed)
-                        && lastSlot0Buffer) {
+                        && lastSlot0Buffer && cmd->CastsShadow()) {
                         ShadowDrawEntry entry;
                         entry.command = cmd;
                         entry.transformBuffer = lastSlot0Buffer;
+                        // Pair bone buffer only with skinned draws so non-skinned
+                        // casters don't accidentally inherit a stale bone UBO.
+                        if (cmd->IsSkinned())
+                            entry.boneBuffer = lastSlot3Buffer;
                         cachedShadowDraws.add(entry);
                     }
                 }
@@ -145,8 +154,12 @@ namespace Sleak {
                     }
 
                     if (type == CommandType::Draw || type == CommandType::DrawIndexed) {
-                        if (lastMaterialForward) {
-                            // Transparent/forward draw — defer to forward pass
+                        // Skinned meshes have no GBuffer pipeline variant — the
+                        // skinned pipeline is render-pass-compatible only with
+                        // the forward pass, so route them there even when opaque.
+                        const bool isSkinned = cmd->IsSkinned();
+                        if (lastMaterialForward || isSkinned) {
+                            // Transparent/forward/skinned draw — defer to forward pass
                             for (auto& s : pendingState) forwardCmds.add(s);
                             forwardCmds.add(cmd);
                         } else {
@@ -187,6 +200,11 @@ namespace Sleak {
                 // in VulkanRenderer::BindConstantBuffer computes LightVP * World
                 if (entry.transformBuffer) {
                     context->BindConstantBuffer(entry.transformBuffer, 0);
+                }
+                // Skinned casters need their bone matrices bound so the shadow
+                // depth vert can transform verts into the posed skeleton space.
+                if (entry.boneBuffer) {
+                    context->BindBoneBuffer(entry.boneBuffer);
                 }
                 entry.command->ExecuteShadow(context);
             }

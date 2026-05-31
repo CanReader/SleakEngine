@@ -8,6 +8,7 @@
 #include <Runtime/Texture.hpp>
 
 namespace Sleak {
+    class Material;
     namespace RenderEngine {
 
         enum class RenderMode  {
@@ -100,6 +101,9 @@ enum class DepthCompare {
             virtual bool IsDeferredEnabled() const { return false; }
             // Bind the GBuffer geometry-pass shader (overrides material shader in geometry pass).
             virtual void BindGBufferShader() {}
+            // Bind all PBR material resources (textures + UBO) for the GBuffer geometry pass.
+            // Replaces BindGBufferShader + BindTexturesAndCB for the deferred path.
+            virtual void BindPBRMaterial(Sleak::Material* material) { (void)material; }
             // Transition from geometry pass → lighting pass → bind final RT.
             // Called by RenderCommandQueue after all opaque draws.
             virtual void ExecuteDeferredLightingPass() {}

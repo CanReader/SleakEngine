@@ -16,7 +16,8 @@ namespace Sleak {
             List<RefPtr<BufferBase>> constantBuffers,
             uint32_t indexCount,
             uint32_t startIndexLocation = 0,
-            int32_t baseVertexLocation = 0
+            int32_t baseVertexLocation = 0,
+            bool castsShadow = true
         );
 
         void SubmitDraw(
@@ -72,6 +73,7 @@ namespace Sleak {
         struct ShadowDrawEntry {
             RefPtr<RenderCommandBase> command;
             RefPtr<BufferBase> transformBuffer;  // last-bound slot-0 buffer
+            RefPtr<BufferBase> boneBuffer;       // slot-3 bone UBO for skinned draws
         };
 
         private:

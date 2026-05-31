@@ -117,8 +117,10 @@ target_link_libraries(Engine PRIVATE
     ${Vulkan_LIBRARIES}
     ${OPENGL_LIBRARIES}
     freeglut
-    yaml-cpp::yaml-cpp
     assimp::assimp
+)
+target_link_libraries(Engine PUBLIC
+    yaml-cpp::yaml-cpp
 )
 
 # --- DirectX SDK (Windows only) ---
@@ -146,16 +148,36 @@ if(GLSLC)
         "${SHADER_SOURCE_DIR}/skinned_shader.frag"
         "${SHADER_SOURCE_DIR}/skybox.vert"
         "${SHADER_SOURCE_DIR}/skybox.frag"
+        "${SHADER_SOURCE_DIR}/shadow_depth.vert"
+        "${SHADER_SOURCE_DIR}/lighting_pass.vert"
+        "${SHADER_SOURCE_DIR}/lighting_pass.frag"
+        "${SHADER_SOURCE_DIR}/gbuffer.vert"
+        "${SHADER_SOURCE_DIR}/gbuffer.frag"
+        "${SHADER_SOURCE_DIR}/ssao.vert"
+        "${SHADER_SOURCE_DIR}/ssao.frag"
+        "${SHADER_SOURCE_DIR}/ssao_blur.vert"
+        "${SHADER_SOURCE_DIR}/ssao_blur.frag"
+        "${SHADER_SOURCE_DIR}/ssr.vert"
+        "${SHADER_SOURCE_DIR}/ssr.frag"
+        "${SHADER_SOURCE_DIR}/bloom.vert"
+        "${SHADER_SOURCE_DIR}/bloom_threshold.frag"
+        "${SHADER_SOURCE_DIR}/bloom_downsample.frag"
+        "${SHADER_SOURCE_DIR}/bloom_upsample.frag"
+        "${SHADER_SOURCE_DIR}/bloom_composite.frag"
     )
+
+    set(BIN_SHADER_DIR "${CMAKE_SOURCE_DIR}/bin/assets/shaders")
 
     foreach(SHADER ${VULKAN_SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
         set(SPV_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
+        set(BIN_SPV    "${BIN_SHADER_DIR}/${SHADER_NAME}.spv")
         add_custom_command(
             OUTPUT ${SPV_OUTPUT}
             COMMAND ${GLSLC} ${SHADER} -o ${SPV_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SPV_OUTPUT} ${BIN_SPV}
             DEPENDS ${SHADER}
-            COMMENT "Compiling ${SHADER_NAME} to SPIR-V"
+            COMMENT "Compiling ${SHADER_NAME} to SPIR-V and syncing to bin/"
         )
         list(APPEND SPV_SHADERS ${SPV_OUTPUT})
     endforeach()

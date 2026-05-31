@@ -1,6 +1,6 @@
 #version 450
 
-// Fullscreen triangle from gl_VertexIndex.
+// Shared fullscreen-triangle vertex shader for bloom passes.
 layout(location = 0) out vec2 fragUV;
 
 void main() {

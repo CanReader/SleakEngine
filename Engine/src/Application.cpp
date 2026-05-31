@@ -99,6 +99,13 @@ namespace Sleak {
     }
 
     Application::~Application() {
+        // Flush the GPU before tearing down any scene-owned resources (textures,
+        // meshes, materials) — the renderer's descriptor sets still reference
+        // samplers/image views owned by the game's scene objects. Without this
+        // wait, Texture destructors call vkDestroySampler while the descriptor
+        // set binding still has the sampler in use (VUID-vkDestroySampler-sampler-01082).
+        if (renderer) renderer->WaitIdle();
+
         delete Game;
         Sleak::MeshBatch::Shutdown();
         delete m_benchmark;
@@ -193,6 +200,14 @@ namespace Sleak {
                     width  = static_cast<int>(m_pendingResizeW);
                     height = static_cast<int>(m_pendingResizeH);
                     m_pendingResize = false;
+
+                    // Update active camera's projection matrix for the new aspect ratio.
+                    // Vulkan renderer ignores the width/height args to Resize() and uses
+                    // the Vulkan surface caps, so the camera must be notified separately.
+                    if (Game && Game->GetActiveScene()) {
+                        if (auto* cam = Game->GetActiveScene()->GetActiveCamera())
+                            cam->OnResize(m_pendingResizeW, m_pendingResizeH);
+                    }
                 }
 
                 renderer->BeginRender();

@@ -38,54 +38,89 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     float uHeightFogEnabled;
 };
 
-layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;
+layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;     // hardware PCF
+layout(set = 3, binding = 1) uniform sampler2D       shadowMapRaw;  // blocker search
 
-// 16-sample Poisson disk for PCF
-const vec2 poissonDisk[16] = vec2[](
-    vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
-    vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
-    vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
-    vec2(-0.38277543,  0.27676845), vec2( 0.97484398,  0.75648379),
-    vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
-    vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
-    vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
-    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
-);
+float InterleavedGradientNoise(vec2 screenPos) {
+    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(screenPos, magic.xy)));
+}
 
+// Vogel disk — quasi-uniform distribution without banding, works at any
+// sample count. Each sample rotated by a per-pixel golden-angle offset.
+vec2 VogelDisk(int i, int count, float phi) {
+    const float goldenAngle = 2.39996323;
+    float r = sqrt((float(i) + 0.5) / float(count));
+    float theta = float(i) * goldenAngle + phi;
+    return vec2(r * cos(theta), r * sin(theta));
+}
+
+const int BLOCKER_SAMPLES = 16;
+const int PCF_SAMPLES     = 48;
+
+float FindAvgBlockerDepth(vec2 uv, float zRef, float searchRadius, float phi) {
+    float sum = 0.0;
+    int count = 0;
+    for (int i = 0; i < BLOCKER_SAMPLES; ++i) {
+        vec2 off = VogelDisk(i, BLOCKER_SAMPLES, phi) * searchRadius;
+        float d = texture(shadowMapRaw, uv + off).r;
+        if (d < zRef) {
+            sum += d;
+            count++;
+        }
+    }
+    return (count > 0) ? sum / float(count) : -1.0;
+}
+
+float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
+    float shadow = 0.0;
+    for (int i = 0; i < PCF_SAMPLES; ++i) {
+        vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
+        shadow += texture(shadowMap, vec3(uv + off, zRef));
+    }
+    return shadow / float(PCF_SAMPLES);
+}
+
+// PCSS for directional (orthographic) light:
+//   - Fixed blocker search window (30 texels) decoupled from uLightSize so
+//     the blocker detection stays reliable at all softness settings.
+//   - Penumbra is linear in the blocker-receiver depth gap; no perspective
+//     divide (that formula only applies to perspective/point lights).
+//   - uLightSize acts as a softness multiplier — larger → wider penumbra.
 float CalcShadow(vec4 sc) {
     vec3 projCoords = sc.xyz / sc.w;
     projCoords.xy = projCoords.xy * 0.5 + 0.5;
 
-    // Out-of-bounds check
     if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
         projCoords.y < 0.0 || projCoords.y > 1.0 ||
         projCoords.z < 0.0 || projCoords.z > 1.0)
         return 1.0;
 
-    // Smooth fade at shadow map edges (XY) and far depth (Z) to avoid hard cutoffs
     vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), projCoords.xy)
                    * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - projCoords.xy);
     float zFade    = smoothstep(0.0, 0.05, projCoords.z)
                    * smoothstep(0.0, 0.1,  1.0 - projCoords.z);
     float edgeFade = fadeCoord.x * fadeCoord.y * zFade;
 
-    float biasedDepth = projCoords.z - uShadowBias;
+    float zRef = projCoords.z - uShadowBias;
+    float phi  = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
 
-    // 16-sample Poisson PCF
-    float texelSize = uShadowTexelSize;
-    float radius = 1.5;
-    float shadow = 0.0;
+    // Fixed 30-texel blocker search: detects blockers ~0.7m above receiver
+    // on a 28m/4096 map. Decoupled from uLightSize for stability.
+    float searchRadius = uShadowTexelSize * 30.0;
+    float avgBlocker   = FindAvgBlockerDepth(projCoords.xy, zRef, searchRadius, phi);
 
-    for (int i = 0; i < 16; i++) {
-        shadow += texture(shadowMap,
-            vec3(projCoords.xy + poissonDisk[i] * texelSize * radius,
-                 biasedDepth));
-    }
-    shadow /= 16.0;
+    if (avgBlocker < 0.0) return 1.0;
 
-    // Apply edge fade and shadow strength
-    shadow = mix(1.0, shadow, uShadowStrength * edgeFade);
-    return shadow;
+    // Linear penumbra for orthographic projection:
+    // scale=500 calibrated for a ~28m frustum / 4096-texel map.
+    float gap          = max(zRef - avgBlocker, 0.0);
+    float filterRadius = clamp(gap * uLightSize * uShadowTexelSize * 500.0,
+                               uShadowTexelSize * 0.5,   // floor: contact-hard
+                               uShadowTexelSize * 20.0); // cap: floating objects
+
+    float shadow = PCFFilter(projCoords.xy, zRef, filterRadius, phi);
+    return mix(1.0, shadow, uShadowStrength * edgeFade);
 }
 
 // ACES film tone mapping (Stephen Hill fit)

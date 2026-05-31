@@ -260,7 +260,7 @@ void LightManager::UpdateShadowData() {
         //
         // Using round() (not floor) — floor flips by a full texel when
         // the fractional part crosses 0 due to float noise.
-        constexpr float shadowMapSize = 4096.0f;
+        constexpr float shadowMapSize = 2048.0f;
         constexpr float halfShadow = shadowMapSize * 0.5f;
 
         Math::Matrix4 lightVP_raw = lightView * lightProj;
@@ -352,7 +352,7 @@ void LightManager::UpdateShadowData() {
 
     ubo.ShadowBias = shadowLight ? shadowLight->GetShadowBias() : 0.0f;
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
-    ubo.ShadowTexelSize = 1.0f / 4096.0f;  // Match SHADOW_MAP_SIZE
+    ubo.ShadowTexelSize = 1.0f / 2048.0f;  // Match SHADOW_MAP_SIZE
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
 
     // Fog — distance gradient (horizon + zenith) and exponential height fog
@@ -377,6 +377,28 @@ void LightManager::UpdateShadowData() {
         ubo.FogStart = 0.0f;
         ubo.FogEnd = 0.0f;
         ubo.HeightFogEnabled = 0.0f;
+    }
+
+    // Populate extra lights (fill, rim — non-shadow directional lights)
+    ubo.NumExtraLights = 0;
+    for (size_t i = 0; i < m_lights.GetSize() && ubo.NumExtraLights < 3; ++i) {
+        Light* light = m_lights[i];
+        if (!light || !light->IsEnabled()) continue;
+        if (light == activeLight) continue; // already in primary slot
+        auto* dlight = dynamic_cast<DirectionalLight*>(light);
+        if (!dlight) continue;
+        auto  eDir   = dlight->GetDirection();
+        auto  eColor = dlight->GetColor();
+        uint32_t idx = ubo.NumExtraLights;
+        ubo.ExtraLightDir[idx][0] = eDir.GetX();
+        ubo.ExtraLightDir[idx][1] = eDir.GetY();
+        ubo.ExtraLightDir[idx][2] = eDir.GetZ();
+        ubo.ExtraLightDir[idx][3] = 0.0f;
+        ubo.ExtraLightColor[idx][0] = eColor.GetX();
+        ubo.ExtraLightColor[idx][1] = eColor.GetY();
+        ubo.ExtraLightColor[idx][2] = eColor.GetZ();
+        ubo.ExtraLightColor[idx][3] = dlight->GetIntensity();
+        ++ubo.NumExtraLights;
     }
 
     renderer->UpdateShadowLightUBO(&ubo, sizeof(ubo));

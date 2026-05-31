@@ -83,10 +83,11 @@ void MeshBatch::BeginBatch(Material* material) {
     queue->SubmitBindConstantBuffer(s_batchTransformBuffer, 0);
 }
 
-void MeshBatch::Draw(const MeshHandle& mesh) {
+void MeshBatch::Draw(const MeshHandle& mesh, bool castsShadow) {
     if (!mesh.IsValid()) return;
     RenderEngine::RenderCommandQueue::GetInstance()->SubmitDrawIndexed(
-        mesh.vertexBuffer, mesh.indexBuffer, {}, mesh.indexCount);
+        mesh.vertexBuffer, mesh.indexBuffer, {}, mesh.indexCount, 0, 0,
+        castsShadow);
 }
 
 void MeshBatch::EndBatch() {

@@ -38,6 +38,13 @@ void DrawCommand::ExecuteShadow(RenderContext* context) {
     context->Draw(m_vertexCount);
 }
 
+bool DrawCommand::IsSkinned() const {
+    for (const auto& b : m_constantBuffers) {
+        if (b && b->GetSlot() == 3) return true;
+    }
+    return false;
+}
+
 DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
                                        RefPtr<BufferBase> indexBuffer,
                                        List<RefPtr<BufferBase>> constantBuffers,
@@ -92,6 +99,13 @@ void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
     context->DrawIndexed(m_indexCount);
 }
 
+bool DrawIndexedCommand::IsSkinned() const {
+    for (const auto& b : m_constantBuffers) {
+        if (b && b->GetSlot() == 3) return true;
+    }
+    return false;
+}
+
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
     void* Data,
     uint16_t Size) :
@@ -141,20 +155,15 @@ BindMaterialCommand::BindMaterialCommand(::Sleak::Material* material)
 void BindMaterialCommand::Execute(RenderContext* context) {
     if (m_material) {
         if (context->IsInGeometryPass()) {
-            // Deferred geometry pass: use the GBuffer shader instead of the
-            // material's forward shader, but still bind all textures and the
-            // material CB so the GBuffer shader can read albedo/roughness/etc.
-            context->BindGBufferShader();
-            m_material->BindTexturesAndCB();
+            // PBR deferred geometry pass: bind pipeline + all 6 PBR textures +
+            // material UBO as a single Vulkan descriptor set update.
+            context->BindPBRMaterial(m_material);
         } else {
             m_material->Bind();
-        }
-
-        // Bind diffuse texture through RenderContext (needed for Vulkan
-        // descriptor set switching — OpenGL already binds via Texture::Bind())
-        auto* diffuse = m_material->GetDiffuseTexture();
-        if (diffuse) {
-            context->BindTextureRaw(diffuse, 0);
+            // Bind diffuse texture through RenderContext (needed for Vulkan
+            // descriptor set switching — OpenGL already binds via Texture::Bind())
+            auto* diffuse = m_material->GetDiffuseTexture();
+            if (diffuse) context->BindTextureRaw(diffuse, 0);
         }
     }
 }

@@ -55,7 +55,8 @@ namespace Sleak {
         static void BeginBatch(Material* material);
 
         // Submit one indexed draw call (vertex + index buffer bind + DrawIndexed).
-        static void Draw(const MeshHandle& mesh);
+        // castsShadow=false makes the draw skip the shadow pass (distant geometry).
+        static void Draw(const MeshHandle& mesh, bool castsShadow = true);
 
         // End the batch (currently a no-op, reserved for future use).
         static void EndBatch();

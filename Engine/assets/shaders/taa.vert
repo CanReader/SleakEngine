@@ -1,6 +1,5 @@
 #version 450
 
-// Fullscreen triangle from gl_VertexIndex.
 layout(location = 0) out vec2 fragUV;
 
 void main() {

@@ -8,6 +8,7 @@
 #include "Logger.hpp"
 #include <vulkan/vulkan.h>
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
+#include <Runtime/Material.hpp>
 #include <cstdint>
 #include <vector>
 #include <set>
@@ -126,6 +127,7 @@ public:
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
     virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
     virtual void BindGBufferShader() override;
+    virtual void BindPBRMaterial(Sleak::Material* material) override;
     virtual void ExecuteDeferredLightingPass() override;
     virtual void BeginForwardTransparentPass() override;
     virtual void EndForwardTransparentPass() override;
@@ -145,6 +147,7 @@ private:
     bool CreateGBufferRenderPass();
     bool CreateGBufferFramebuffer();
     bool CreateGBufferPipeline();
+    bool CreateSkinnedGbufferPipeline();
     bool CreateLightingRenderPass();
     bool CreateLightingFramebuffers();
     bool CreateLightingPipeline();
@@ -152,7 +155,11 @@ private:
     bool CreateForwardFramebuffers();
     bool CreateGBufferDescriptorSets();
     bool CreateDeferredCBResources();
+    bool CreatePBRMaterialResources();
+    bool CreateIBLResources();
+    bool TriggerIBLPrecompute(VkImageView envCubemapView, VkSampler envSampler);
     void CleanupGBufferResources();
+    void CleanupIBLResources();
     void UpdateGBufferDescriptors();
 
     // Shadow mapping
@@ -325,11 +332,12 @@ private:
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
 
     // Shadow mapping resources
-    static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
+    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
     VkImage m_shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
     VkImageView m_shadowImageView = VK_NULL_HANDLE;
-    VkSampler m_shadowSampler = VK_NULL_HANDLE;
+    VkSampler m_shadowSampler = VK_NULL_HANDLE;      // compare sampler (hardware PCF)
+    VkSampler m_shadowRawSampler = VK_NULL_HANDLE;   // non-compare sampler (PCSS blocker search)
     VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
     VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
     VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
@@ -375,6 +383,7 @@ private:
     VkRenderPass   m_gbufferRenderPass              = VK_NULL_HANDLE;
     VkFramebuffer  m_gbufferFramebuffer             = VK_NULL_HANDLE;
     VkPipeline     m_gbufferPipeline                = VK_NULL_HANDLE;
+    VkPipeline     m_skinnedGbufferPipeline         = VK_NULL_HANDLE;
     VkPipelineLayout m_gbufferPipelineLayout        = VK_NULL_HANDLE;
     VulkanShader*  m_gbufferShader                  = nullptr;
     bool           m_gbufferResourcesCreated        = false;
@@ -412,6 +421,293 @@ private:
     std::array<void*,          MAX_FRAMES_IN_FLIGHT> m_deferredCBMapped  = {};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_deferredCBSets   = {};
     bool m_deferredCBCreated = false;
+
+    // PBR material descriptor resources (GBuffer geometry pass, set 0)
+    // One per-frame descriptor set updated with each BindPBRMaterial() call.
+    struct alignas(16) PBRMaterialParams {
+        float albedoFactorR, albedoFactorG, albedoFactorB, albedoFactorA; // vec4
+        float metallicFactor, roughnessFactor, aoFactor, normalIntensity;  // 4 floats
+        float emissiveR, emissiveG, emissiveB, emissiveIntensity;          // vec4
+        float tilingX, tilingY, offsetX, offsetY;                          // 4 floats
+        uint32_t hasNormalMap, hasMetallicMap, hasRoughnessMap, hasAOMap;  // 4 uints
+        uint32_t hasEmissiveMap; float _pad0, _pad1, _pad2;               // 4 floats
+    };
+    VkDescriptorSetLayout m_pbrMaterialDSL         = VK_NULL_HANDLE;
+    VkDescriptorPool      m_pbrMaterialPool        = VK_NULL_HANDLE;
+    std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBBuffers = {};
+    std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMemory  = {};
+    std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMapped  = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_pbrMaterialSets      = {};
+    bool m_pbrMaterialResourcesCreated = false;
+    VkPipelineLayout m_gbufferGeomLayout = VK_NULL_HANDLE;
+
+    // IBL resources (lighting pass, set 3)
+    VkImage        m_iblIrradianceImage   = VK_NULL_HANDLE;
+    VkDeviceMemory m_iblIrradianceMemory  = VK_NULL_HANDLE;
+    VkImageView    m_iblIrradianceView    = VK_NULL_HANDLE;
+    VkSampler      m_iblIrradianceSampler = VK_NULL_HANDLE;
+
+    VkImage        m_iblPrefilterImage    = VK_NULL_HANDLE;
+    VkDeviceMemory m_iblPrefilterMemory   = VK_NULL_HANDLE;
+    VkImageView    m_iblPrefilterView     = VK_NULL_HANDLE;
+    VkSampler      m_iblPrefilterSampler  = VK_NULL_HANDLE;
+    static constexpr uint32_t IBL_PREFILTER_MIP_LEVELS = 5;
+
+    VkImage        m_iblBrdfLutImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_iblBrdfLutMemory     = VK_NULL_HANDLE;
+    VkImageView    m_iblBrdfLutView       = VK_NULL_HANDLE;
+    VkSampler      m_iblBrdfLutSampler    = VK_NULL_HANDLE;
+
+    VkDescriptorSetLayout m_iblDSL        = VK_NULL_HANDLE;
+    VkDescriptorPool      m_iblPool       = VK_NULL_HANDLE;
+    std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_iblSettingsBuffers = {};
+    std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_iblSettingsMemory  = {};
+    std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_iblSettingsMapped  = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_iblSets            = {};
+    bool m_iblResourcesCreated = false;
+    bool m_iblReady            = false;
+
+    // Deferred IBL precompute — set when TriggerIBLPrecompute is called while
+    // a frame is recording; executed at the top of the next BeginRender call.
+    bool        m_iblPrecomputePending      = false;
+    VkImageView m_pendingIBLCubemapView    = VK_NULL_HANDLE;
+    VkSampler   m_pendingIBLCubemapSampler = VK_NULL_HANDLE;
+
+    // ---- SSAO resources ----
+    // Half-resolution R8 occlusion buffer (raw SSAO + blurred).
+    static constexpr uint32_t SSAO_KERNEL_SIZE = 32;
+    static constexpr uint32_t SSAO_NOISE_SIZE  = 4;
+    bool       m_ssaoResourcesCreated      = false;
+    bool       m_ssaoEnabled               = false;  // off by default (match light renderer); toggle in settings
+    VkExtent2D m_ssaoExtent                = {0, 0};
+    VkFormat   m_ssaoFormat                = VK_FORMAT_R8_UNORM;
+
+    VkImage        m_ssaoRawImage          = VK_NULL_HANDLE;
+    VkDeviceMemory m_ssaoRawMemory         = VK_NULL_HANDLE;
+    VkImageView    m_ssaoRawView           = VK_NULL_HANDLE;
+    VkFramebuffer  m_ssaoRawFramebuffer    = VK_NULL_HANDLE;
+
+    VkImage        m_ssaoBlurImage         = VK_NULL_HANDLE;
+    VkDeviceMemory m_ssaoBlurMemory        = VK_NULL_HANDLE;
+    VkImageView    m_ssaoBlurView          = VK_NULL_HANDLE;
+    VkFramebuffer  m_ssaoBlurFramebuffer   = VK_NULL_HANDLE;
+
+    VkRenderPass   m_ssaoRenderPass        = VK_NULL_HANDLE;  // shared for raw + blur
+    VkPipeline     m_ssaoPipeline          = VK_NULL_HANDLE;
+    VkPipeline     m_ssaoBlurPipeline      = VK_NULL_HANDLE;
+    VkPipelineLayout m_ssaoPipelineLayout  = VK_NULL_HANDLE;
+    VkPipelineLayout m_ssaoBlurPipelineLayout = VK_NULL_HANDLE;
+    VulkanShader*  m_ssaoShader            = nullptr;
+    VulkanShader*  m_ssaoBlurShader        = nullptr;
+
+    VkSampler      m_ssaoSampler           = VK_NULL_HANDLE;  // linear clamp
+    VkSampler      m_ssaoPointSampler      = VK_NULL_HANDLE;  // nearest clamp for depth
+
+    // SSAO noise texture (4x4 RGBA random rotation vectors)
+    VkImage        m_ssaoNoiseImage        = VK_NULL_HANDLE;
+    VkDeviceMemory m_ssaoNoiseMemory       = VK_NULL_HANDLE;
+    VkImageView    m_ssaoNoiseView         = VK_NULL_HANDLE;
+    VkSampler      m_ssaoNoiseSampler      = VK_NULL_HANDLE;
+
+    // SSAO pass descriptor sets
+    struct alignas(16) SSAOParams {
+        float View[16];
+        float Projection[16];
+        float Kernel[SSAO_KERNEL_SIZE][4];  // xyz=dir, w=pad
+        float ScreenW, ScreenH;
+        float NoiseScaleX, NoiseScaleY;
+        float Radius, Bias, Power, Intensity;
+        uint32_t KernelSize;
+        float _pad0, _pad1, _pad2;
+    };
+    VkDescriptorSetLayout m_ssaoInputDSL       = VK_NULL_HANDLE;  // set 0: samplers
+    VkDescriptorSetLayout m_ssaoUboDSL         = VK_NULL_HANDLE;  // set 1: UBO
+    VkDescriptorSetLayout m_ssaoBlurDSL        = VK_NULL_HANDLE;  // set 0: blur input + depth
+    VkDescriptorPool      m_ssaoDescriptorPool = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ssaoInputSets = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ssaoUboSets   = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ssaoBlurSets  = {};
+    std::array<VkBuffer,       MAX_FRAMES_IN_FLIGHT>  m_ssaoUboBuffers = {};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT>  m_ssaoUboMemory  = {};
+    std::array<void*,          MAX_FRAMES_IN_FLIGHT>  m_ssaoUboMapped  = {};
+
+    // Cached camera state for SSAO UBO fill (set from SetViewProj or inferred
+    // from DeferredCB's InvViewProj). We populate View+Projection at SSAO time.
+    float m_cachedView[16]       = {};
+    float m_cachedProjection[16] = {};
+
+    bool CreateSSAOResources();
+    void CleanupSSAOResources();
+    bool CreateSSAOImages();
+    bool CreateSSAORenderPass();
+    bool CreateSSAOFramebuffers();
+    bool CreateSSAOPipelines();
+    bool CreateSSAODescriptorResources();
+    bool CreateSSAONoiseTexture();
+    void UpdateSSAODescriptors();
+    void UpdateSSAOUBO();
+    void RenderSSAOPasses();
+
+    // ---- SSR (Screen-Space Reflections) resources ----
+    // Full-resolution R16G16B16A16 premultiplied reflection buffer. Rendered
+    // after the forward pass, added into the HDR scene by the bloom composite.
+    struct alignas(16) SSRParams {
+        float View[16];
+        float Projection[16];
+        float CameraPos[4];         // xyz = world pos, w = pad
+        float ScreenW, ScreenH;
+        float MaxDistance;          // view-space ray march distance
+        float Thickness;            // depth intersection thickness
+        int   NumSteps;             // coarse steps
+        int   NumBinarySteps;       // refinement steps
+        float RoughnessThreshold;   // beyond this, no reflections
+        float _pad;
+    };
+
+    bool       m_ssrResourcesCreated = false;
+    bool       m_ssrEnabled          = false;
+    VkFormat   m_ssrFormat           = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    VkImage        m_ssrImage         = VK_NULL_HANDLE;
+    VkDeviceMemory m_ssrMemory        = VK_NULL_HANDLE;
+    VkImageView    m_ssrView          = VK_NULL_HANDLE;
+    VkSampler      m_ssrSampler       = VK_NULL_HANDLE;
+    VkRenderPass   m_ssrRenderPass    = VK_NULL_HANDLE;
+    VkFramebuffer  m_ssrFramebuffer   = VK_NULL_HANDLE;
+    VkPipeline     m_ssrPipeline      = VK_NULL_HANDLE;
+    VkPipelineLayout m_ssrPipelineLayout = VK_NULL_HANDLE;
+    VulkanShader*  m_ssrShader        = nullptr;
+
+    VkDescriptorSetLayout m_ssrInputDSL = VK_NULL_HANDLE;  // set 0: 6 samplers
+    VkDescriptorSetLayout m_ssrUboDSL   = VK_NULL_HANDLE;  // set 1: UBO
+    VkDescriptorPool      m_ssrPool    = VK_NULL_HANDLE;
+
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ssrInputSets{};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ssrUboSets{};
+    std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_ssrUboBuffers{};
+    std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_ssrUboMemory{};
+    std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_ssrUboMapped{};
+
+    bool CreateSSRResources();
+    void CleanupSSRResources();
+    void UpdateSSRUBO();
+    void UpdateSSRDescriptors();
+    void RenderSSRPass();
+
+    // ---- TAA (Temporal Anti-Aliasing) resources ----
+    // Ping-pong history accumulation with depth-based reprojection
+    // and 3x3 neighborhood AABB clamping.
+    struct alignas(16) TAAParams {
+        float InvCurrentVP[16]; // inverse of unjittered current VP
+        float PrevVP[16];       // previous frame unjittered VP
+        float ScreenW, ScreenH;
+        float BlendFactor;
+        float _pad;
+    };
+
+    bool     m_taaResourcesCreated = false;
+    bool     m_taaEnabled          = false;
+    uint64_t m_taaFrameIdx         = 0;   // global counter; ping-pong = idx % 2
+
+    VkImage        m_taaImages[2]     = {};
+    VkDeviceMemory m_taaMemory[2]     = {};
+    VkImageView    m_taaViews[2]      = {};
+    VkRenderPass   m_taaRenderPass    = VK_NULL_HANDLE;
+    VkFramebuffer  m_taaFramebufs[2]  = {};
+    VkSampler      m_taaSampler       = VK_NULL_HANDLE;
+
+    VkDescriptorSetLayout m_taaInputDSL = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_taaUboDSL   = VK_NULL_HANDLE;
+    VkDescriptorPool      m_taaPool     = VK_NULL_HANDLE;
+
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_taaInputSets{};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_taaUboSets{};
+    std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_taaUboBuffers{};
+    std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_taaUboMemory{};
+    std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_taaUboMapped{};
+
+    VkPipelineLayout m_taaPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline       m_taaPipeline       = VK_NULL_HANDLE;
+    VulkanShader*    m_taaShader         = nullptr;
+
+    float m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
+    float m_taaJitter[2]     = {};  // current frame jitter in UV space
+
+    bool CreateTAAResources();
+    void CleanupTAAResources();
+    void UpdateTAAUBO();
+    void RenderTAAPass();
+
+    // ---- Bloom + HDR post-processing resources ----
+    // We render the lighting pass into an HDR scene-color image (not the
+    // swapchain). Then we run the bloom pyramid and a final composite that
+    // tonemaps + combines bloom into the swapchain.
+    static constexpr uint32_t BLOOM_MIP_COUNT = 6;
+    bool       m_bloomResourcesCreated     = false;
+    VkFormat   m_hdrSceneFormat            = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    // HDR scene color image (lighting pass target)
+    VkImage        m_hdrSceneImage         = VK_NULL_HANDLE;
+    VkDeviceMemory m_hdrSceneMemory        = VK_NULL_HANDLE;
+    VkImageView    m_hdrSceneView          = VK_NULL_HANDLE;
+    VkFramebuffer  m_hdrSceneFramebuffer   = VK_NULL_HANDLE;
+    VkRenderPass   m_hdrLightingRenderPass = VK_NULL_HANDLE;
+
+    // Bloom mip chain — single image with BLOOM_MIP_COUNT mip levels; each
+    // level gets its own VkImageView so we can render into/out of it.
+    VkImage        m_bloomImage            = VK_NULL_HANDLE;
+    VkDeviceMemory m_bloomMemory           = VK_NULL_HANDLE;
+    std::array<VkImageView, BLOOM_MIP_COUNT> m_bloomMipViews = {};
+    std::array<VkFramebuffer, BLOOM_MIP_COUNT> m_bloomMipFramebuffers = {};
+    std::array<VkExtent2D, BLOOM_MIP_COUNT> m_bloomMipExtents = {};
+
+    VkRenderPass   m_bloomRenderPass       = VK_NULL_HANDLE;   // shared, loadOp=DONT_CARE, color output
+    VkRenderPass   m_bloomAddRenderPass    = VK_NULL_HANDLE;   // LOAD, blend-add
+    VkRenderPass   m_bloomCompositeRenderPass = VK_NULL_HANDLE; // swapchain target (DONT_CARE -> PRESENT_SRC)
+    std::vector<VkFramebuffer> m_bloomCompositeFramebuffers;   // one per swapchain image
+
+    VkPipeline     m_bloomThresholdPipeline = VK_NULL_HANDLE;
+    VkPipeline     m_bloomDownsamplePipeline = VK_NULL_HANDLE;
+    VkPipeline     m_bloomUpsamplePipeline = VK_NULL_HANDLE;
+    VkPipeline     m_bloomCompositePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_bloomFilterPipelineLayout = VK_NULL_HANDLE;  // src-only + push constant
+    VkPipelineLayout m_bloomCompositePipelineLayout = VK_NULL_HANDLE; // two inputs + push constant
+    VulkanShader*  m_bloomThresholdShader  = nullptr;
+    VulkanShader*  m_bloomDownsampleShader = nullptr;
+    VulkanShader*  m_bloomUpsampleShader   = nullptr;
+    VulkanShader*  m_bloomCompositeShader  = nullptr;
+
+    // One descriptor set per bloom transition (threshold + BLOOM_MIP_COUNT-1
+    // downsamples + BLOOM_MIP_COUNT-1 upsamples) per frame slot.
+    // Simpler: allocate a pool with enough sets for all transitions and
+    // re-write them each frame.
+    VkDescriptorSetLayout m_bloomFilterDSL    = VK_NULL_HANDLE;  // 1 sampler
+    VkDescriptorSetLayout m_bloomCompositeDSL = VK_NULL_HANDLE;  // 2 samplers
+    VkDescriptorPool      m_bloomDescriptorPool = VK_NULL_HANDLE;
+
+    // Pre-allocated descriptor sets (per frame slot, per transition)
+    //   transitions = 1 (threshold -> mip0) + (BLOOM_MIP_COUNT-1) downsample
+    //               + (BLOOM_MIP_COUNT-1) upsample
+    static constexpr uint32_t BLOOM_TRANSITION_COUNT = 1 + (BLOOM_MIP_COUNT - 1) + (BLOOM_MIP_COUNT - 1);
+    std::array<std::array<VkDescriptorSet, BLOOM_TRANSITION_COUNT>, MAX_FRAMES_IN_FLIGHT> m_bloomFilterSets = {};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_bloomCompositeSets = {};
+
+    VkSampler m_bloomSampler = VK_NULL_HANDLE;  // linear clamp
+
+    bool CreateBloomResources();
+    void CleanupBloomResources();
+    bool CreateHDRSceneResources();
+    bool CreateBloomImages();
+    bool CreateBloomRenderPasses();
+    bool CreateBloomFramebuffers();
+    bool CreateBloomPipelines();
+    bool CreateBloomDescriptorResources();
+    void RenderBloomPass();
+    void RenderBloomCompositePass();
+
+    // Helper used by the upload path of the default renderer to pick a
+    // reasonable linear-clamp sampler for post-process work.
+    static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
 };
 
 }  // namespace RenderEngine

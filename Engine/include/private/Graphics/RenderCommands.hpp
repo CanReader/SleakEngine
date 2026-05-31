@@ -51,12 +51,19 @@ namespace Sleak {
             virtual void Execute(RenderContext* context) = 0;
             virtual CommandType GetType() const = 0;
             virtual void ExecuteShadow(RenderContext* context) { /* no-op for non-draw commands */ }
+            virtual bool IsSkinned() const { return false; }
 
             void SetOwnerObjectID(uint32_t id) { m_ownerObjectID = id; }
             uint32_t GetOwnerObjectID() const { return m_ownerObjectID; }
 
+            // Shadow-caster cull: distant draws render to the camera but skip the
+            // shadow pass (their shadows are imperceptible). Default true.
+            void SetCastsShadow(bool v) { m_castsShadow = v; }
+            bool CastsShadow() const { return m_castsShadow; }
+
         private:
             uint32_t m_ownerObjectID = 0;
+            bool m_castsShadow = true;
         };
 
         class DrawCommand : public RenderCommandBase {
@@ -70,6 +77,7 @@ namespace Sleak {
 
                 RENDER_COMMAND(Draw)
                 void ExecuteShadow(RenderContext* context) override;
+                bool IsSkinned() const override;
 
             private:
                 RefPtr<BufferBase> m_vertexBuffer;
@@ -90,7 +98,8 @@ namespace Sleak {
 
             RENDER_COMMAND(DrawIndexed)
             void ExecuteShadow(RenderContext* context) override;
-            
+            bool IsSkinned() const override;
+
         private:
             RefPtr<BufferBase> m_vertexBuffer;
             RefPtr<BufferBase> m_indexBuffer;

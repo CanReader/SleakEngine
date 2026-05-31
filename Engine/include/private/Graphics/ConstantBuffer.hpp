@@ -183,6 +183,12 @@ namespace Sleak {
             float HeightFogDensity;  // max density at low elevations [0..1]
             float HeightFogFalloff;  // exponential falloff per world unit (e^-(top-y)*falloff)
             float HeightFogEnabled;  // 0 = off, 1 = on
+
+            // Extra directional lights (fill, rim, etc.) — no shadow casting
+            float ExtraLightDir[3][4];    // xyz + unused (w=0)
+            float ExtraLightColor[3][4];  // rgb + intensity
+            uint32_t NumExtraLights;      // 0-3
+            float _extraPad[3];
         };
 
         // GPU-aligned POD struct for post-process settings constant buffer.

@@ -80,6 +80,12 @@ bool VulkanShader::compileVertexOnly(const std::string& vertPath) {
     return true;
 }
 
+VkShaderModule VulkanShader::LoadSPIRV(const char* path) {
+    auto code = ReadFile(path);
+    if (code.empty()) return VK_NULL_HANDLE;
+    return createShaderModule(code);
+}
+
 void VulkanShader::bind() {
 
 }
