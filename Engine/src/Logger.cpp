@@ -7,6 +7,12 @@
 
 #include <Core/OSDef.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <vector>
+
 #ifdef PLATFORM_WIN
 #include <Windows.h>
 #define TRACE_COLOR FOREGROUND_BLUE | FOREGROUND_INTENSITY
@@ -37,9 +43,40 @@ void Logger::Init(const std::string& ProjectName) {
     console_sink->set_color(spdlog::level::err, ERROR_COLOR);
     console_sink->set_color(spdlog::level::critical, CRITIC_COLOR);
 
-    // File sink (optional)
+#ifdef DEBUG
+    // Debug: one timestamped log per session under logs/, keep newest 10
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories("logs", ec);
+
+    std::vector<fs::path> sessions;
+    for (auto& e : fs::directory_iterator("logs", ec))
+        if (e.is_regular_file() && e.path().extension() == ".log" &&
+            e.path().filename() != "latest.log")
+            sessions.push_back(e.path());
+    std::sort(sessions.begin(), sessions.end());
+    while (sessions.size() >= 10) {
+        fs::remove(sessions.front(), ec);
+        sessions.erase(sessions.begin());
+    }
+
+    char stamp[32];
+    std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&now));
+    std::string logPath = "logs/" + ProjectName + "_" + stamp + ".log";
+
+    auto file_sink =
+        std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath, true);
+
+#ifndef PLATFORM_WIN
+    // logs/latest.log always points at the current session
+    fs::remove("logs/latest.log", ec);
+    fs::create_symlink(fs::path(logPath).filename(), "logs/latest.log", ec);
+#endif
+#else
     auto file_sink =
         std::make_shared<spdlog::sinks::basic_file_sink_mt>("Engine.log", true);
+#endif
 
     // Combine console + file sinks
     std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
@@ -52,6 +89,11 @@ void Logger::Init(const std::string& ProjectName) {
 
     CoreLogger->set_level(spdlog::level::trace);
     GameLogger->set_level(spdlog::level::trace);
+
+    // Crash-safe: errors flush immediately, everything else every second
+    CoreLogger->flush_on(spdlog::level::err);
+    GameLogger->flush_on(spdlog::level::err);
+    spdlog::flush_every(std::chrono::seconds(1));
 
     spdlog::register_logger(CoreLogger);
     spdlog::register_logger(GameLogger);
