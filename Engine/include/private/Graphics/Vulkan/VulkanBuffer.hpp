@@ -3,6 +3,7 @@
 
 #include "../BufferBase.hpp"
 #include <vulkan/vulkan.h>
+#include <vma/vk_mem_alloc.h>
 #include <vector>
 
 namespace Sleak {
@@ -27,6 +28,13 @@ public:
 
     VkBuffer GetVkBuffer() const { return m_buffer; }
 
+    // VMA allocator lifecycle (owned by the renderer; created after the
+    // logical device, destroyed after all buffers are drained).
+    static void InitAllocator(VkInstance instance,
+                              VkPhysicalDevice physicalDevice, VkDevice device);
+    static void DestroyAllocator();
+    static VmaAllocator GetAllocator() { return s_allocator; }
+
     // Flush all pending buffer copies in a single batched submission (synchronous).
     static void FlushPendingCopies();
 
@@ -34,7 +42,7 @@ public:
     // No CPU wait — the caller must wait on the semaphore before using data.
     struct PendingStagingCleanup {
         VkBuffer buffer;
-        VkDeviceMemory memory;
+        VmaAllocation memory;
         VkDeviceSize allocSize = 0;
         uint32_t memoryTypeIndex = 0;
     };
@@ -54,7 +62,7 @@ public:
 private:
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
-                      VkBuffer& buffer, VkDeviceMemory& memory,
+                      VkBuffer& buffer, VmaAllocation& memory,
                       VkDeviceSize* outAllocSize = nullptr,
                       uint32_t* outMemTypeIdx = nullptr);
 
@@ -70,13 +78,14 @@ private:
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
 
     VkBuffer m_buffer = VK_NULL_HANDLE;
-    VkDeviceMemory m_memory = VK_NULL_HANDLE;
-    VkDeviceSize m_allocSize = 0;
+    VmaAllocation m_memory = VK_NULL_HANDLE;
+    VkDeviceSize m_allocSize = 0;      // backing memory size (memReq)
+    VkDeviceSize m_bufferSize = 0;     // logical VkBuffer size (bucketed)
     VkBufferUsageFlags m_usage = 0;
     uint32_t m_memoryTypeIndex = 0;
 
     VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;
+    VmaAllocation m_stagingMemory = VK_NULL_HANDLE;
 
     void* m_mappedData = nullptr;
     bool m_pendingInBatch = false;
@@ -96,12 +105,13 @@ private:
     // --- Deferred buffer deletion ---
     struct DeferredBufferDelete {
         VkBuffer buffer;
-        VkDeviceMemory memory;
+        VmaAllocation memory;
         VkDevice device;
         VkDeviceSize allocSize;
         VkBufferUsageFlags usage;
         uint32_t memoryTypeIndex;
         uint64_t frameNumber;
+        VkDeviceSize bufferSize;
     };
     static std::vector<DeferredBufferDelete> s_deferredDeletions;
     static uint64_t s_frameNumber;
@@ -109,11 +119,13 @@ private:
     // --- Buffer recycling pool ---
     struct PooledBuffer {
         VkBuffer buffer;
-        VkDeviceMemory memory;
+        VmaAllocation memory;
         VkDevice device;
         VkDeviceSize allocSize;
         VkBufferUsageFlags usage;
         uint32_t memoryTypeIndex;
+        VkDeviceSize bufferSize;   // logical VkBuffer size (bucketed)
+        uint64_t insertFrame;      // for oldest-first eviction
     };
     static std::vector<PooledBuffer> s_bufferPool;
     static VkDeviceSize s_poolBytes;  // total bytes currently in pool
@@ -124,7 +136,7 @@ private:
 
     bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                           VkMemoryPropertyFlags properties,
-                          VkBuffer& buffer, VkDeviceMemory& memory,
+                          VkBuffer& buffer, VmaAllocation& memory,
                           VkDeviceSize* outAllocSize = nullptr);
 
     // Evict entries from the pool until it fits within the byte budget.
@@ -151,6 +163,7 @@ public:
     static void DumpPerFrameAllocStats();
 
 private:
+    static VmaAllocator s_allocator;
     static VkDeviceSize s_totalAllocatedBytes;
     static VkPhysicalDevice s_physicalDeviceGlobal;
     static VkDeviceSize s_perTypeBytes[VK_MAX_MEMORY_TYPES];
