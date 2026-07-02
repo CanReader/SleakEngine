@@ -23,6 +23,7 @@ namespace Sleak { class MeshBatch { public: static void Shutdown(); }; }
 #include <Utility/Container/List.hpp>
 #include <Core/ScopedTimer.h>
 #include <Math/Matrix.hpp>
+#include <UI/UI.hpp>
 #include <Graphics/ConstantBuffer.hpp>
 #include <Graphics/Vertex.hpp>
 #include "ECS/Components/MeshComponent.hpp"
@@ -107,6 +108,7 @@ namespace Sleak {
         if (renderer) renderer->WaitIdle();
 
         delete Game;
+        Sleak::UI::ShutdownTextureCache();  // frees cached VkImage/memory pre-device-teardown
         Sleak::MeshBatch::Shutdown();
         delete m_benchmark;
         m_benchmark = nullptr;

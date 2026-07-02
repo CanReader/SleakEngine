@@ -83,6 +83,7 @@ ENGINE_API void TextWrapped(const char* fmt, ...);
 ENGINE_API void Image(uint64_t textureID, float width, float height);
 ENGINE_API void DrawImage(uint64_t textureID, float x, float y, float width, float height);
 ENGINE_API uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth = nullptr, float* outHeight = nullptr);
+ENGINE_API void ShutdownTextureCache();  // engine calls at teardown
 
 // Create a texture from raw RGBA pixel data (for runtime atlas building etc.)
 ENGINE_API Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels);

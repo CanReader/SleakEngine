@@ -270,6 +270,12 @@ uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth, float* o
     return tex->GetImGuiTextureID();
 }
 
+void ShutdownTextureCache() {
+    // Must run before device teardown — cached textures own VkImage/memory
+    for (auto& [path, tex] : s_uiTextures) delete tex;
+    s_uiTextures.clear();
+}
+
 Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels) {
     return RenderEngine::ResourceManager::CreateTextureFromMemory(
         rgbaPixels, width, height, TextureFormat::RGBA8);
