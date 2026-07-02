@@ -276,9 +276,9 @@ void ShutdownTextureCache() {
     s_uiTextures.clear();
 }
 
-Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels) {
+Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels, uint32_t maxMipLevels) {
     return RenderEngine::ResourceManager::CreateTextureFromMemory(
-        rgbaPixels, width, height, TextureFormat::RGBA8);
+        rgbaPixels, width, height, TextureFormat::RGBA8, maxMipLevels);
 }
 
 unsigned char* LoadImagePixels(const char* path, int* w, int* h) {

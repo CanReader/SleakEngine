@@ -26,6 +26,10 @@ public:
     void SetLodBias(float bias) override;
     float GetLodBias() const override { return m_lodBias; }
 
+    // Cap generated mip levels (0 = full chain). Set before Load*; used to
+    // stop atlas tiles bleeding into each other at distant mips.
+    void SetMaxMipLevels(uint32_t levels) { m_maxMipLevels = levels; }
+
     uint32_t GetWidth() const override { return m_width; }
     uint32_t GetHeight() const override { return m_height; }
     TextureFormat GetFormat() const override { return m_format; }
@@ -48,11 +52,12 @@ private:
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
     bool CreateImage(uint32_t width, uint32_t height, VkFormat format,
-                     VkImageUsageFlags usage);
+                     VkImageUsageFlags usage, uint32_t mipLevels);
     bool CreateImageView(VkFormat format);
     bool CreateSampler();
     void TransitionImageLayout(VkImage image, VkImageLayout oldLayout,
                                VkImageLayout newLayout);
+    void GenerateMipmaps(VkCommandBuffer cmd, int32_t width, int32_t height);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
@@ -73,6 +78,8 @@ private:
     TextureFilter m_filter = TextureFilter::Linear;
     TextureWrapMode m_wrapMode = TextureWrapMode::Repeat;
     float m_lodBias = 0.0f;
+    uint32_t m_mipLevels = 1;      // actual generated levels
+    uint32_t m_maxMipLevels = 0;   // 0 = full chain; else clamp
 };
 
 }  // namespace RenderEngine

@@ -56,8 +56,9 @@ VulkanRenderer::VulkanRenderer(Window* window)
         this, &VulkanRenderer::CreateCubemapTextureFromPanorama);
 
     ResourceManager::RegisterCreateTextureFromMemory(
-        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> ::Sleak::Texture* {
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t maxMip) -> ::Sleak::Texture* {
             auto* tex = new VulkanTexture(device, physicalDevice, commands, graphicsQueue);
+            tex->SetMaxMipLevels(maxMip);
             if (tex->LoadFromMemory(data, w, h, fmt)) {
                 WriteTextureDescriptors(tex);
                 return tex;

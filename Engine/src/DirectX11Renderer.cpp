@@ -35,7 +35,7 @@ DirectX11Renderer::DirectX11Renderer(Window* window)
         ResourceManager::RegisterCreateCubemapTexture(this,&DirectX11Renderer::CreateCubemapTexture);
         ResourceManager::RegisterCreateCubemapTextureFromPanorama(this,&DirectX11Renderer::CreateCubemapTextureFromPanorama);
         ResourceManager::RegisterCreateTextureFromMemory(
-            [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+            [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t) -> Texture* {
                 auto* tex = new DirectX11Texture(device);
                 if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
                 delete tex;

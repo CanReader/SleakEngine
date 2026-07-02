@@ -61,10 +61,10 @@ namespace Sleak {
             return nullptr;
         }
 
-        Sleak::Texture* ResourceManager::CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format) {
+        Sleak::Texture* ResourceManager::CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format, uint32_t maxMipLevels) {
             std::lock_guard<std::mutex> lock(threadManager);
             if (TextureFromMemoryCreateFunc) {
-                std::any result = TextureFromMemoryCreateFunc(data, width, height, format);
+                std::any result = TextureFromMemoryCreateFunc(data, width, height, format, maxMipLevels);
                 try {
                     if (result.has_value()) {
                         Texture* texture = std::any_cast<Texture*>(result);

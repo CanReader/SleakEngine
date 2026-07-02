@@ -36,7 +36,7 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &DirectX12Renderer::CreateCubemapTextureFromPanorama);
     ResourceManager::RegisterCreateTextureFromMemory(
-        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t) -> Texture* {
             auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(), commandList.Get());
             if (!tex->LoadFromMemory(data, w, h, fmt)) { delete tex; return nullptr; }
             UINT slot = AllocateSRVSlot();

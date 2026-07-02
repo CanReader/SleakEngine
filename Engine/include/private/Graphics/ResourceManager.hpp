@@ -15,7 +15,7 @@
         std::function<std::any(BufferType, uint32_t, void*)> ResourceManager::BufferCreationFunc; \
         std::function<std::any(const std::string&)> ResourceManager::ShaderCreateFunc;\
         std::function<std::any(const std::string&)> ResourceManager::TextureCreateFunc; \
-        std::function<std::any(const void*, uint32_t, uint32_t, TextureFormat)> ResourceManager::TextureFromMemoryCreateFunc; \
+        std::function<std::any(const void*, uint32_t, uint32_t, TextureFormat, uint32_t)> ResourceManager::TextureFromMemoryCreateFunc; \
         std::function<std::any(const std::array<std::string, 6>&)> ResourceManager::CubemapTextureCreateFunc; \
         std::function<std::any(const std::string&)> ResourceManager::CubemapPanoramaCreateFunc; \
         std::mutex ResourceManager::threadManager;
@@ -59,10 +59,10 @@ namespace Sleak {
             }
 
             // Register a function for creating textures from memory
-            static void RegisterCreateTextureFromMemory(std::function<Texture*(const void*, uint32_t, uint32_t, TextureFormat)> func) {
+            static void RegisterCreateTextureFromMemory(std::function<Texture*(const void*, uint32_t, uint32_t, TextureFormat, uint32_t)> func) {
                 std::lock_guard<std::mutex> lock(threadManager);
-                TextureFromMemoryCreateFunc = [func](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> std::any {
-                    return func(data, w, h, fmt);
+                TextureFromMemoryCreateFunc = [func](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t maxMip) -> std::any {
+                    return func(data, w, h, fmt, maxMip);
                 };
             }
 
@@ -87,7 +87,7 @@ namespace Sleak {
             static BufferBase* CreateBuffer(BufferType Type, uint32_t Size, void* Data);
             static Shader* CreateShader(const std::string& ShaderPath);
             static Sleak::Texture* CreateTexture(const std::string& TexturePath);
-            static Sleak::Texture* CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format);
+            static Sleak::Texture* CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format, uint32_t maxMipLevels = 0);
             static Sleak::Texture* CreateCubemapTexture(const std::array<std::string, 6>& FacePaths);
             static Sleak::Texture* CreateCubemapTextureFromPanorama(const std::string& PanoramaPath);
 
@@ -96,7 +96,7 @@ namespace Sleak {
             static std::function<std::any(BufferType, uint32_t, void*)> BufferCreationFunc;
             static std::function<std::any(const std::string&)> ShaderCreateFunc;
             static std::function<std::any(const std::string&)> TextureCreateFunc;
-            static std::function<std::any(const void*, uint32_t, uint32_t, TextureFormat)> TextureFromMemoryCreateFunc;
+            static std::function<std::any(const void*, uint32_t, uint32_t, TextureFormat, uint32_t)> TextureFromMemoryCreateFunc;
             static std::function<std::any(const std::array<std::string, 6>&)> CubemapTextureCreateFunc;
             static std::function<std::any(const std::string&)> CubemapPanoramaCreateFunc;
 

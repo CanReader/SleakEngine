@@ -38,7 +38,7 @@ OpenGLRenderer::OpenGLRenderer(Window* window)
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &OpenGLRenderer::CreateCubemapTextureFromPanorama);
     ResourceManager::RegisterCreateTextureFromMemory(
-        [](const void* data, uint32_t w, uint32_t h, TextureFormat fmt) -> Texture* {
+        [](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t) -> Texture* {
             auto* tex = new OpenGLTexture();
             if (tex->LoadFromMemory(data, w, h, fmt)) return tex;
             delete tex;

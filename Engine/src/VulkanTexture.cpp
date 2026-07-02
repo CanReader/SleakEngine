@@ -3,6 +3,8 @@
 #include <Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -73,75 +75,107 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
     memcpy(mapped, data, static_cast<size_t>(imageSize));
     vkUnmapMemory(m_device, stagingMemory);
 
-    // 3. Create VkImage
+    // 3. Create VkImage with a full mip chain
     VkFormat vkFormat = VK_FORMAT_R8G8B8A8_UNORM;
     if (format == TextureFormat::BGRA8)
         vkFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
+    uint32_t maxDim = std::max(width, height);
+    uint32_t mipLevels =
+        static_cast<uint32_t>(std::floor(std::log2(maxDim))) + 1u;
+    if (m_maxMipLevels > 0 && m_maxMipLevels < mipLevels)
+        mipLevels = m_maxMipLevels;
+
+    // Linear-blit support is required to downsample; else fall back to 1 level.
+    VkFormatProperties fmtProps{};
+    vkGetPhysicalDeviceFormatProperties(m_physicalDevice, vkFormat, &fmtProps);
+    if (!(fmtProps.optimalTilingFeatures &
+          VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+        mipLevels = 1;
+    m_mipLevels = mipLevels;
+
     if (!CreateImage(width, height, vkFormat,
                      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                         VK_IMAGE_USAGE_SAMPLED_BIT)) {
+                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                         VK_IMAGE_USAGE_SAMPLED_BIT,
+                     mipLevels)) {
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingMemory, nullptr);
         return false;
     }
 
-    // 4. Transition, copy, transition
-    TransitionImageLayout(m_image, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    // 4. Single command buffer: barrier all mips -> DST, copy mip0, gen mips.
+    VkCommandBufferAllocateInfo cmdAllocInfo{};
+    cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdAllocInfo.commandPool = m_commandPool;
+    cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdAllocInfo.commandBufferCount = 1;
+    VkCommandBuffer cmdBuffer;
+    vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
 
-    // Copy staging buffer to image
-    {
-        VkCommandBufferAllocateInfo cmdAllocInfo{};
-        cmdAllocInfo.sType =
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAllocInfo.commandPool = m_commandPool;
-        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAllocInfo.commandBufferCount = 1;
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmdBuffer, &beginInfo);
 
-        VkCommandBuffer cmdBuffer;
-        vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
+    VkImageMemoryBarrier toDst{};
+    toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toDst.image = m_image;
+    toDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    toDst.subresourceRange.baseMipLevel = 0;
+    toDst.subresourceRange.levelCount = mipLevels;
+    toDst.subresourceRange.baseArrayLayer = 0;
+    toDst.subresourceRange.layerCount = 1;
+    toDst.srcAccessMask = 0;
+    toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toDst);
 
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyBufferToImage(cmdBuffer, stagingBuffer, m_image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {width, height, 1};
-
-        vkCmdCopyBufferToImage(cmdBuffer, stagingBuffer, m_image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                               &region);
-
-        vkEndCommandBuffer(cmdBuffer);
-
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmdBuffer;
-
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence copyFence;
-        vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
-        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
-        vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(m_device, copyFence, nullptr);
-        vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
+    if (mipLevels > 1) {
+        GenerateMipmaps(cmdBuffer, static_cast<int32_t>(width),
+                        static_cast<int32_t>(height));
+    } else {
+        // Single level: mip0 DST -> SHADER_READ
+        VkImageMemoryBarrier toRead = toDst;
+        toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        toRead.subresourceRange.levelCount = 1;
+        vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &toRead);
     }
 
-    TransitionImageLayout(m_image,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vkEndCommandBuffer(cmdBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence uploadFence;
+    vkCreateFence(m_device, &fenceInfo, nullptr, &uploadFence);
+    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, uploadFence);
+    vkWaitForFences(m_device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(m_device, uploadFence, nullptr);
+    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
 
     // 5. Cleanup staging resources
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -284,14 +318,15 @@ uint32_t VulkanTexture::FindMemoryType(
 
 bool VulkanTexture::CreateImage(uint32_t width, uint32_t height,
                                 VkFormat format,
-                                VkImageUsageFlags usage) {
+                                VkImageUsageFlags usage,
+                                uint32_t mipLevels) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.extent.width = width;
     imageInfo.extent.height = height;
     imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
+    imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
     imageInfo.format = format;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -333,7 +368,7 @@ bool VulkanTexture::CreateImageView(VkFormat format) {
     viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = m_mipLevels;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
 
@@ -345,9 +380,81 @@ bool VulkanTexture::CreateImageView(VkFormat format) {
     return true;
 }
 
+// Blit-downsample each mip from the previous, leaving all levels in
+// SHADER_READ_ONLY. Assumes mip0 is filled and all mips are TRANSFER_DST.
+void VulkanTexture::GenerateMipmaps(VkCommandBuffer cmd, int32_t width,
+                                    int32_t height) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.image = m_image;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.levelCount = 1;
+
+    int32_t mipW = width, mipH = height;
+    for (uint32_t i = 1; i < m_mipLevels; ++i) {
+        // Source mip (i-1): DST -> SRC
+        barrier.subresourceRange.baseMipLevel = i - 1;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &barrier);
+
+        VkImageBlit blit{};
+        blit.srcOffsets[0] = {0, 0, 0};
+        blit.srcOffsets[1] = {mipW, mipH, 1};
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = 1;
+        blit.dstOffsets[0] = {0, 0, 0};
+        blit.dstOffsets[1] = {mipW > 1 ? mipW / 2 : 1,
+                              mipH > 1 ? mipH / 2 : 1, 1};
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = 1;
+        vkCmdBlitImage(cmd, m_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                       VK_FILTER_LINEAR);
+
+        // Source mip (i-1): SRC -> SHADER_READ
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &barrier);
+
+        if (mipW > 1) mipW /= 2;
+        if (mipH > 1) mipH /= 2;
+    }
+
+    // Last mip: DST -> SHADER_READ
+    barrier.subresourceRange.baseMipLevel = m_mipLevels - 1;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+}
+
 bool VulkanTexture::CreateSampler() {
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+    float deviceMaxAniso = props.limits.maxSamplerAnisotropy;
 
     // Filter and mip mode
     VkFilter magFilter = VK_FILTER_LINEAR;
@@ -358,6 +465,8 @@ bool VulkanTexture::CreateSampler() {
 
     switch (m_filter) {
         case TextureFilter::Nearest:
+            // GL parity: NEAREST_MIPMAP_NEAREST, no aniso (aniso + nearest
+            // min filter speckles steep faces like leaf-block tops)
             magFilter = VK_FILTER_NEAREST;
             minFilter = VK_FILTER_NEAREST;
             mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -383,6 +492,9 @@ bool VulkanTexture::CreateSampler() {
         default:
             break;
     }
+
+    // Never exceed the device's anisotropy limit.
+    maxAnisotropy = std::min(maxAnisotropy, deviceMaxAniso);
 
     samplerInfo.magFilter = magFilter;
     samplerInfo.minFilter = minFilter;
@@ -417,7 +529,7 @@ bool VulkanTexture::CreateSampler() {
     samplerInfo.mipmapMode = mipmapMode;
     samplerInfo.mipLodBias = m_lodBias;
     samplerInfo.minLod = 0.0f;
-    samplerInfo.maxLod = 1000.0f;
+    samplerInfo.maxLod = static_cast<float>(m_mipLevels);
 
     if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_sampler) !=
         VK_SUCCESS) {
