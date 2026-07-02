@@ -194,8 +194,8 @@ void VulkanRenderer::BeginRender() {
                                  &flush.commandBuffer);
         }
         for (auto& pending : flush.stagingBuffers) {
-            vkDestroyBuffer(device, pending.buffer, nullptr);
-            vkFreeMemory(device, pending.memory, nullptr);
+            vmaDestroyBuffer(VulkanBuffer::GetAllocator(), pending.buffer,
+                             pending.memory);
             VulkanBuffer::UntrackAllocation(pending.allocSize,
                                             pending.memoryTypeIndex);
         }
@@ -250,6 +250,7 @@ void VulkanRenderer::BeginRender() {
     }
 
     bFrameStarted = true;
+    m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
 
     // Skip shadow pass if no cached draws — preserve previous frame's shadow map
     auto* shadowQueue = RenderCommandQueue::GetInstance();
@@ -296,6 +297,7 @@ void VulkanRenderer::BeginRender() {
         vkCmdSetScissor(command, 0, 1, &shadowScissor);
 
         m_shadowPassActive = true;
+        m_shadowPCCacheValid = false;
         auto* queue = RenderCommandQueue::GetInstance();
         if (queue) {
             queue->ExecuteShadowPass(this);
@@ -717,28 +719,32 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     }
 
     if (m_shadowPassActive && slot == 0 && size >= 128) {
-        // In shadow mode: compute LightVP * World for the push constant
-        // Buffer layout: [WVP (64 bytes)][World (64 bytes)]
-        // We need to replace WVP with LightVP * World
-        float shadowPC[32]; // 128 bytes = 2 x mat4
+        // Shadow mode: push [LightVP*World (64)][World (64)].
+        // Buffer layout: [WVP (64 bytes)][World (64 bytes)].
+        // LightVP is frame-constant, so memoize on World and reuse the result
+        // across the many chunk draws that share the identity transform.
         const float* srcWorld = reinterpret_cast<const float*>(
             static_cast<const char*>(data) + 64);
 
-        // Matrix multiply: shadowWVP = World * LightVP (row-major)
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+        if (!m_shadowPCCacheValid ||
+            memcmp(srcWorld, m_shadowWorldCache, 64) != 0) {
+            // shadowWVP = World * LightVP (row-major)
+            for (int r = 0; r < 4; ++r) {
+                for (int c = 0; c < 4; ++c) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k) {
+                        sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
+                    }
+                    m_shadowPCCache[r * 4 + c] = sum;
                 }
-                shadowPC[r * 4 + c] = sum;
             }
+            memcpy(&m_shadowPCCache[16], srcWorld, 64);
+            memcpy(m_shadowWorldCache, srcWorld, 64);
+            m_shadowPCCacheValid = true;
         }
-        // Copy World matrix to second half
-        memcpy(&shadowPC[16], srcWorld, 64);
 
         vkCmdPushConstants(command, activeLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT, 0, 128, shadowPC);
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, 128, m_shadowPCCache);
     } else {
         vkCmdPushConstants(command, activeLayout,
                            VK_SHADER_STAGE_VERTEX_BIT, 0, size, data);
@@ -1110,6 +1116,20 @@ void VulkanRenderer::Cleanup() {
     // Destroy shadow mapping resources
     CleanupShadowResources();
 
+    // Backstop: free any shader modules whose resource-guarded cleanup was
+    // skipped (guard false while shader non-null). Cleanups null after delete,
+    // so these are no-ops when already freed — delete(nullptr) is safe.
+    delete m_gbufferShader;         m_gbufferShader         = nullptr;
+    delete m_lightingShader;        m_lightingShader        = nullptr;
+    delete m_ssaoShader;            m_ssaoShader            = nullptr;
+    delete m_ssaoBlurShader;        m_ssaoBlurShader        = nullptr;
+    delete m_ssrShader;             m_ssrShader             = nullptr;
+    delete m_taaShader;             m_taaShader             = nullptr;
+    delete m_bloomThresholdShader;  m_bloomThresholdShader  = nullptr;
+    delete m_bloomDownsampleShader; m_bloomDownsampleShader = nullptr;
+    delete m_bloomUpsampleShader;   m_bloomUpsampleShader   = nullptr;
+    delete m_bloomCompositeShader;  m_bloomCompositeShader  = nullptr;
+
     // Destroy bone UBO resources
     CleanupBoneUBOResources();
 
@@ -1187,8 +1207,8 @@ void VulkanRenderer::Cleanup() {
                                  &af.commandBuffer);
         }
         for (auto& pending : af.stagingBuffers) {
-            vkDestroyBuffer(device, pending.buffer, nullptr);
-            vkFreeMemory(device, pending.memory, nullptr);
+            vmaDestroyBuffer(VulkanBuffer::GetAllocator(), pending.buffer,
+                             pending.memory);
             VulkanBuffer::UntrackAllocation(pending.allocSize);
         }
         af = {};
@@ -1241,6 +1261,11 @@ void VulkanRenderer::Cleanup() {
         vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         debugMessenger = VK_NULL_HANDLE;
     }
+
+    // Drain any buffers freed during teardown, then destroy the VMA allocator
+    // (it must outlive every vmaDestroyBuffer, and both precede vkDestroyDevice).
+    VulkanBuffer::FlushAllDeferredDeletions();
+    VulkanBuffer::DestroyAllocator();
 
     // Destroy logical device
     if (device) {
@@ -1533,6 +1558,9 @@ bool VulkanRenderer::CreateDevice() {
     vkGetDeviceQueue(device, QueueIDs.ComputeIndex, 0, &computeQueue);
     vkGetDeviceQueue(device, QueueIDs.TransferIndex, 0, &transferQueue);
     vkGetDeviceQueue(device, QueueIDs.PresentIndex, 0, &presentQueue);
+
+    // VMA allocator — backs all VulkanBuffer allocations.
+    VulkanBuffer::InitAllocator(instance, physicalDevice, device);
 
     return true;
 }
@@ -4758,6 +4786,7 @@ void VulkanRenderer::CleanupShadowResources() {
 
 void VulkanRenderer::BeginShadowPass() {
     m_shadowPassActive = true;
+    m_shadowPCCacheValid = false;
 }
 
 void VulkanRenderer::EndShadowPass() {
@@ -4866,6 +4895,12 @@ bool VulkanRenderer::CreateGBufferResources() {
     // SSR needs the HDR scene view (created by CreateBloomResources), so it
     // must come after that. The bloom composite pass later samples SSR.
     if (!CreateSSRResources())            { SLEAK_ERROR("GBuffer: SSR resources failed!");         return false; }
+    // Prime the disabled-effect fallback images once so the per-frame disabled
+    // paths can skip their redundant clears (ssao/ssr/bloom).
+    m_ssaoFallbackPrimed  = false;
+    m_ssrFallbackPrimed   = false;
+    m_bloomFallbackPrimed = false;
+    InitDisabledEffectFallbacks();
     if (!CreateGBufferDescriptorSets())   { SLEAK_ERROR("GBuffer: descriptor sets failed!");      return false; }
     if (!CreateDeferredCBResources())     { SLEAK_ERROR("GBuffer: deferred CB failed!");          return false; }
     if (!CreatePBRMaterialResources())    { SLEAK_ERROR("GBuffer: PBR material resources failed!"); return false; }
@@ -5930,38 +5965,45 @@ bool VulkanRenderer::CreatePBRMaterialResources() {
         return false;
     }
 
-    // --- Descriptor Pool: samplers + UBOs, MAX_FRAMES_IN_FLIGHT sets ---
+    // --- Descriptor Pool: samplers + UBOs, PBR_SET_COUNT ring sets ---
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[0].descriptorCount = 6 * MAX_FRAMES_IN_FLIGHT;
+    poolSizes[0].descriptorCount = 6 * PBR_SET_COUNT;
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[1].descriptorCount = 1 * MAX_FRAMES_IN_FLIGHT;
+    poolSizes[1].descriptorCount = 1 * PBR_SET_COUNT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes    = poolSizes.data();
-    poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
+    poolInfo.maxSets       = PBR_SET_COUNT;
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_pbrMaterialPool) != VK_SUCCESS) {
         SLEAK_ERROR("PBR: Failed to create PBR material pool!");
         return false;
     }
 
-    // --- Allocate per-frame descriptor sets ---
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+    // --- Allocate the full ring of descriptor sets ---
+    std::array<VkDescriptorSetLayout, PBR_SET_COUNT> layouts;
     layouts.fill(m_pbrMaterialDSL);
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool     = m_pbrMaterialPool;
-    allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    allocInfo.descriptorSetCount = PBR_SET_COUNT;
     allocInfo.pSetLayouts        = layouts.data();
     if (vkAllocateDescriptorSets(device, &allocInfo, m_pbrMaterialSets.data()) != VK_SUCCESS) {
         SLEAK_ERROR("PBR: Failed to allocate PBR material descriptor sets!");
         return false;
     }
 
-    // --- Per-frame material params UBO (96 bytes each, persistently mapped) ---
-    constexpr VkDeviceSize uboSize = sizeof(PBRMaterialParams);
+    // --- Per-frame material params UBO: PBR_SETS_PER_FRAME slots, offset-addressed ---
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &props);
+    VkDeviceSize minAlign = props.limits.minUniformBufferOffsetAlignment;
+    VkDeviceSize stride = sizeof(PBRMaterialParams);
+    if (minAlign > 0)
+        stride = ((stride + minAlign - 1) / minAlign) * minAlign;
+    m_pbrMaterialUBOStride = stride;
+    const VkDeviceSize uboSize = stride * PBR_SETS_PER_FRAME;
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkBufferCreateInfo bufInfo{};
         bufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -6030,6 +6072,13 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
     m_inVoxelPass = false;
 
+    // Claim this material's own ring slot (own set + own UBO region) so the
+    // set is never rewritten while already bound by a prior draw this frame.
+    uint32_t slot = m_pbrMaterialSlot[currentFrame];
+    if (slot >= PBR_SETS_PER_FRAME) slot = PBR_SETS_PER_FRAME - 1;  // clamp (rare)
+    const uint32_t setIdx = currentFrame * PBR_SETS_PER_FRAME + slot;
+    const VkDeviceSize uboOffset = slot * m_pbrMaterialUBOStride;
+
     // Build PBRMaterialParams from Material properties
     PBRMaterialParams params{};
     auto dc = material->GetDiffuseColor();
@@ -6059,7 +6108,8 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     params.hasEmissiveMap    = material->HasEmissiveTexture()  ? 1u : 0u;
 
     if (m_pbrMaterialCBMapped[currentFrame])
-        memcpy(m_pbrMaterialCBMapped[currentFrame], &params, sizeof(params));
+        memcpy(static_cast<char*>(m_pbrMaterialCBMapped[currentFrame]) + uboOffset,
+               &params, sizeof(params));
 
     // Resolve textures — fall back to the default white 1×1 texture if absent
     auto resolveView = [&](Texture* tex) -> VkImageView {
@@ -6091,13 +6141,13 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
 
     VkDescriptorBufferInfo bufInfo{};
     bufInfo.buffer = m_pbrMaterialCBBuffers[currentFrame];
-    bufInfo.offset = 0;
+    bufInfo.offset = uboOffset;
     bufInfo.range  = sizeof(PBRMaterialParams);
 
     std::array<VkWriteDescriptorSet, 7> writes{};
     for (uint32_t i = 0; i < 6; ++i) {
         writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet          = m_pbrMaterialSets[currentFrame];
+        writes[i].dstSet          = m_pbrMaterialSets[setIdx];
         writes[i].dstBinding      = i;
         writes[i].dstArrayElement = 0;
         writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -6105,7 +6155,7 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         writes[i].pImageInfo      = &imageInfos[i];
     }
     writes[6].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[6].dstSet          = m_pbrMaterialSets[currentFrame];
+    writes[6].dstSet          = m_pbrMaterialSets[setIdx];
     writes[6].dstBinding      = 6;
     writes[6].dstArrayElement = 0;
     writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -6116,7 +6166,10 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
 
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_gbufferGeomLayout, 0, 1,
-                            &m_pbrMaterialSets[currentFrame], 0, nullptr);
+                            &m_pbrMaterialSets[setIdx], 0, nullptr);
+
+    // Advance the ring for the next material this frame.
+    m_pbrMaterialSlot[currentFrame] = slot + 1;
 }
 
 // ============================================================
@@ -8274,6 +8327,83 @@ void VulkanRenderer::UpdateSSAOUBO() {
     memcpy(m_ssaoUboMapped[currentFrame], &p, sizeof(p));
 }
 
+// Prime the disabled-effect fallback images (ssaoBlur=white, ssr=black,
+// bloom mip0=black) once after (re)creation, leaving them SHADER_READ_ONLY.
+// The per-frame disabled paths then skip their redundant clear — the content
+// is static, so re-clearing every frame is pure waste (3 clears/frame).
+void VulkanRenderer::InitDisabledEffectFallbacks() {
+    if (m_ssaoBlurImage == VK_NULL_HANDLE ||
+        m_ssrImage == VK_NULL_HANDLE ||
+        m_bloomImage == VK_NULL_HANDLE)
+        return;
+
+    VkCommandBufferAllocateInfo ca{};
+    ca.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ca.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ca.commandPool        = commands;
+    ca.commandBufferCount = 1;
+    VkCommandBuffer initCmd;
+    if (vkAllocateCommandBuffers(device, &ca, &initCmd) != VK_SUCCESS) return;
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(initCmd, &bi);
+
+    const VkImageSubresourceRange sr = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    struct Prime { VkImage img; VkClearColorValue clr; };
+    VkClearColorValue white{}; white.float32[0] = 1.0f; white.float32[1] = 1.0f;
+                               white.float32[2] = 1.0f; white.float32[3] = 1.0f;
+    VkClearColorValue black{};
+    Prime items[3] = {
+        { m_ssaoBlurImage, white },   // white = no occlusion
+        { m_ssrImage,      black },   // black = no reflection
+        { m_bloomImage,    black },   // black = no bloom (mip 0)
+    };
+
+    for (auto& it : items) {
+        VkImageMemoryBarrier bar{};
+        bar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        bar.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        bar.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        bar.srcAccessMask       = 0;
+        bar.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+        bar.image               = it.img;
+        bar.subresourceRange    = sr;
+        vkCmdPipelineBarrier(initCmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &bar);
+
+        vkCmdClearColorImage(initCmd, it.img,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &it.clr, 1, &sr);
+
+        bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(initCmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &bar);
+    }
+
+    vkEndCommandBuffer(initCmd);
+
+    VkSubmitInfo sub{};
+    sub.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    sub.commandBufferCount = 1;
+    sub.pCommandBuffers    = &initCmd;
+    vkQueueSubmit(graphicsQueue, 1, &sub, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+    vkFreeCommandBuffers(device, commands, 1, &initCmd);
+
+    m_ssaoFallbackPrimed  = true;
+    m_ssrFallbackPrimed   = true;
+    m_bloomFallbackPrimed = true;
+}
+
 void VulkanRenderer::RenderSSAOPasses() {
     if (!m_ssaoResourcesCreated) return;
 
@@ -8281,6 +8411,10 @@ void VulkanRenderer::RenderSSAOPasses() {
     // binding 7) to white = no occlusion, and leave it SHADER_READ_ONLY so the
     // lighting pass never samples an UNDEFINED image. Mirrors the SSR fallback.
     if (!m_ssaoEnabled) {
+        // Already primed to white SHADER_READ_ONLY — the content is static, so
+        // re-clearing every frame is wasted work. Re-prime only if the enabled
+        // path dirtied the image since (runtime toggle).
+        if (m_ssaoFallbackPrimed) return;
         VkImageMemoryBarrier toClear{};
         toClear.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         toClear.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -8310,8 +8444,13 @@ void VulkanRenderer::RenderSSAOPasses() {
         vkCmdPipelineBarrier(command,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &toRead);
+        m_ssaoFallbackPrimed = true;
         return;
     }
+
+    // Enabled path dirties the blur image; force a re-prime if SSAO is later
+    // disabled so the lighting pass doesn't sample stale occlusion.
+    m_ssaoFallbackPrimed = false;
 
     UpdateSSAOUBO();
 
@@ -9400,6 +9539,9 @@ void VulkanRenderer::RenderSSRPass() {
     // SHADER_READ_ONLY). Since the image is re-defined each frame the
     // UNDEFINED initial layout is fine.
     if (!m_ssrEnabled) {
+        // Already primed to black SHADER_READ_ONLY — skip the redundant
+        // per-frame clear. Re-prime only if the enabled path dirtied it.
+        if (m_ssrFallbackPrimed) return;
         VkImageMemoryBarrier toClear{};
         toClear.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         toClear.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -9428,8 +9570,13 @@ void VulkanRenderer::RenderSSRPass() {
         vkCmdPipelineBarrier(command,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &toRead);
+        m_ssrFallbackPrimed = true;
         return;
     }
+
+    // Enabled path dirties the SSR image; force a re-prime if SSR is later
+    // disabled so the composite doesn't sample stale reflections.
+    m_ssrFallbackPrimed = false;
 
     UpdateSSRUBO();
 
@@ -9528,7 +9675,10 @@ bool VulkanRenderer::CreateBloomImages() {
     info.format        = m_hdrSceneFormat;
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    // TRANSFER_DST_BIT: when bloom is disabled, mip[0] is cleared-to-black so the
+    // composite pass samples a defined SHADER_READ_ONLY image (no full mip chain).
+    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     info.samples       = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     if (vkCreateImage(device, &info, nullptr, &m_bloomImage) != VK_SUCCESS) return false;
@@ -9969,6 +10119,52 @@ static void WriteSingleImageSampler(VkDevice dev, VkDescriptorSet set,
 void VulkanRenderer::RenderBloomPass() {
     if (!m_bloomResourcesCreated) return;
 
+    // Bloom disabled: skip the expensive 6-mip threshold/downsample/upsample
+    // chain. The composite still samples bloomMip[0] (binding 1), so leave it in
+    // a defined SHADER_READ_ONLY state by clearing only that one mip to black.
+    // Composite also pushes bloomStrength=0 so even a stale mip adds nothing.
+    // Mirrors the SSAO/SSR disabled-fallback pattern.
+    if (!m_bloomEnabled) {
+        // Already primed to black SHADER_READ_ONLY — composite also pushes
+        // bloomStrength=0, so skip the redundant per-frame clear. Re-prime only
+        // if the enabled path dirtied it.
+        if (m_bloomFallbackPrimed) return;
+        VkImageMemoryBarrier toClear{};
+        toClear.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toClear.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        toClear.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toClear.srcAccessMask       = 0;
+        toClear.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toClear.image               = m_bloomImage;
+        toClear.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(command,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toClear);
+
+        VkClearColorValue black{};
+        VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(command, m_bloomImage,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+
+        VkImageMemoryBarrier toRead = toClear;
+        toRead.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toRead.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toRead);
+        m_bloomFallbackPrimed = true;
+        return;
+    }
+
+    // Enabled path dirties bloom mip0; force a re-prime if bloom is later
+    // disabled (composite's bloomStrength=0 already neutralizes stale content,
+    // but keep the buffer well-defined for consistency).
+    m_bloomFallbackPrimed = false;
+
     // Per-frame transition set index layout:
     //   [0]              : threshold  (sceneHDR -> bloomMip0)
     //   [1..MIP-1]       : downsamples (bloomMip[i-1] -> bloomMip[i])
@@ -10120,7 +10316,8 @@ void VulkanRenderer::RenderBloomCompositePass() {
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
     struct { float bloomStrength, exposure, p0, p1; } pc;
-    pc.bloomStrength = 0.06f;   // UE4-style — a soft amount of bloom
+    // bloom disabled -> 0 so the (black) mip contributes nothing
+    pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
     pc.exposure      = 1.0f;
     pc.p0            = 0.0f;
     pc.p1            = 0.0f;

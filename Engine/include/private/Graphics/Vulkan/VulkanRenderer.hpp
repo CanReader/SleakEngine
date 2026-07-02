@@ -345,6 +345,13 @@ private:
     bool m_shadowPassActive = false;
     bool m_shadowResourcesCreated = false;
 
+    // Shadow push-constant memo: LightVP*World is frame-constant per unique
+    // World, so cache it and skip the matmul when consecutive casters (all
+    // chunk draws share the identity transform) reuse the same World matrix.
+    float m_shadowWorldCache[16] = {};
+    float m_shadowPCCache[32] = {};
+    bool  m_shadowPCCacheValid = false;
+
     // Light VP matrix (stored as raw floats for push constant computation)
     float m_lightVP[16] = {};
     // Staging slot: SetLightVP writes here; BeginRender copies it to
@@ -432,12 +439,20 @@ private:
         uint32_t hasNormalMap, hasMetallicMap, hasRoughnessMap, hasAOMap;  // 4 uints
         uint32_t hasEmissiveMap; float _pad0, _pad1, _pad2;               // 4 floats
     };
+    // Per-frame RING of PBR material sets: each material drawn in a frame gets
+    // its own set + its own UBO sub-region, so a set/region is never rewritten
+    // while already bound in the recording command buffer (UPDATE_AFTER_BIND VUID).
+    static constexpr uint32_t PBR_SETS_PER_FRAME = 64;
+    static constexpr uint32_t PBR_SET_COUNT = MAX_FRAMES_IN_FLIGHT * PBR_SETS_PER_FRAME;
     VkDescriptorSetLayout m_pbrMaterialDSL         = VK_NULL_HANDLE;
     VkDescriptorPool      m_pbrMaterialPool        = VK_NULL_HANDLE;
+    // One params UBO per frame, sub-addressed by slot at m_pbrMaterialUBOStride.
     std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBBuffers = {};
     std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMemory  = {};
     std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMapped  = {};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_pbrMaterialSets      = {};
+    std::array<VkDescriptorSet, PBR_SET_COUNT>        m_pbrMaterialSets      = {};
+    VkDeviceSize m_pbrMaterialUBOStride = 0;
+    uint32_t m_pbrMaterialSlot[MAX_FRAMES_IN_FLIGHT] = {};
     bool m_pbrMaterialResourcesCreated = false;
     VkPipelineLayout m_gbufferGeomLayout = VK_NULL_HANDLE;
 
@@ -537,6 +552,10 @@ private:
     float m_cachedProjection[16] = {};
 
     bool CreateSSAOResources();
+    // One-time init of the disabled-effect fallback images (ssaoBlur=white,
+    // ssr=black, bloom mip0=black) to SHADER_READ_ONLY so the per-frame
+    // disabled paths can skip re-clearing them every frame.
+    void InitDisabledEffectFallbacks();
     void CleanupSSAOResources();
     bool CreateSSAOImages();
     bool CreateSSAORenderPass();
@@ -565,7 +584,7 @@ private:
     };
 
     bool       m_ssrResourcesCreated = false;
-    bool       m_ssrEnabled          = false;
+    // m_ssrEnabled is inherited from RenderEngine::Renderer (base class).
     VkFormat   m_ssrFormat           = VK_FORMAT_R16G16B16A16_SFLOAT;
 
     VkImage        m_ssrImage         = VK_NULL_HANDLE;
@@ -606,7 +625,7 @@ private:
     };
 
     bool     m_taaResourcesCreated = false;
-    bool     m_taaEnabled          = false;
+    // m_taaEnabled is inherited from RenderEngine::Renderer (base class).
     uint64_t m_taaFrameIdx         = 0;   // global counter; ping-pong = idx % 2
 
     VkImage        m_taaImages[2]     = {};
@@ -637,6 +656,17 @@ private:
     void CleanupTAAResources();
     void UpdateTAAUBO();
     void RenderTAAPass();
+
+    // Per-image "fallback content is valid" flags. Set true once the image is
+    // primed (static black/white in SHADER_READ_ONLY) by either
+    // InitDisabledEffectFallbacks or a disabled-path clear; set false whenever
+    // the enabled path renders into the image (dirtying it). When true, the
+    // disabled path skips its redundant per-frame clear. This stays correct
+    // across runtime enable->disable toggles: the first disabled frame after a
+    // toggle re-primes, then subsequent disabled frames skip.
+    bool m_ssaoFallbackPrimed  = false;
+    bool m_ssrFallbackPrimed   = false;
+    bool m_bloomFallbackPrimed = false;
 
     // ---- Bloom + HDR post-processing resources ----
     // We render the lighting pass into an HDR scene-color image (not the
