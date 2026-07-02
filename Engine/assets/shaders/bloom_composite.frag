@@ -53,11 +53,8 @@ void main() {
     // Apply exposure before tone mapping.
     combined *= exposure;
 
+    // ACES only — no gamma, matching the OpenGL reference output
     vec3 ldr = ACESFilm(combined);
-
-    // The swapchain image is not sRGB — apply gamma manually so sRGB textures
-    // sampled as linear end up displayed correctly.
-    ldr = pow(ldr, vec3(1.0 / 2.2));
 
     outColor = vec4(ldr, 1.0);
 }
