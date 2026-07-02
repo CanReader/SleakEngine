@@ -121,6 +121,7 @@ private:
     virtual bool IsDeferredEnabled() const override;
     virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
     virtual void BindGBufferShader() override;
+    virtual void BindPBRMaterial(Sleak::Material* material) override;
     virtual void ExecuteDeferredLightingPass() override;
     virtual void BeginForwardTransparentPass() override;
     virtual void EndForwardTransparentPass() override;

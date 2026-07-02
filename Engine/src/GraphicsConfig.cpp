@@ -1,0 +1,76 @@
+#include <Core/GraphicsConfig.hpp>
+
+#include <Lighting/DirectionalLight.hpp>
+
+namespace Sleak {
+
+GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
+    GraphicsConfig cfg;
+    switch (q) {
+        case GraphicsQuality::Off: {
+            cfg.ssaoEnabled = false;
+            cfg.ssrEnabled = false;
+            cfg.bloomEnabled = false;
+            cfg.iblEnabled = false;
+            cfg.taaEnabled = false;
+            cfg.shadowEnabled = false;
+            break;
+        }
+        case GraphicsQuality::Low: {
+            // Shadows only — no post-FX.
+            cfg.ssaoEnabled = false;
+            cfg.ssrEnabled = false;
+            cfg.bloomEnabled = false;
+            cfg.iblEnabled = false;
+            cfg.taaEnabled = false;
+            cfg.shadowEnabled = true;
+            cfg.shadowFrustumSize = 96.0f;
+            cfg.shadowCasterDistance = 64.0f;
+            break;
+        }
+        case GraphicsQuality::Medium: {
+            // Shadows + SSAO.
+            cfg.ssaoEnabled = true;
+            cfg.ssrEnabled = false;
+            cfg.bloomEnabled = false;
+            cfg.iblEnabled = false;
+            cfg.taaEnabled = false;
+            cfg.shadowEnabled = true;
+            break;
+        }
+        case GraphicsQuality::High: {
+            // Shadows + SSAO + SSR + bloom + IBL.
+            cfg.ssaoEnabled = true;
+            cfg.ssrEnabled = true;
+            cfg.bloomEnabled = true;
+            cfg.iblEnabled = true;
+            cfg.taaEnabled = false;
+            cfg.shadowEnabled = true;
+            break;
+        }
+        case GraphicsQuality::Ultra: {
+            // High + larger shadow range + TAA.
+            cfg.ssaoEnabled = true;
+            cfg.ssrEnabled = true;
+            cfg.bloomEnabled = true;
+            cfg.iblEnabled = true;
+            cfg.taaEnabled = true;
+            cfg.shadowEnabled = true;
+            cfg.shadowDistance = 256.0f;
+            cfg.shadowFrustumSize = 160.0f;
+            cfg.shadowCasterDistance = 160.0f;
+            break;
+        }
+    }
+    return cfg;
+}
+
+void GraphicsConfig::ApplyShadows(Sleak::DirectionalLight& light) const {
+    light.SetCastShadows(shadowEnabled);
+    light.SetShadowFrustumSize(shadowFrustumSize);
+    light.SetShadowDistance(shadowDistance);
+    light.SetShadowBias(shadowBias);
+    light.SetShadowStrength(shadowStrength);
+}
+
+}  // namespace Sleak

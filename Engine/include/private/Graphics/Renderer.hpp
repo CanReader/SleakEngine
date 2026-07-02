@@ -141,6 +141,18 @@ public:
     void SetIBLIntensity(float intensity) { m_iblIntensity = intensity; }
     float GetIBLIntensity() const { return m_iblIntensity; }
 
+    // Post-process: SSR (Screen-Space Reflections)
+    void SetSSREnabled(bool enabled) { m_ssrEnabled = enabled; }
+    bool IsSSREnabled() const { return m_ssrEnabled; }
+
+    // Post-process: TAA (Temporal Anti-Aliasing)
+    void SetTAAEnabled(bool enabled) { m_taaEnabled = enabled; }
+    bool IsTAAEnabled() const { return m_taaEnabled; }
+
+    // Post-process: Bloom
+    void SetBloomEnabled(bool enabled) { m_bloomEnabled = enabled; }
+    bool IsBloomEnabled() const { return m_bloomEnabled; }
+
     // PCSS Soft Shadows
     void SetPCSSEnabled(bool enabled) { m_pcssEnabled = enabled; }
     bool IsPCSSEnabled() const { return m_pcssEnabled; }
@@ -235,6 +247,11 @@ public:
     // ambient gives noticeable IBL character without blowing out brightness.
     // Crank toward 1.5+ once you swap in an HDR environment map.
     float m_iblIntensity = 0.5f;
+
+    // Post-process: SSR / TAA / Bloom
+    bool m_ssrEnabled = false;
+    bool m_taaEnabled = false;
+    bool m_bloomEnabled = true;
 
     // PCSS
     bool m_pcssEnabled = true;

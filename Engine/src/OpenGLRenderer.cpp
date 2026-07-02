@@ -14,6 +14,7 @@
 #include <Core/Application.hpp>
 #include <Core/SceneBase.hpp>
 #include <Runtime/Skybox.hpp>
+#include <Runtime/Material.hpp>
 #include <GameBase.hpp>
 #include <SDL3/SDL.h>
 #include <vector>
@@ -1007,6 +1008,14 @@ void OpenGLRenderer::BindGBufferShader() {
             warned = true;
         }
     }
+}
+
+void OpenGLRenderer::BindPBRMaterial(Sleak::Material* material) {
+    // Deferred geometry-pass material bind (restores pre-rewrite OpenGL path):
+    // bind the GBuffer shader + the material textures/CB. Without this, terrain
+    // is drawn with the leftover water program (all-blue bug).
+    BindGBufferShader();
+    if (material) material->BindTexturesAndCB();
 }
 
 void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {

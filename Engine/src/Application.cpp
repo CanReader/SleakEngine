@@ -401,4 +401,31 @@ namespace Sleak {
     float Application::GetIBLIntensity() const { return renderer->GetIBLIntensity(); }
     void  Application::SetIBLIntensity(float i){ renderer->SetIBLIntensity(i); }
 
+    bool  Application::IsSSREnabled()  const   { return renderer->IsSSREnabled(); }
+    void  Application::SetSSREnabled(bool e)   { renderer->SetSSREnabled(e); }
+
+    bool  Application::IsTAAEnabled()  const   { return renderer->IsTAAEnabled(); }
+    void  Application::SetTAAEnabled(bool e)   { renderer->SetTAAEnabled(e); }
+
+    bool  Application::IsBloomEnabled() const  { return renderer->IsBloomEnabled(); }
+    void  Application::SetBloomEnabled(bool e) { renderer->SetBloomEnabled(e); }
+
+    void Application::ApplyGraphicsConfig(const GraphicsConfig& cfg) {
+        m_graphicsConfig = cfg;
+        renderer->SetSSAOEnabled(cfg.ssaoEnabled);
+        renderer->SetSSAORadius(cfg.ssaoRadius);
+        renderer->SetSSAOBias(cfg.ssaoBias);
+        renderer->SetSSAOPower(cfg.ssaoPower);
+        renderer->SetSSREnabled(cfg.ssrEnabled);
+        renderer->SetBloomEnabled(cfg.bloomEnabled);
+        renderer->SetIBLEnabled(cfg.iblEnabled);
+        renderer->SetIBLIntensity(cfg.iblIntensity);
+        renderer->SetTAAEnabled(cfg.taaEnabled);
+        renderer->SetMSAASampleCount(cfg.msaaSamples);
+    }
+
+    const GraphicsConfig& Application::GetGraphicsConfig() const {
+        return m_graphicsConfig;
+    }
+
 }

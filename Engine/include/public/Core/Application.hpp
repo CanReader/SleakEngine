@@ -8,6 +8,7 @@
 #include <Events/ApplicationEvent.h>
 #include <Events/InputEvent.h>
 #include <Core/Timer.hpp>
+#include <Core/GraphicsConfig.hpp>
 #include <Debug/Benchmark.hpp>
 
 namespace Sleak {
@@ -107,6 +108,22 @@ class ENGINE_API Application {
     float GetIBLIntensity() const;
     void  SetIBLIntensity(float intensity);
 
+    // Screen-space reflections (deferred path only)
+    bool  IsSSREnabled() const;
+    void  SetSSREnabled(bool enabled);
+
+    // Temporal anti-aliasing (deferred path only)
+    bool  IsTAAEnabled() const;
+    void  SetTAAEnabled(bool enabled);
+
+    // Bloom (deferred path only)
+    bool  IsBloomEnabled() const;
+    void  SetBloomEnabled(bool enabled);
+
+    // Per-game graphics configuration / quality presets
+    void                  ApplyGraphicsConfig(const GraphicsConfig& cfg);
+    const GraphicsConfig& GetGraphicsConfig() const;
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
@@ -123,6 +140,7 @@ class ENGINE_API Application {
     RenderEngine::Renderer* renderer;
     DebugOverlay* m_DebugOverlay = nullptr;
     Benchmark* m_benchmark = nullptr;
+    GraphicsConfig m_graphicsConfig;
     float DeltaTime;
 
     Timer FrameTimer;
