@@ -30,6 +30,13 @@ struct ENGINE_API GraphicsConfig {
     float shadowBias          = 0.002f;
     float shadowStrength      = 1.0f;
 
+    // Culling
+    bool     frustumCullingEnabled   = true;
+    bool     occlusionCullingEnabled = true;
+    uint32_t occlusionBufferWidth    = 256;
+    uint32_t occlusionBufferHeight   = 144;
+    uint32_t maxOccluders            = 192;
+
     // Misc
     uint32_t msaaSamples = 1;
 

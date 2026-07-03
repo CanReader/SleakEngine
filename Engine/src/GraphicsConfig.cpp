@@ -14,6 +14,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
             cfg.shadowEnabled = false;
+            cfg.occlusionCullingEnabled = false;
+            cfg.occlusionBufferWidth = 160;
+            cfg.occlusionBufferHeight = 90;
             break;
         }
         case GraphicsQuality::Low: {
@@ -26,6 +29,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.shadowEnabled = true;
             cfg.shadowFrustumSize = 96.0f;
             cfg.shadowCasterDistance = 64.0f;
+            cfg.occlusionCullingEnabled = false;
+            cfg.occlusionBufferWidth = 160;
+            cfg.occlusionBufferHeight = 90;
             break;
         }
         case GraphicsQuality::Medium: {
@@ -36,6 +42,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
             cfg.shadowEnabled = true;
+            cfg.occlusionCullingEnabled = true;
+            cfg.occlusionBufferWidth = 256;
+            cfg.occlusionBufferHeight = 144;
             break;
         }
         case GraphicsQuality::High: {
@@ -46,6 +55,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.iblEnabled = true;
             cfg.taaEnabled = false;
             cfg.shadowEnabled = true;
+            cfg.occlusionCullingEnabled = true;
+            cfg.occlusionBufferWidth = 256;
+            cfg.occlusionBufferHeight = 144;
             break;
         }
         case GraphicsQuality::Ultra: {
@@ -59,6 +71,10 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.shadowDistance = 256.0f;
             cfg.shadowFrustumSize = 160.0f;
             cfg.shadowCasterDistance = 160.0f;
+            cfg.occlusionCullingEnabled = true;
+            cfg.occlusionBufferWidth = 320;
+            cfg.occlusionBufferHeight = 180;
+            cfg.maxOccluders = 256;
             break;
         }
     }

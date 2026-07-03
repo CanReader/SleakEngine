@@ -3,6 +3,7 @@
 
 #include <ECS/Component.hpp>
 #include <Utility/Container/List.hpp>
+#include <Math/AABB.hpp>
 #include <Memory/ObjectPtr.h>
 #include <Memory/RefPtr.h>
 
@@ -37,6 +38,11 @@ namespace Sleak {
 
         void AddConstantBuffer(RefPtr<RenderEngine::BufferBase>& buffer);
 
+        // World-space bounds used for CPU frustum culling of this mesh.
+        void SetCullBoundsWorld(const Math::AABB& bounds);
+        // Local-space bounds, transformed by the owner each Update.
+        void SetCullBoundsLocal(const Math::AABB& bounds);
+
     private:
         RefPtr<RenderEngine::BufferBase> VertexBuffer{};
         RefPtr<RenderEngine::BufferBase> IndexBuffer{};
@@ -44,6 +50,11 @@ namespace Sleak {
 
        uint32_t VertexCount;
        uint32_t IndexCount;
+
+       Math::AABB m_cullBounds{};
+       bool m_hasCullBounds = false;
+       Math::AABB m_localBounds{};
+       bool m_hasLocalBounds = false;
 
     };
 }

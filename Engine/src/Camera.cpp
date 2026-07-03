@@ -1,4 +1,5 @@
 #include <Camera/Camera.hpp>
+#include <Culling/CullingSystem.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Math/Math.hpp>
 #include <Window.hpp>
@@ -58,6 +59,8 @@ namespace Sleak {
         // Update view frustum from VP = View * Projection (row-vector convention)
         Math::Matrix4 VP = View * Projection;
         s_frustum.ExtractFromVP(VP);
+
+        CullingSystem::BeginFrame(s_frustum, VP, Position);
     }
 
     void Camera::RecalculateProjectionMatrix() {
