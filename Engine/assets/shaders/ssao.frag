@@ -5,11 +5,10 @@
 //
 // Reads:
 //   set 0 binding 0: gNormalRough  (world-space normal encoded + roughness.a)
-//   set 0 binding 1: gWorldPos     (world-space position)
-//   set 0 binding 2: gDepth        (depth buffer)
-//   set 0 binding 3: noiseTexture  (4x4 random unit vectors, tiled)
+//   set 0 binding 1: gDepth        (depth buffer — world pos reconstructed)
+//   set 0 binding 2: noiseTexture  (4x4 random unit vectors, tiled)
 //
-// UBO (set 1 binding 0): SSAOParams — kernel, view/proj matrices
+// UBO (set 1 binding 0): SSAOParams — kernel, view/proj/invViewProj matrices
 //
 // Output: single-channel R8 occlusion factor (1.0 = clear, 0.0 = occluded)
 // ============================================================
@@ -18,13 +17,13 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 0) out float outOcclusion;
 
 layout(set = 0, binding = 0) uniform sampler2D gNormalRough;
-layout(set = 0, binding = 1) uniform sampler2D gWorldPos;
-layout(set = 0, binding = 2) uniform sampler2D gDepth;
-layout(set = 0, binding = 3) uniform sampler2D noiseTex;
+layout(set = 0, binding = 1) uniform sampler2D gDepth;
+layout(set = 0, binding = 2) uniform sampler2D noiseTex;
 
 layout(set = 1, binding = 0) uniform SSAOParams {
     mat4 View;           // world -> view
     mat4 Projection;     // view  -> clip
+    mat4 InvViewProj;    // clip  -> world (depth reconstruction)
     vec4 Kernel[32];     // hemisphere samples in tangent space (xyz=dir, w=unused)
     vec2 ScreenSize;     // full-res width, height (for noise tiling)
     vec2 NoiseScale;     // ScreenSize / 4 for noise UV
@@ -36,6 +35,14 @@ layout(set = 1, binding = 0) uniform SSAOParams {
     float _pad0, _pad1, _pad2;
 };
 
+// Reconstruct world position from depth. Vulkan: geometry is Y-flipped in the
+// GBuffer vertex shader and depth is [0,1], so NDC.y is negated vs the UV.
+vec3 ReconstructWorldPos(vec2 uv, float depth) {
+    vec4 ndc   = vec4(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y, depth, 1.0);
+    vec4 world = InvViewProj * ndc;
+    return world.xyz / world.w;
+}
+
 void main() {
     // Skip sky pixels — sky should read 1.0 (no occlusion).
     float depth = texture(gDepth, fragUV).r;
@@ -44,8 +51,8 @@ void main() {
         return;
     }
 
-    // Sample GBuffer: world-space position and world-space normal.
-    vec3 worldPos = texture(gWorldPos, fragUV).xyz;
+    // Reconstruct world-space position from depth; normal from GBuffer.
+    vec3 worldPos = ReconstructWorldPos(fragUV, depth);
     vec3 worldN   = normalize(texture(gNormalRough, fragUV).rgb * 2.0 - 1.0);
 
     // Move into view space — AO is cleanest in the space where the
@@ -85,12 +92,12 @@ void main() {
         if (sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
             sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
 
-        // Read the world-space position at this screen location and
+        // Reconstruct the world-space position at this screen location and
         // transform into view space for depth comparison.
-        vec3 sampleWorld    = texture(gWorldPos, sampleUV).xyz;
-        float sampleDepth   = texture(gDepth,    sampleUV).r;
+        float sampleDepth   = texture(gDepth, sampleUV).r;
         if (sampleDepth >= 0.9999) continue;  // sky — no occluder
 
+        vec3 sampleWorld    = ReconstructWorldPos(sampleUV, sampleDepth);
         vec3 sampleViewPos  = (View * vec4(sampleWorld, 1.0)).xyz;
 
         // Range check — sample contributes less when the depth difference

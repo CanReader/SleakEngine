@@ -15,11 +15,10 @@ layout(location = 0) in vec2 fragUV;
 layout(set = 0, binding = 0) uniform sampler2D gAlbedoAO;       // albedo.rgb + AO.a
 layout(set = 0, binding = 1) uniform sampler2D gNormalRough;    // normal.xyz (encoded) + roughness.a
 layout(set = 0, binding = 2) uniform sampler2D gMetalEmit;      // metallic.r + emissive.gba
-layout(set = 0, binding = 3) uniform sampler2D gWorldPos;
-layout(set = 0, binding = 4) uniform sampler2D gDepth;
-layout(set = 0, binding = 5) uniform sampler2DShadow gShadow;   // hardware PCF
-layout(set = 0, binding = 6) uniform sampler2D gShadowRaw;      // PCSS blocker search
-layout(set = 0, binding = 7) uniform sampler2D gSSAO;           // screen-space AO (R8, 1=clear, 0=occluded)
+layout(set = 0, binding = 3) uniform sampler2D gDepth;          // world pos reconstructed from this
+layout(set = 0, binding = 4) uniform sampler2DShadow gShadow;   // hardware PCF
+layout(set = 0, binding = 5) uniform sampler2D gShadowRaw;      // PCSS blocker search
+layout(set = 0, binding = 6) uniform sampler2D gSSAO;           // screen-space AO (R8, 1=clear, 0=occluded)
 
 // -- Set 1: Deferred CB ---------------------------------------------
 layout(set = 1, binding = 0) uniform DeferredCB {
@@ -55,6 +54,7 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     vec4  uExtraColor[3];    // rgb=color, a=intensity
     uint  uNumExtraLights;   // 0-3
     vec3  _extraPad;
+    mat4  uNdcToShadow;      // NDC -> shadow clip, CPU-composed (no shimmer)
 };
 
 // -- Set 3: IBL -----------------------------------------------------
@@ -100,11 +100,13 @@ float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
     return shadow / float(PCF_SAMPLES);
 }
 
-float CalcShadow(vec3 worldPos, vec3 N) {
+// ndc: screen NDC + depth (w=1). Shadow coords go straight through the
+// CPU-composed uNdcToShadow — never via reconstructed world position.
+float CalcShadow(vec4 ndc, vec3 N) {
     float normalBias  = uLightDir.w;
-    vec3  biasedPos   = worldPos + N * normalBias;
-    vec4  sc          = uLightVP * vec4(biasedPos, 1.0);
+    vec4  sc          = uNdcToShadow * ndc;
     vec3  projCoords  = sc.xyz / sc.w;
+    projCoords       += (uLightVP * vec4(N * normalBias, 0.0)).xyz;
     projCoords.xy     = projCoords.xy * 0.5 + 0.5;
 
     if (any(lessThan(projCoords, vec3(0.0))) ||
@@ -189,6 +191,15 @@ vec3 ACESFilm(vec3 x) {
                  vec3(0.0), vec3(1.0));
 }
 
+// Reconstruct world position from the depth buffer.
+// Vulkan: geometry is Y-flipped in the GBuffer vertex shader and depth is in
+// [0,1], so NDC.y is negated relative to the sampling UV.
+vec3 ReconstructWorldPos(vec2 uv, float depth) {
+    vec4 ndc   = vec4(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y, depth, 1.0);
+    vec4 world = InvViewProj * ndc;
+    return world.xyz / world.w;
+}
+
 // ==================================================================
 // Main
 // ==================================================================
@@ -197,8 +208,10 @@ void main() {
     float depth = texture(gDepth, fragUV).r;
     if (depth >= 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
-    // Read GBuffer
-    vec3  worldPos  = texture(gWorldPos,    fragUV).xyz;
+    // Reconstruct world position from depth instead of a GBuffer RT.
+    vec3  worldPos  = ReconstructWorldPos(fragUV, depth);
+    vec4  ndcPos    = vec4(fragUV.x * 2.0 - 1.0, 1.0 - 2.0 * fragUV.y,
+                           depth, 1.0);
     vec4  albedoAO  = texture(gAlbedoAO,    fragUV);
     vec4  normalRg  = texture(gNormalRough, fragUV);
     vec4  metalEmit = texture(gMetalEmit,   fragUV); // R16G16B16A16: .r=metallic, .gba=emissive
@@ -238,7 +251,7 @@ void main() {
 
             vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
 
-            float shadow = CalcShadow(worldPos, N);
+            float shadow = CalcShadow(ndcPos, N);
             // Suppress shadow on back-facing surfaces (prevents light leaks)
             shadow *= smoothstep(0.0, 0.15, dot(N, L));
 
@@ -295,7 +308,7 @@ void main() {
         vec3  Ldir    = normalize(-uLightDir.xyz);
         float rawNdL  = dot(N, Ldir);
         float wrapNdL = clamp(rawNdL * 0.85 + 0.15, 0.0, 1.0);
-        float shad    = CalcShadow(worldPos, N);
+        float shad    = CalcShadow(ndcPos, N);
         shad         *= smoothstep(-0.15, 0.0, rawNdL);
         vec3 direct   = uLightColor.rgb * uLightColor.a * wrapNdL * shad;
         for (uint li = 0u; li < uNumExtraLights; ++li) {

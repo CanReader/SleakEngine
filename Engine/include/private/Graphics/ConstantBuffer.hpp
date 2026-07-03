@@ -189,6 +189,11 @@ namespace Sleak {
             float ExtraLightColor[3][4];  // rgb + intensity
             uint32_t NumExtraLights;      // 0-3
             float _extraPad[3];
+
+            // NDC -> shadow clip, composed on CPU (InvViewProj * LightVP).
+            // Shadow coords must use this — a per-fragment round trip
+            // through reconstructed world position shimmers under rotation.
+            float NdcToShadow[16];
         };
 
         // GPU-aligned POD struct for post-process settings constant buffer.
@@ -242,6 +247,9 @@ namespace Sleak {
             uint32_t PCSSEnabled;
             uint32_t ShadowMapEnabled;
             float _shadowPad0, _shadowPad1;
+
+            // Row 6-9: NDC -> shadow clip (see ShadowLightUBO::NdcToShadow)
+            float NdcToShadow[16];
         };
 
         // GPU-aligned POD struct for SSAO composite settings (used in PBR shader).

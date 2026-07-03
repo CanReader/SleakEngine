@@ -654,6 +654,7 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
 
     RenderEngine::PCSSShadowGPUData shadowData{};
     memcpy(shadowData.LightVP, ubo->LightVP, sizeof(float) * 16);
+    memcpy(shadowData.NdcToShadow, ubo->NdcToShadow, sizeof(float) * 16);
     shadowData.ShadowBias = ubo->ShadowBias;
     shadowData.ShadowStrength = ubo->ShadowStrength;
     shadowData.ShadowTexelSize = ubo->ShadowTexelSize;
@@ -808,14 +809,8 @@ bool OpenGLRenderer::CreateGBufferResources() {
     makeColorTex(m_gbufferMetalEmit,   GL_RGBA8,   w, h);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, m_gbufferMetalEmit, 0);
 
-    // RT3: World position (RGBA32F). Written directly in the geometry pass so
-    // the lighting pass does not have to invert ViewProj to reconstruct it.
-    // InvViewProj reconstruction produces rotation-dependent FP noise that
-    // makes shadows swim on camera rotation. A directly-written worldPos has
-    // only per-vertex barycentric interpolation noise, which is invariant
-    // under rotation for a given world point.
-    makeColorTex(m_gbufferWorldPos,    GL_RGBA32F, w, h);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, m_gbufferWorldPos, 0);
+    // World position is reconstructed from depth + InvViewProj in the
+    // lighting/SSAO passes (no RGBA32F worldpos RT) to cut GBuffer bandwidth.
 
     // Depth texture (read back in lighting pass for world pos reconstruction)
     glGenTextures(1, &m_gbufferDepth);
@@ -829,8 +824,8 @@ bool OpenGLRenderer::CreateGBufferResources() {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_gbufferDepth, 0);
 
     GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                              GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-    glDrawBuffers(4, drawBuffers);
+                              GL_COLOR_ATTACHMENT2 };
+    glDrawBuffers(3, drawBuffers);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
@@ -887,7 +882,6 @@ void OpenGLRenderer::CleanupGBufferResources() {
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
-    if (m_gbufferWorldPos)    { glDeleteTextures(1, &m_gbufferWorldPos);    m_gbufferWorldPos    = 0; }
     if (m_gbufferDepth)       { glDeleteTextures(1, &m_gbufferDepth);       m_gbufferDepth       = 0; }
     if (m_gbufferFBO)         { glDeleteFramebuffers(1, &m_gbufferFBO);     m_gbufferFBO         = 0; }
     if (m_lightingVAO)        { glDeleteVertexArrays(1, &m_lightingVAO);    m_lightingVAO        = 0; }
@@ -964,10 +958,6 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-    // Resize WorldPos
-    glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-
     // Resize depth
     glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
@@ -982,12 +972,12 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
 
 void OpenGLRenderer::BindGBufferShader() {
     if (m_gbufferShader) {
-        // Ensure GBuffer FBO is active with all 4 color attachments
-        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit, RT3=WorldPos)
+        // Ensure GBuffer FBO is active with all 3 color attachments
+        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit)
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
         GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                                 GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-        glDrawBuffers(4, drawBuffers);
+                                 GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers(3, drawBuffers);
         // Ensure depth writes are enabled for geometry pass
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -1065,7 +1055,6 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
-    glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
     // SSAO result at unit 13 (default to 0 = "fully lit" if SSAO disabled)
     glActiveTexture(GL_TEXTURE13);
     glBindTexture(GL_TEXTURE_2D, m_ssaoCreated ? m_ssaoBlurTex : 0);
@@ -1218,7 +1207,7 @@ bool OpenGLRenderer::CreateSSAOResources() {
                  sizeof(SSAOKernel::Sample) * SSAOKernel::MAX_KERNEL_SIZE,
                  kernelGen.samples.data(), GL_STATIC_DRAW);
 
-    // Camera (binding 2) — Projection + View + InvProjection = 3 * 64 = 192 bytes
+    // Camera (binding 2) — Projection + View + InvViewProj = 3 * 64 = 192 bytes
     glGenBuffers(1, &m_ssaoCameraUBO);
     glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoCameraUBO);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(float) * 16 * 3, nullptr, GL_DYNAMIC_DRAW);
@@ -1284,17 +1273,19 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glBindBuffer(GL_UNIFORM_BUFFER, m_ssaoSettingsUBO);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s), &s);
 
-    // ---- Upload Camera UBO (Projection, View, InvProjection) ----
+    // ---- Upload Camera UBO (Projection, View, InvViewProj) ----
     const Math::Matrix4& V = Camera::GetMainViewMatrix();
     const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
     float camData[16 * 3];
     std::memcpy(camData,       &P(0,0), sizeof(float) * 16);
     std::memcpy(camData + 16,  &V(0,0), sizeof(float) * 16);
-    // InvProjection
+    // InvViewProj = inverse(View * Proj) — reconstructs world pos from depth.
+    // Row-vector engine convention: clip = world * (View * Proj).
+    Math::Matrix4 VP = V * P;
     float invP[16];
     {
         // Inline determinant-based 4x4 inverse (Cramer). Returns identity if singular.
-        const float* m = &P(0,0);
+        const float* m = &VP(0,0);
         float i0  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
         float i4  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
         float i8  =  m[4]*m[9] *m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
@@ -1346,7 +1337,6 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, m_ssaoNoiseTex);
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, m_gbufferWorldPos);
     glActiveTexture(GL_TEXTURE0);
 
     glBindVertexArray(m_lightingVAO);

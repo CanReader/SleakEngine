@@ -3,11 +3,9 @@
 // ============================================================
 // Screen Space Ambient Occlusion (SSAO) - OpenGL Fragment
 //
-// Works in WORLD space using the exact worldPos already written to
-// GBuffer RT3. This is more reliable than reconstructing view-space
-// position via InvProjection * NDC — the GBuffer worldPos is ground
-// truth and is the same tap the lighting pass uses, so there's no
-// drift or transform-convention risk.
+// Works in WORLD space. World position is reconstructed from the depth
+// buffer via InvViewProj (no worldpos GBuffer RT), matching the tap the
+// lighting pass uses.
 // ============================================================
 
 in vec2 fragUV;
@@ -38,13 +36,21 @@ layout(std140, binding = 8) uniform KernelUBO {
 layout(std140, binding = 9) uniform CameraUBO {
     mat4 Projection;
     mat4 View;
-    mat4 InvProjection;   // unused in world-space path, kept for layout
+    mat4 InvViewProj;     // clip -> world (depth reconstruction)
 };
 
 layout(binding = 0) uniform sampler2D depthTexture;
 layout(binding = 1) uniform sampler2D normalTexture;
 layout(binding = 2) uniform sampler2D noiseTexture;
-layout(binding = 3) uniform sampler2D worldPosTexture;
+
+// Reconstruct world position from depth. OpenGL: no vertex Y-flip, and the
+// default clip depth range is [-1,1], so the stored [0,1] depth maps to
+// NDC.z = 2*depth-1 before InvViewProj.
+vec3 ReconstructWorldPos(vec2 uv, float depth) {
+    vec4 ndc   = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = InvViewProj * ndc;
+    return world.xyz / world.w;
+}
 
 void main() {
     if (ssaoEnabled == 0u) {
@@ -58,7 +64,7 @@ void main() {
         return;
     }
 
-    vec3 worldPos = texture(worldPosTexture, fragUV).xyz;
+    vec3 worldPos = ReconstructWorldPos(fragUV, depth);
     vec3 worldN   = normalize(texture(normalTexture, fragUV).rgb * 2.0 - 1.0);
 
     vec2 noiseScale = vec2(screenWidth / 4.0, screenHeight / 4.0);
@@ -90,7 +96,9 @@ void main() {
         vec2 uv = clipSample.xy / clipSample.w * 0.5 + 0.5;
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) continue;
 
-        vec3  actualWorld = texture(worldPosTexture, uv).xyz;
+        float sampleDepth = texture(depthTexture, uv).r;
+        if (sampleDepth >= 1.0) continue;  // sky — no occluder
+        vec3  actualWorld = ReconstructWorldPos(uv, sampleDepth);
         float actualViewZ = (View * vec4(actualWorld, 1.0)).z;
         float sampleViewZ = (View * vec4(sampleWorld, 1.0)).z;
 

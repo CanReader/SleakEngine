@@ -379,10 +379,11 @@ private:
     std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 
     // ---- Deferred GBuffer ----
-    // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
-    // RT3=WorldPos (written directly to avoid InvViewProj reconstruction
-    // noise that produces shadow shimmer under camera rotation).
-    static constexpr uint32_t GBUFFER_COUNT = 4;
+    // 3 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit.
+    // World position is reconstructed from the depth buffer + InvViewProj in
+    // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
+    // bandwidth on a fill-bound renderer.
+    static constexpr uint32_t GBUFFER_COUNT = 3;
     VkImage        m_gbufferImages[GBUFFER_COUNT]   = {};
     VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT]   = {};
     VkImageView    m_gbufferViews[GBUFFER_COUNT]    = {};
@@ -528,6 +529,7 @@ private:
     struct alignas(16) SSAOParams {
         float View[16];
         float Projection[16];
+        float InvViewProj[16];              // inverse(View*Proj) for depth recon
         float Kernel[SSAO_KERNEL_SIZE][4];  // xyz=dir, w=pad
         float ScreenW, ScreenH;
         float NoiseScaleX, NoiseScaleY;
@@ -550,6 +552,9 @@ private:
     // from DeferredCB's InvViewProj). We populate View+Projection at SSAO time.
     float m_cachedView[16]       = {};
     float m_cachedProjection[16] = {};
+    // inverse(View*Proj) snapshot from the lighting DeferredCB — reused by the
+    // SSAO/SSR passes to reconstruct world position from the depth buffer.
+    float m_cachedInvViewProj[16] = {};
 
     bool CreateSSAOResources();
     // One-time init of the disabled-effect fallback images (ssaoBlur=white,
@@ -573,6 +578,7 @@ private:
     struct alignas(16) SSRParams {
         float View[16];
         float Projection[16];
+        float InvViewProj[16];      // inverse(View*Proj) for depth recon
         float CameraPos[4];         // xyz = world pos, w = pad
         float ScreenW, ScreenH;
         float MaxDistance;          // view-space ray march distance

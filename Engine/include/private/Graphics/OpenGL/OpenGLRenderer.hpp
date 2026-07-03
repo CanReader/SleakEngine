@@ -132,8 +132,7 @@ private:
     GLuint m_gbufferAlbedoAO     = 0;   // RT0: RGBA8  — Albedo + AO
     GLuint m_gbufferNormalRough  = 0;   // RT1: RGBA16F — Normal + Roughness
     GLuint m_gbufferMetalEmit    = 0;   // RT2: RGBA8  — Metallic + EmissiveScale
-    GLuint m_gbufferWorldPos     = 0;   // RT3: RGBA32F — WorldPos.xyz (a unused)
-    GLuint m_gbufferDepth        = 0;   // Depth texture (for lighting pass sampling)
+    GLuint m_gbufferDepth        = 0;   // Depth texture (world pos reconstructed)
     bool   m_gbufferCreated      = false;
     int    m_gbufferWidth        = 0;
     int    m_gbufferHeight       = 0;

@@ -12,8 +12,7 @@ out vec4 outColor;
 layout(binding = 8)  uniform sampler2D gbAlbedoAO;
 layout(binding = 9)  uniform sampler2D gbNormalRough;
 layout(binding = 10) uniform sampler2D gbMetalEmit;
-layout(binding = 11) uniform sampler2D gbDepth;
-layout(binding = 12) uniform sampler2D gbWorldPos;
+layout(binding = 11) uniform sampler2D gbDepth;  // world pos reconstructed from this
 
 // Shadow map (already bound at unit 3 by the shadow pass)
 layout(binding = 3) uniform sampler2DShadow shadowMap;
@@ -56,6 +55,7 @@ layout(std140, binding = 5) uniform ShadowUBO {
     uint  PCSSEnabled;
     uint  ShadowMapEnabled;
     float _shadowPad0, _shadowPad1;
+    mat4  NdcToShadow;   // NDC -> shadow clip, CPU-composed (no shimmer)
 };
 
 layout(std140, binding = 6) uniform DeferredCB {
@@ -108,10 +108,12 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 // ---- Shadow ----
-float CalcShadowPCF(vec3 worldPos, float NdotL) {
+// ndc: screen NDC + depth (w=1). Shadow coords use the CPU-composed
+// NdcToShadow — never the reconstructed world position (shimmer).
+float CalcShadowPCF(vec4 ndc, float NdotL) {
     if (ShadowMapEnabled == 0u) return 1.0;
 
-    vec4 sc = ShadowLightVP * vec4(worldPos, 1.0);
+    vec4 sc = NdcToShadow * ndc;
     vec3 proj = sc.xyz / sc.w;
     proj.xy   = proj.xy * 0.5 + 0.5;
     proj.z    = proj.z  * 0.5 + 0.5;   // remap [-1,1]->  [0,1] for OpenGL
@@ -137,6 +139,15 @@ float CalcShadowPCF(vec3 worldPos, float NdotL) {
 }
 
 // ---- ACES tone mapping ----
+// Reconstruct world position from depth. OpenGL: no vertex Y-flip, and the
+// default clip depth range is [-1,1], so the stored [0,1] depth maps to
+// NDC.z = 2*depth-1 before InvViewProj.
+vec3 ReconstructWorldPos(vec2 uv, float depth) {
+    vec4 ndc   = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = InvViewProj * ndc;
+    return world.xyz / world.w;
+}
+
 vec3 ACESFilm(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
@@ -180,11 +191,9 @@ void main() {
     float emitScale = metalEmit.g;
 
     // ---- World position ----
-    // Read directly from GBuffer RT3 instead of reconstructing from depth
-    // + InvViewProj. Reconstruction produces rotation-dependent FP noise
-    // that makes shadow sample UVs drift by fractions of a texel each
-    // frame, which is what "shadow swim" on pure rotation was.
-    vec3 worldPos = texture(gbWorldPos, fragUV).xyz;
+    // Reconstructed from depth + InvViewProj (no worldpos RT).
+    vec3 worldPos = ReconstructWorldPos(fragUV, depth);
+    vec4 ndcPos   = vec4(fragUV * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
 
     vec3 V  = normalize(CameraPos - worldPos);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
@@ -214,7 +223,7 @@ void main() {
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL <= 0.0) continue;
 
-        float shadow = (light.Type == 0u) ? CalcShadowPCF(worldPos, NdotL) : 1.0;
+        float shadow = (light.Type == 0u) ? CalcShadowPCF(ndcPos, NdotL) : 1.0;
 
         vec3 H       = normalize(V + L);
         vec3 radiance = light.Color * light.Intensity * attenuation;

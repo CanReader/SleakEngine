@@ -5,13 +5,12 @@
 //
 // Reads:
 //   set 0 binding 0: gNormalRough  (world-space normal encoded + roughness.a)
-//   set 0 binding 1: gWorldPos     (world-space position, R32G32B32A32)
-//   set 0 binding 2: gDepth        (depth buffer)
-//   set 0 binding 3: gMetalEmit    (metallic.r + emissive.gba) - for F0
-//   set 0 binding 4: gAlbedoAO     (albedo.rgb + AO.a) - for metallic F0
-//   set 0 binding 5: sceneHDR      (lit HDR scene color)
+//   set 0 binding 1: gDepth        (depth buffer — world pos reconstructed)
+//   set 0 binding 2: gMetalEmit    (metallic.r + emissive.gba) - for F0
+//   set 0 binding 3: gAlbedoAO     (albedo.rgb + AO.a) - for metallic F0
+//   set 0 binding 4: sceneHDR      (lit HDR scene color)
 //
-// UBO (set 1 binding 0): SSRParams — view/proj matrices, ray march params
+// UBO (set 1 binding 0): SSRParams — view/proj/invViewProj, ray march params
 //
 // Output: R16G16B16A16 premultiplied (rgb = sceneColor * weight, a = weight)
 // ============================================================
@@ -20,15 +19,15 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D gNormalRough;
-layout(set = 0, binding = 1) uniform sampler2D gWorldPos;
-layout(set = 0, binding = 2) uniform sampler2D gDepth;
-layout(set = 0, binding = 3) uniform sampler2D gMetalEmit;
-layout(set = 0, binding = 4) uniform sampler2D gAlbedoAO;
-layout(set = 0, binding = 5) uniform sampler2D sceneHDR;
+layout(set = 0, binding = 1) uniform sampler2D gDepth;
+layout(set = 0, binding = 2) uniform sampler2D gMetalEmit;
+layout(set = 0, binding = 3) uniform sampler2D gAlbedoAO;
+layout(set = 0, binding = 4) uniform sampler2D sceneHDR;
 
 layout(set = 1, binding = 0) uniform SSRParams {
     mat4  View;
     mat4  Projection;
+    mat4  InvViewProj;         // clip -> world (depth reconstruction)
     vec4  CameraPos;           // xyz = world pos
     vec2  ScreenSize;          // width, height
     float MaxDistance;         // view-space ray march distance
@@ -44,6 +43,14 @@ layout(set = 1, binding = 0) uniform SSRParams {
 float InterleavedGradientNoise(vec2 screenPos) {
     vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
     return fract(magic.z * fract(dot(screenPos, magic.xy)));
+}
+
+// Reconstruct world position from depth. Vulkan: geometry is Y-flipped in the
+// GBuffer vertex shader and depth is [0,1], so NDC.y is negated vs the UV.
+vec3 ReconstructWorldPos(vec2 uv, float depth) {
+    vec4 ndc   = vec4(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y, depth, 1.0);
+    vec4 world = InvViewProj * ndc;
+    return world.xyz / world.w;
 }
 
 // Project a view-space point to screen UV.
@@ -79,7 +86,7 @@ void main() {
         return;
     }
 
-    vec3 worldPos = texture(gWorldPos, fragUV).xyz;
+    vec3 worldPos = ReconstructWorldPos(fragUV, centerDepth);
 
     // View + reflect in WORLD space, then transform to VIEW space for the march.
     vec3 V = normalize(CameraPos.xyz - worldPos);

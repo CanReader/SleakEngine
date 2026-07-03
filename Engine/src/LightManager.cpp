@@ -350,6 +350,26 @@ void LightManager::UpdateShadowData() {
     std::memcpy(m_prevLightVP, &lightVP(0, 0), sizeof(float) * 16);
     m_hasPrevLightVP = true;
 
+    // NdcToShadow = InvViewProj * LightVP composed once on CPU so shadow
+    // coords never round-trip through reconstructed world position (that
+    // per-fragment path shimmers under camera rotation). Uses the same
+    // LightVP the UBO carries (prev frame — matches the bound shadow map).
+    {
+        const Math::Matrix4& camV = Camera::GetMainViewMatrix();
+        const Math::Matrix4& camP = Camera::GetMainProjectionMatrix();
+        Math::Matrix4 camVP = camV * camP;
+        float invVP[16];
+        if (Invert4x4(&camVP(0, 0), invVP)) {
+            Math::Matrix4 invVPm, lightVPm;
+            std::memcpy(&invVPm(0, 0), invVP, sizeof(float) * 16);
+            std::memcpy(&lightVPm(0, 0), ubo.LightVP, sizeof(float) * 16);
+            Math::Matrix4 comp = invVPm * lightVPm;
+            std::memcpy(ubo.NdcToShadow, &comp(0, 0), sizeof(float) * 16);
+        } else {
+            std::memcpy(ubo.NdcToShadow, ubo.LightVP, sizeof(float) * 16);
+        }
+    }
+
     ubo.ShadowBias = shadowLight ? shadowLight->GetShadowBias() : 0.0f;
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
     ubo.ShadowTexelSize = 1.0f / 2048.0f;  // Match SHADOW_MAP_SIZE

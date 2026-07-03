@@ -9,7 +9,7 @@
 // RT0 (location=0): AlbedoAO    — baseColor.rgb + AO.a
 // RT1 (location=1): NormalRough — encoded world-normal.xyz + roughness.a
 // RT2 (location=2): MetalEmit   — metallic.r + emissive.gba (R16G16B16A16_SFLOAT)
-// RT3 (location=3): WorldPos    — world-space position.xyz + 1.a
+// World position is reconstructed from depth in the lighting/SSAO/SSR passes.
 // ============================================================
 
 layout(location = 0) in vec3 fragWorldPos;
@@ -52,7 +52,6 @@ layout(set = 0, binding = 6) uniform MaterialParams {
 layout(location = 0) out vec4 outAlbedoAO;
 layout(location = 1) out vec4 outNormalRough;
 layout(location = 2) out vec4 outMetalEmit;
-layout(location = 3) out vec4 outWorldPos;
 
 void main() {
     vec2 uv = fragUV * vec2(tilingX, tilingY) + vec2(offsetX, offsetY);
@@ -105,5 +104,4 @@ void main() {
     outAlbedoAO    = vec4(albedoSample.rgb, ao);
     outNormalRough = vec4(N * 0.5 + 0.5, roughness);
     outMetalEmit   = vec4(metallic, emissive);  // .r=metallic, .gba=emissiveRGB (HDR)
-    outWorldPos    = vec4(fragWorldPos, 1.0);
 }

@@ -4819,7 +4819,6 @@ const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] =
     VK_FORMAT_R8G8B8A8_UNORM,        // RT0: AlbedoAO
     VK_FORMAT_R16G16B16A16_SFLOAT,   // RT1: NormalRough
     VK_FORMAT_R16G16B16A16_SFLOAT,   // RT2: MetalEmit (HDR emissive needs float)
-    VK_FORMAT_R32G32B32A32_SFLOAT,   // RT3: WorldPos
 };
 
 // ============================================================
@@ -4914,7 +4913,7 @@ bool VulkanRenderer::CreateGBufferResources() {
     if (!CreateGBufferPipeline())         { SLEAK_ERROR("GBuffer: gbuffer pipeline failed!");     return false; }
     if (!CreateSkinnedGbufferPipeline()) { SLEAK_ERROR("GBuffer: skinned gbuffer pipeline failed!"); return false; }
 
-    // Now that SSAO inputs (gNormalRough, gWorldPos, gDepth) and SSAO blur
+    // Now that SSAO inputs (gNormalRough, gDepth) and SSAO blur
     // descriptor set 0 target are available, write SSAO descriptors.
     UpdateSSAODescriptors();
     // SSR input descriptors depend on m_gbufferViews + m_hdrSceneView, both
@@ -5646,9 +5645,10 @@ bool VulkanRenderer::CreateForwardFramebuffers() {
 
 // ============================================================
 // CreateGBufferDescriptorSets
-// m_gbufferSamplerDSL: 6 combined image samplers for lighting pass set 0
-//   binding 0..3 = GBuffer color RTs (RT0=AlbedoAO, RT1=NormalRough,
-//   RT2=MetalEmit, RT3=WorldPos), binding 4 = depth, binding 5 = shadow.
+// m_gbufferSamplerDSL: 7 combined image samplers for lighting pass set 0
+//   binding 0..2 = GBuffer color RTs (RT0=AlbedoAO, RT1=NormalRough,
+//   RT2=MetalEmit), binding 3 = depth, binding 4 = shadow. World position
+//   is reconstructed from depth + InvViewProj.
 // ============================================================
 bool VulkanRenderer::CreateGBufferDescriptorSets() {
     // Create GBuffer sampler (nearest for encoded data reads in lighting pass)
@@ -5686,12 +5686,13 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
     }
 
     // DSL for set 0 of lighting pass:
-    // binding 0: RT0, 1: RT1, 2: RT2, 3: RT3 (WorldPos), 4: depth,
-    // binding 5: shadow compare sampler (hardware PCF),
-    // binding 6: shadow raw sampler    (PCSS blocker search)
-    // binding 7: screen-space AO       (R8, bilateral blurred)
-    std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
-    for (uint32_t b = 0; b < 8; ++b) {
+    // binding 0: RT0, 1: RT1, 2: RT2, 3: depth,
+    // binding 4: shadow compare sampler (hardware PCF),
+    // binding 5: shadow raw sampler    (PCSS blocker search)
+    // binding 6: screen-space AO       (R8, bilateral blurred)
+    // (world position is reconstructed from depth binding 3 + InvViewProj)
+    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
+    for (uint32_t b = 0; b < 7; ++b) {
         bindings[b].binding         = b;
         bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[b].descriptorCount = 1;
@@ -5708,10 +5709,10 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
         return false;
     }
 
-    // Pool: 8 samplers × MAX_FRAMES_IN_FLIGHT sets
+    // Pool: 7 samplers × MAX_FRAMES_IN_FLIGHT sets
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 8 * MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount = 7 * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -5759,61 +5760,61 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
     // descriptor set is safe to update.  Updating other slots would
     // race with the GPU still consuming them.
     uint32_t f = currentFrame;
-    std::array<VkDescriptorImageInfo, 8> imageInfos{};
+    std::array<VkDescriptorImageInfo, 7> imageInfos{};
 
-    // RT0..RT3 (AlbedoAO, NormalRough, MetalEmit, WorldPos)
+    // RT0..RT2 (AlbedoAO, NormalRough, MetalEmit)
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
         imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfos[i].imageView   = m_gbufferViews[i];
         imageInfos[i].sampler     = m_gbufferSampler;
     }
 
-    // Depth (binding 4)
-    imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    imageInfos[4].imageView   = depthImageView;
-    imageInfos[4].sampler     = m_depthSampler;
+    // Depth (binding 3) — used to reconstruct world position
+    imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    imageInfos[3].imageView   = depthImageView;
+    imageInfos[3].sampler     = m_depthSampler;
 
-    // Shadow map (binding 5) — compare sampler for hardware PCF.
+    // Shadow map (binding 4) — compare sampler for hardware PCF.
     // Depth images must use DEPTH_STENCIL_READ_ONLY_OPTIMAL (not SHADER_READ_ONLY_OPTIMAL)
     // when accessed as a sampler; using the wrong layout causes VK_ERROR_DEVICE_LOST.
     // Fall back to the default 1x1 white texture when no shadow map is available.
     if (m_shadowImageView) {
+        imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        imageInfos[4].imageView   = m_shadowImageView;
+        imageInfos[4].sampler     = m_shadowSampler ? m_shadowSampler
+                                                     : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+    } else if (m_defaultTexture) {
+        imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[4].imageView   = m_defaultTexture->GetImageView();
+        imageInfos[4].sampler     = m_defaultTexture->GetSampler();
+    }
+
+    // Shadow map raw (binding 5) — non-compare sampler for PCSS blocker search
+    if (m_shadowImageView) {
         imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
         imageInfos[5].imageView   = m_shadowImageView;
-        imageInfos[5].sampler     = m_shadowSampler ? m_shadowSampler
-                                                     : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+        imageInfos[5].sampler     = m_shadowRawSampler ? m_shadowRawSampler
+                                                        : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
     } else if (m_defaultTexture) {
         imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfos[5].imageView   = m_defaultTexture->GetImageView();
         imageInfos[5].sampler     = m_defaultTexture->GetSampler();
     }
 
-    // Shadow map raw (binding 6) — non-compare sampler for PCSS blocker search
-    if (m_shadowImageView) {
-        imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        imageInfos[6].imageView   = m_shadowImageView;
-        imageInfos[6].sampler     = m_shadowRawSampler ? m_shadowRawSampler
-                                                        : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+    // SSAO (binding 6) — fallback to default white texture when SSAO isn't ready,
+    // so the lighting shader multiplies by 1.0 (no occlusion) as a safe default.
+    if (m_ssaoBlurView != VK_NULL_HANDLE && m_ssaoSampler != VK_NULL_HANDLE) {
+        imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[6].imageView   = m_ssaoBlurView;
+        imageInfos[6].sampler     = m_ssaoSampler;
     } else if (m_defaultTexture) {
         imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfos[6].imageView   = m_defaultTexture->GetImageView();
         imageInfos[6].sampler     = m_defaultTexture->GetSampler();
     }
 
-    // SSAO (binding 7) — fallback to default white texture when SSAO isn't ready,
-    // so the lighting shader multiplies by 1.0 (no occlusion) as a safe default.
-    if (m_ssaoBlurView != VK_NULL_HANDLE && m_ssaoSampler != VK_NULL_HANDLE) {
-        imageInfos[7].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[7].imageView   = m_ssaoBlurView;
-        imageInfos[7].sampler     = m_ssaoSampler;
-    } else if (m_defaultTexture) {
-        imageInfos[7].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[7].imageView   = m_defaultTexture->GetImageView();
-        imageInfos[7].sampler     = m_defaultTexture->GetSampler();
-    }
-
-    std::array<VkWriteDescriptorSet, 8> writes{};
-    for (uint32_t b = 0; b < 8; ++b) {
+    std::array<VkWriteDescriptorSet, 7> writes{};
+    for (uint32_t b = 0; b < 7; ++b) {
         writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[b].dstSet          = m_gbufferSamplerSets[f];
         writes[b].dstBinding      = b;
@@ -7369,7 +7370,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     m_inGeometryPass = false;
     m_inVoxelPass = false;  // geometry pass is over; pipeline state doesn't survive across render passes
 
-    // 2. Run SSAO (raw + bilateral blur) using GBuffer normal/worldpos/depth.
+    // 2. Run SSAO (raw + bilateral blur) using GBuffer normal + depth.
     //    This writes to m_ssaoBlurImage which the lighting pass binding 7 reads.
     RenderSSAOPasses();
 
@@ -7590,6 +7591,11 @@ void VulkanRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     memcpy(m_cachedView,       &V(0, 0), sizeof(m_cachedView));
     memcpy(m_cachedProjection, &P(0, 0), sizeof(m_cachedProjection));
 
+    // Snapshot InvViewProj (first mat4 of DeferredCBData) so SSAO/SSR reuse the
+    // exact inverse the lighting pass uses to reconstruct world from depth.
+    if (copySize >= sizeof(m_cachedInvViewProj))
+        memcpy(m_cachedInvViewProj, data, sizeof(m_cachedInvViewProj));
+
     // Compute sub-pixel Halton jitter for this frame (UV space).
     // Applied to WVP push constants in BindConstantBuffer during the geometry pass
     // so each frame samples a slightly different sub-pixel location — the temporal
@@ -7774,10 +7780,11 @@ bool VulkanRenderer::CreateSSAOFramebuffers() {
 }
 
 bool VulkanRenderer::CreateSSAODescriptorResources() {
-    // Set 0 for SSAO: bindings 0..3 (gNormalRough, gWorldPos, gDepth, noise).
+    // Set 0 for SSAO: bindings 0..2 (gNormalRough, gDepth, noise).
+    // World position is reconstructed from gDepth + InvViewProj (set 1 UBO).
     {
-        std::array<VkDescriptorSetLayoutBinding, 4> binds{};
-        for (uint32_t i = 0; i < 4; ++i) {
+        std::array<VkDescriptorSetLayoutBinding, 3> binds{};
+        for (uint32_t i = 0; i < 3; ++i) {
             binds[i].binding         = i;
             binds[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             binds[i].descriptorCount = 1;
@@ -8224,27 +8231,23 @@ void VulkanRenderer::UpdateSSAODescriptors() {
     // Write per-frame descriptors. Do all frame slots now — called during
     // init before any frames are recorded, so no concurrent GPU reads.
     for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
-        // Set 0 (input samplers): gNormalRough, gWorldPos, gDepth, noise.
-        std::array<VkDescriptorImageInfo, 4> inputInfos{};
-        // gNormalRough = gbuffer[1], gWorldPos = gbuffer[3].
+        // Set 0 (input samplers): gNormalRough, gDepth, noise.
+        std::array<VkDescriptorImageInfo, 3> inputInfos{};
+        // gNormalRough = gbuffer[1]; world position reconstructed from depth.
         inputInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         inputInfos[0].imageView   = m_gbufferViews[1];
         inputInfos[0].sampler     = m_ssaoPointSampler;
 
-        inputInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        inputInfos[1].imageView   = m_gbufferViews[3];
+        inputInfos[1].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        inputInfos[1].imageView   = depthImageView;
         inputInfos[1].sampler     = m_ssaoPointSampler;
 
-        inputInfos[2].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        inputInfos[2].imageView   = depthImageView;
-        inputInfos[2].sampler     = m_ssaoPointSampler;
+        inputInfos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        inputInfos[2].imageView   = m_ssaoNoiseView;
+        inputInfos[2].sampler     = m_ssaoNoiseSampler;
 
-        inputInfos[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        inputInfos[3].imageView   = m_ssaoNoiseView;
-        inputInfos[3].sampler     = m_ssaoNoiseSampler;
-
-        std::array<VkWriteDescriptorSet, 4> inputWrites{};
-        for (uint32_t i = 0; i < 4; ++i) {
+        std::array<VkWriteDescriptorSet, 3> inputWrites{};
+        for (uint32_t i = 0; i < 3; ++i) {
             inputWrites[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             inputWrites[i].dstSet          = m_ssaoInputSets[f];
             inputWrites[i].dstBinding      = i;
@@ -8283,8 +8286,9 @@ void VulkanRenderer::UpdateSSAOUBO() {
     if (!m_ssaoResourcesCreated || !m_ssaoUboMapped[currentFrame]) return;
 
     SSAOParams p{};
-    memcpy(p.View,       m_cachedView,       sizeof(p.View));
-    memcpy(p.Projection, m_cachedProjection, sizeof(p.Projection));
+    memcpy(p.View,        m_cachedView,        sizeof(p.View));
+    memcpy(p.Projection,  m_cachedProjection,  sizeof(p.Projection));
+    memcpy(p.InvViewProj, m_cachedInvViewProj, sizeof(p.InvViewProj));
 
     // Generate cosine-weighted hemisphere kernel — we do this once in a
     // session (use a fixed RNG seed). The kernel vectors are in the tangent
@@ -8629,10 +8633,10 @@ bool VulkanRenderer::CreateSSRResources() {
     }
 
     // ---- 4. Descriptor set layouts ----
-    // Set 0: 6 combined image samplers (gNormalRough, gWorldPos, gDepth,
-    //         gMetalEmit, gAlbedoAO, sceneHDR).
+    // Set 0: 5 combined image samplers (gNormalRough, gDepth, gMetalEmit,
+    //         gAlbedoAO, sceneHDR). World position reconstructed from depth.
     {
-        std::array<VkDescriptorSetLayoutBinding, 6> binds{};
+        std::array<VkDescriptorSetLayoutBinding, 5> binds{};
         for (uint32_t i = 0; i < binds.size(); ++i) {
             binds[i].binding         = i;
             binds[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -9427,45 +9431,40 @@ void VulkanRenderer::UpdateSSRDescriptors() {
 
     // Write the input samplers for every frame slot. Called during init, so
     // no concurrent GPU access — safe to update both slots at once.
-    // Sampler slots: [0]=gNormalRough, [1]=gWorldPos, [2]=gDepth,
-    //                [3]=gMetalEmit, [4]=gAlbedoAO, [5]=sceneHDR.
+    // Sampler slots: [0]=gNormalRough, [1]=gDepth, [2]=gMetalEmit,
+    //                [3]=gAlbedoAO, [4]=sceneHDR. World pos from depth.
     for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
-        std::array<VkDescriptorImageInfo, 6> infos{};
+        std::array<VkDescriptorImageInfo, 5> infos{};
 
         // gNormalRough = gbuffer[1]
         infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         infos[0].imageView   = m_gbufferViews[1];
         infos[0].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
 
-        // gWorldPos = gbuffer[3]
-        infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        infos[1].imageView   = m_gbufferViews[3];
-        infos[1].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
-
         // gDepth — READ_ONLY because shadow pass finalLayout is
         // DEPTH_STENCIL_READ_ONLY, GBuffer pass final is READ_ONLY, but the
         // forward pass exits at DEPTH_STENCIL_ATTACHMENT_OPTIMAL. SSR bracket
         // transitions it to READ_ONLY before sampling (see RenderSSRPass).
-        infos[2].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        infos[2].imageView   = depthImageView;
-        infos[2].sampler     = m_depthSampler ? m_depthSampler : m_ssrSampler;
+        infos[1].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        infos[1].imageView   = depthImageView;
+        infos[1].sampler     = m_depthSampler ? m_depthSampler : m_ssrSampler;
 
         // gMetalEmit = gbuffer[2]
-        infos[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        infos[3].imageView   = m_gbufferViews[2];
-        infos[3].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
+        infos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        infos[2].imageView   = m_gbufferViews[2];
+        infos[2].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
 
         // gAlbedoAO = gbuffer[0]
-        infos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        infos[4].imageView   = m_gbufferViews[0];
-        infos[4].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
+        infos[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        infos[3].imageView   = m_gbufferViews[0];
+        infos[3].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
 
         // sceneHDR — forward pass finalLayout is SHADER_READ_ONLY_OPTIMAL.
-        infos[5].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        infos[5].imageView   = m_hdrSceneView;
-        infos[5].sampler     = m_ssrSampler;
+        infos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        infos[4].imageView   = m_hdrSceneView;
+        infos[4].sampler     = m_ssrSampler;
 
-        std::array<VkWriteDescriptorSet, 6> writes{};
+        std::array<VkWriteDescriptorSet, 5> writes{};
         for (uint32_t i = 0; i < writes.size(); ++i) {
             writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet          = m_ssrInputSets[f];
@@ -9483,8 +9482,9 @@ void VulkanRenderer::UpdateSSRUBO() {
     if (!m_ssrResourcesCreated || !m_ssrUboMapped[currentFrame]) return;
 
     SSRParams p{};
-    memcpy(p.View,       m_cachedView,       sizeof(p.View));
-    memcpy(p.Projection, m_cachedProjection, sizeof(p.Projection));
+    memcpy(p.View,        m_cachedView,        sizeof(p.View));
+    memcpy(p.Projection,  m_cachedProjection,  sizeof(p.Projection));
+    memcpy(p.InvViewProj, m_cachedInvViewProj, sizeof(p.InvViewProj));
 
     const auto& camPos = Camera::GetMainCameraPosition();
     p.CameraPos[0] = camPos.GetX();
