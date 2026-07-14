@@ -266,7 +266,7 @@ void VulkanRenderer::BeginRender() {
         shadowPassInfo.renderPass = m_shadowRenderPass;
         shadowPassInfo.framebuffer = m_shadowFramebuffer;
         shadowPassInfo.renderArea.offset = {0, 0};
-        shadowPassInfo.renderArea.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+        shadowPassInfo.renderArea.extent = {m_shadowMapResolution, m_shadowMapResolution};
         shadowPassInfo.clearValueCount = 1;
         shadowPassInfo.pClearValues = &shadowClear;
 
@@ -286,15 +286,15 @@ void VulkanRenderer::BeginRender() {
         VkViewport shadowViewport{};
         shadowViewport.x = 0.0f;
         shadowViewport.y = 0.0f;
-        shadowViewport.width = static_cast<float>(SHADOW_MAP_SIZE);
-        shadowViewport.height = static_cast<float>(SHADOW_MAP_SIZE);
+        shadowViewport.width = static_cast<float>(m_shadowMapResolution);
+        shadowViewport.height = static_cast<float>(m_shadowMapResolution);
         shadowViewport.minDepth = 0.0f;
         shadowViewport.maxDepth = 1.0f;
         vkCmdSetViewport(command, 0, 1, &shadowViewport);
 
         VkRect2D shadowScissor{};
         shadowScissor.offset = {0, 0};
-        shadowScissor.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+        shadowScissor.extent = {m_shadowMapResolution, m_shadowMapResolution};
         vkCmdSetScissor(command, 0, 1, &shadowScissor);
 
         m_shadowPassActive = true;
@@ -4222,7 +4222,7 @@ bool VulkanRenderer::CreateShadowResources() {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1};
+    imageInfo.extent = {m_shadowMapResolution, m_shadowMapResolution, 1};
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
     imageInfo.format = VK_FORMAT_D32_SFLOAT;
@@ -4364,8 +4364,8 @@ bool VulkanRenderer::CreateShadowResources() {
     fbInfo.renderPass = m_shadowRenderPass;
     fbInfo.attachmentCount = 1;
     fbInfo.pAttachments = &m_shadowImageView;
-    fbInfo.width = SHADOW_MAP_SIZE;
-    fbInfo.height = SHADOW_MAP_SIZE;
+    fbInfo.width = m_shadowMapResolution;
+    fbInfo.height = m_shadowMapResolution;
     fbInfo.layers = 1;
 
     if (vkCreateFramebuffer(device, &fbInfo, nullptr, &m_shadowFramebuffer) != VK_SUCCESS) {
@@ -4471,7 +4471,7 @@ bool VulkanRenderer::CreateShadowResources() {
 
     m_shadowResourcesCreated = true;
     SLEAK_INFO("VulkanRenderer: Shadow mapping resources created ({}x{} shadow map)",
-               SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+               m_shadowMapResolution, m_shadowMapResolution);
     return true;
 }
 

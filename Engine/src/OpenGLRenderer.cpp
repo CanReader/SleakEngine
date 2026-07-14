@@ -677,7 +677,7 @@ bool OpenGLRenderer::CreateShadowMapResources() {
     glGenTextures(1, &m_shadowDepthTex);
     glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
-                 SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0,
+                 m_shadowMapResolution, m_shadowMapResolution, 0,
                  GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -703,7 +703,8 @@ bool OpenGLRenderer::CreateShadowMapResources() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     m_shadowMapCreated = true;
-    SLEAK_INFO("OpenGL shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    m_shadowResourcesCreated = true;
+    SLEAK_INFO("OpenGL shadow map resources created ({}x{})", m_shadowMapResolution, m_shadowMapResolution);
     return true;
 }
 
@@ -722,7 +723,7 @@ void OpenGLRenderer::RenderShadowPass() {
 
     // Bind shadow FBO
     glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
-    glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    glViewport(0, 0, m_shadowMapResolution, m_shadowMapResolution);
     glClear(GL_DEPTH_BUFFER_BIT);
 
     // Enable polygon offset for slope-scale depth bias

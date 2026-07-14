@@ -1060,8 +1060,8 @@ bool DirectX11Renderer::CreateShadowMapResources() {
 
     // Create depth texture
     D3D11_TEXTURE2D_DESC texDesc{};
-    texDesc.Width = SHADOW_MAP_SIZE;
-    texDesc.Height = SHADOW_MAP_SIZE;
+    texDesc.Width = m_shadowMapResolution;
+    texDesc.Height = m_shadowMapResolution;
     texDesc.MipLevels = 1;
     texDesc.ArraySize = 1;
     texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
@@ -1132,7 +1132,8 @@ bool DirectX11Renderer::CreateShadowMapResources() {
     }
 
     m_shadowMapCreated = true;
-    SLEAK_INFO("D3D11 shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    m_shadowResourcesCreated = true;
+    SLEAK_INFO("D3D11 shadow map resources created ({}x{})", m_shadowMapResolution, m_shadowMapResolution);
     return true;
 }
 
@@ -1164,8 +1165,8 @@ void DirectX11Renderer::RenderShadowPass() {
 
     // Set shadow viewport
     D3D11_VIEWPORT shadowViewport{};
-    shadowViewport.Width = static_cast<float>(SHADOW_MAP_SIZE);
-    shadowViewport.Height = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.Width = static_cast<float>(m_shadowMapResolution);
+    shadowViewport.Height = static_cast<float>(m_shadowMapResolution);
     shadowViewport.MinDepth = 0.0f;
     shadowViewport.MaxDepth = 1.0f;
     deviceContext->RSSetViewports(1, &shadowViewport);

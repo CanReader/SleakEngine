@@ -167,7 +167,6 @@ private:
     bool CreateLightUBO();
 
     // Shadow mapping
-    static constexpr UINT SHADOW_MAP_SIZE = 4096;
     Microsoft::WRL::ComPtr<ID3D12Resource>         m_shadowDepthBuffer;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>   m_shadowDsvHeap;
     D3D12_CPU_DESCRIPTOR_HANDLE                    m_shadowDsvHandle = {};

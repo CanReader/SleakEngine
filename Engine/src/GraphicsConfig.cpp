@@ -27,6 +27,7 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
             cfg.shadowEnabled = true;
+            cfg.shadowMapResolution = 1024;
             cfg.shadowFrustumSize = 96.0f;
             cfg.shadowCasterDistance = 64.0f;
             cfg.occlusionCullingEnabled = false;
@@ -68,6 +69,7 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.iblEnabled = true;
             cfg.taaEnabled = true;
             cfg.shadowEnabled = true;
+            cfg.shadowMapResolution = 3072;
             cfg.shadowDistance = 256.0f;
             cfg.shadowFrustumSize = 160.0f;
             cfg.shadowCasterDistance = 160.0f;

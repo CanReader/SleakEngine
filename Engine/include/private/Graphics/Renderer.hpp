@@ -157,6 +157,22 @@ public:
     void SetPCSSEnabled(bool enabled) { m_pcssEnabled = enabled; }
     bool IsPCSSEnabled() const { return m_pcssEnabled; }
 
+    // Shadow map resolution. Takes effect at shadow-resource creation; after
+    // that it is queued until the backend recreates shadow resources, so the
+    // getter always reflects the LIVE map size (LightManager texel math
+    // depends on this).
+    void SetShadowMapResolution(uint32_t res) {
+        if (res < 256 || res > 8192) return;
+        if (res == m_shadowMapResolution) return;
+        if (m_shadowResourcesCreated) {
+            m_pendingShadowMapResolution = res;
+            m_shadowResChangeRequested = true;
+            return;
+        }
+        m_shadowMapResolution = res;
+    }
+    uint32_t GetShadowMapResolution() const { return m_shadowMapResolution; }
+
     // Deferred rendering mode (default: enabled)
     void SetDeferredEnabled(bool enabled) { m_deferredEnabled = enabled; }
     bool GetDeferredEnabled() const { return m_deferredEnabled; }
@@ -255,6 +271,12 @@ public:
 
     // PCSS
     bool m_pcssEnabled = true;
+
+    // Shadow map resolution
+    uint32_t m_shadowMapResolution = 2048;
+    uint32_t m_pendingShadowMapResolution = 2048;
+    bool m_shadowResourcesCreated = false;
+    bool m_shadowResChangeRequested = false;
 
     // Deferred rendering
     bool m_deferredEnabled = true;

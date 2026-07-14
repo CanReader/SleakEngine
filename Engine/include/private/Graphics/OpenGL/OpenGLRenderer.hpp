@@ -99,7 +99,6 @@ private:
     void SetupVertexLayout();
 
     // Shadow mapping
-    static constexpr int SHADOW_MAP_SIZE = 4096;
     GLuint m_shadowFBO = 0;
     GLuint m_shadowDepthTex = 0;
     GLuint m_shadowUBO = 0;

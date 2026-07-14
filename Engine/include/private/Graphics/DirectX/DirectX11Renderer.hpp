@@ -147,7 +147,6 @@ public:
     void CleanupShadowResources();
 
     // Shadow depth map
-    static constexpr UINT SHADOW_MAP_SIZE = 4096;
     ID3D11Texture2D*          m_shadowDepthTex = nullptr;
     ID3D11DepthStencilView*   m_shadowDSV = nullptr;
     ID3D11ShaderResourceView* m_shadowSRV = nullptr;

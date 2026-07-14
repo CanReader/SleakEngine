@@ -1288,8 +1288,8 @@ bool DirectX12Renderer::CreateShadowMapResources() {
     // Create shadow depth texture
     D3D12_RESOURCE_DESC depthDesc = {};
     depthDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    depthDesc.Width = SHADOW_MAP_SIZE;
-    depthDesc.Height = SHADOW_MAP_SIZE;
+    depthDesc.Width = m_shadowMapResolution;
+    depthDesc.Height = m_shadowMapResolution;
     depthDesc.DepthOrArraySize = 1;
     depthDesc.MipLevels = 1;
     depthDesc.Format = DXGI_FORMAT_R32_TYPELESS;
@@ -1328,7 +1328,8 @@ bool DirectX12Renderer::CreateShadowMapResources() {
                                       GetSharedSrvCPUHandle(m_shadowSrvIndex));
 
     m_shadowMapCreated = true;
-    SLEAK_INFO("D3D12 shadow map resources created ({}x{})", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    m_shadowResourcesCreated = true;
+    SLEAK_INFO("D3D12 shadow map resources created ({}x{})", m_shadowMapResolution, m_shadowMapResolution);
     return true;
 }
 
@@ -1356,15 +1357,15 @@ void DirectX12Renderer::RenderShadowPass() {
 
     // Set shadow viewport
     D3D12_VIEWPORT shadowViewport = {};
-    shadowViewport.Width = static_cast<float>(SHADOW_MAP_SIZE);
-    shadowViewport.Height = static_cast<float>(SHADOW_MAP_SIZE);
+    shadowViewport.Width = static_cast<float>(m_shadowMapResolution);
+    shadowViewport.Height = static_cast<float>(m_shadowMapResolution);
     shadowViewport.MinDepth = 0.0f;
     shadowViewport.MaxDepth = 1.0f;
     commandList->RSSetViewports(1, &shadowViewport);
 
     D3D12_RECT shadowScissor = {};
-    shadowScissor.right = SHADOW_MAP_SIZE;
-    shadowScissor.bottom = SHADOW_MAP_SIZE;
+    shadowScissor.right = m_shadowMapResolution;
+    shadowScissor.bottom = m_shadowMapResolution;
     commandList->RSSetScissorRects(1, &shadowScissor);
 
     // Use depth-only shadow PSO (no PS, no RTV, CULL_NONE + depth bias)

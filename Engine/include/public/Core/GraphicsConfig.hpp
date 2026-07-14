@@ -23,12 +23,13 @@ struct ENGINE_API GraphicsConfig {
     bool  taaEnabled   = false;
 
     // Shadows
-    bool  shadowEnabled       = true;
-    float shadowDistance      = 160.0f;
-    float shadowFrustumSize   = 96.0f;
-    float shadowCasterDistance = 96.0f;  // game uses for shadow-caster culling
-    float shadowBias          = 0.002f;
-    float shadowStrength      = 1.0f;
+    bool     shadowEnabled       = true;
+    uint32_t shadowMapResolution = 2048;
+    float    shadowDistance      = 160.0f;
+    float    shadowFrustumSize   = 96.0f;
+    float    shadowCasterDistance = 96.0f;  // game uses for shadow-caster culling
+    float    shadowBias          = 0.002f;
+    float    shadowStrength      = 1.0f;
 
     // Culling
     bool     frustumCullingEnabled   = true;

@@ -332,7 +332,6 @@ private:
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
 
     // Shadow mapping resources
-    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
     VkImage m_shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
     VkImageView m_shadowImageView = VK_NULL_HANDLE;
@@ -343,7 +342,8 @@ private:
     VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
     VulkanShader* m_shadowShader = nullptr;
     bool m_shadowPassActive = false;
-    bool m_shadowResourcesCreated = false;
+    // m_shadowResourcesCreated lives in the Renderer base (shared with the
+    // shadow-resolution change-request logic)
 
     // Shadow push-constant memo: LightVP*World is frame-constant per unique
     // World, so cache it and skip the matmul when consecutive casters (all

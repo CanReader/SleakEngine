@@ -421,6 +421,7 @@ namespace Sleak {
         renderer->SetIBLEnabled(cfg.iblEnabled);
         renderer->SetIBLIntensity(cfg.iblIntensity);
         renderer->SetTAAEnabled(cfg.taaEnabled);
+        renderer->SetShadowMapResolution(cfg.shadowMapResolution);
         renderer->SetMSAASampleCount(cfg.msaaSamples);
     }
 

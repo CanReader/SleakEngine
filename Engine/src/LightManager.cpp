@@ -260,8 +260,9 @@ void LightManager::UpdateShadowData() {
         //
         // Using round() (not floor) — floor flips by a full texel when
         // the fractional part crosses 0 due to float noise.
-        constexpr float shadowMapSize = 2048.0f;
-        constexpr float halfShadow = shadowMapSize * 0.5f;
+        const float shadowMapSize =
+            static_cast<float>(renderer->GetShadowMapResolution());
+        const float halfShadow = shadowMapSize * 0.5f;
 
         Math::Matrix4 lightVP_raw = lightView * lightProj;
         // Project the CAMERA position through lightVP — NOT the world origin.
@@ -372,7 +373,8 @@ void LightManager::UpdateShadowData() {
 
     ubo.ShadowBias = shadowLight ? shadowLight->GetShadowBias() : 0.0f;
     ubo.ShadowStrength = shadowLight ? shadowLight->GetShadowStrength() : 0.0f;
-    ubo.ShadowTexelSize = 1.0f / 2048.0f;  // Match SHADOW_MAP_SIZE
+    ubo.ShadowTexelSize =
+        1.0f / static_cast<float>(renderer->GetShadowMapResolution());
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
 
     // Fog — distance gradient (horizon + zenith) and exponential height fog
