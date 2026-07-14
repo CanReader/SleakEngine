@@ -3784,6 +3784,10 @@ void VulkanRenderer::BeginVoxelPass() {
     } else if (m_inGeometryPass && m_gbufferVoxelPipeline != VK_NULL_HANDLE) {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_gbufferVoxelPipeline);
+    } else if (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE) {
+        // Forward transparent voxel draws are water — keep the water pipeline
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_waterPipeline);
     } else {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_voxelPipeline);
