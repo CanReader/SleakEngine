@@ -338,18 +338,11 @@ void LightManager::UpdateShadowData() {
     ubo.CameraPos[2] = camPos.GetZ();
     ubo.CameraPos[3] = s_sceneClock.Elapsed();
 
-    // Copy PREVIOUS frame's lightVP into the UBO. The shadow map currently
-    // bound for sampling was rendered this frame using the renderer's
-    // m_lightVP, which was set at the END of the previous UpdateAndBind call.
-    // Sending the freshly-computed lightVP would mismatch the shadow texels
-    // and produce a sub-texel shake on static geometry when the camera moves.
-    if (m_hasPrevLightVP) {
-        std::memcpy(ubo.LightVP, m_prevLightVP, sizeof(float) * 16);
-    } else {
-        std::memcpy(ubo.LightVP, &lightVP(0, 0), sizeof(float) * 16);
-    }
-    std::memcpy(m_prevLightVP, &lightVP(0, 0), sizeof(float) * 16);
-    m_hasPrevLightVP = true;
+    // CURRENT lightVP — renderers stage SetLightVP and commit at BeginRender,
+    // so this frame's shadow map IS rendered with this matrix. The old
+    // prev-frame copy lagged sampling one frame behind the map (shadow shake
+    // while the camera moved).
+    std::memcpy(ubo.LightVP, &lightVP(0, 0), sizeof(float) * 16);
 
     // NdcToShadow = InvViewProj * LightVP composed once on CPU so shadow
     // coords never round-trip through reconstructed world position (that
