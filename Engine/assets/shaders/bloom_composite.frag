@@ -1,8 +1,8 @@
 #version 450
 
 // ============================================================
-// Bloom Composite Pass — HDR scene + SSR + bloom, ACES tonemap,
-// gamma to sRGB output.
+// Bloom Composite Pass — HDR scene + SSR + bloom, ACES tonemap
+// (no gamma — UNORM swapchain, matches GL reference output)
 // ============================================================
 
 layout(location = 0) in vec2 fragUV;
@@ -39,9 +39,8 @@ void main() {
     // ssr.a as coverage. This replaces (rather than adds to) the IBL-approximated specular,
     // so reflections are visible even on bright surfaces.
     vec4 ssr = texture(ssrTex, fragUV);
-    // DEBUG: visualize SSR coverage as bright magenta — remove after confirming hits
     if (ssr.a > 0.001) {
-        hdr = mix(hdr, vec3(5.0, 0.0, 5.0), min(ssr.a, 1.0));
+        hdr = mix(hdr, ssr.rgb / max(ssr.a, 1e-4), min(ssr.a, 1.0));
     }
 
     // Add bloom on top of the HDR scene. Bloom is a soft glow derived

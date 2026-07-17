@@ -10323,7 +10323,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     struct { float bloomStrength, exposure, p0, p1; } pc;
     // bloom disabled -> 0 so the (black) mip contributes nothing
     pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
-    pc.exposure      = 1.0f;
+    pc.exposure      = m_exposure;
     pc.p0            = 0.0f;
     pc.p1            = 0.0f;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
