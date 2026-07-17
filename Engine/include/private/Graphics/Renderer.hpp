@@ -191,6 +191,7 @@ public:
         m_shadowMapResolution = res;
     }
     uint32_t GetShadowMapResolution() const { return m_shadowMapResolution; }
+    virtual void ApplyShadowResolutionChange() {}
 
     // Deferred rendering mode (default: enabled)
     void SetDeferredEnabled(bool enabled) { m_deferredEnabled = enabled; }

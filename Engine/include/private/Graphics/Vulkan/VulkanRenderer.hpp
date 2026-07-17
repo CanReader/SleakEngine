@@ -142,6 +142,7 @@ public:
     // MSAA
     void ApplyMSAAChange() override;
     void ApplyVSyncChange() override;
+    void ApplyShadowResolutionChange() override;
 
 private:
     bool CreateSkyboxPipeline();
