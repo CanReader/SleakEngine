@@ -101,13 +101,13 @@ float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
     return shadow / float(PCF_SAMPLES);
 }
 
-// ndc: screen NDC + depth (w=1). Shadow coords go straight through the
-// CPU-composed uNdcToShadow — never via reconstructed world position.
-float CalcShadow(vec4 ndc, vec3 N) {
+// World-space shadow projection — same math as the GL lighting pass and the
+// water shader (uLightVP is texel-snapped; the NdcToShadow composition
+// shimmered under camera motion from float error at large world coords).
+float CalcShadow(vec3 worldPos, vec3 N) {
     float normalBias  = uLightDir.w;
-    vec4  sc          = uNdcToShadow * ndc;
+    vec4  sc          = uLightVP * vec4(worldPos + N * normalBias, 1.0);
     vec3  projCoords  = sc.xyz / sc.w;
-    projCoords       += (uLightVP * vec4(N * normalBias, 0.0)).xyz;
     projCoords.xy     = projCoords.xy * 0.5 + 0.5;
 
     if (any(lessThan(projCoords, vec3(0.0))) ||
@@ -252,7 +252,7 @@ void main() {
 
             vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
 
-            float shadow = CalcShadow(ndcPos, N);
+            float shadow = CalcShadow(worldPos, N);
             // Suppress shadow on back-facing surfaces (prevents light leaks)
             shadow *= smoothstep(0.0, 0.15, dot(N, L));
 
@@ -309,7 +309,7 @@ void main() {
         vec3  Ldir    = normalize(-uLightDir.xyz);
         float rawNdL  = dot(N, Ldir);
         float wrapNdL = clamp(rawNdL * 0.85 + 0.15, 0.0, 1.0);
-        float shad    = CalcShadow(ndcPos, N);
+        float shad    = CalcShadow(worldPos, N);
         shad         *= smoothstep(-0.15, 0.0, rawNdL);
         vec3 direct   = uLightColor.rgb * uLightColor.a * wrapNdL * shad;
         for (uint li = 0u; li < uNumExtraLights; ++li) {
