@@ -124,8 +124,8 @@ float CalcShadow(vec3 worldPos, vec3 N) {
     float phi  = InterleavedGradientNoise(projCoords.xy / uShadowTexelSize) *
                  6.283185;
 
-    // Small fixed penumbra — crisp. ~2 texels of softening hides aliasing.
-    float filterRadius = uShadowTexelSize * 2.0;
+    // ~3 texels of softening — tames voxel-edge aliasing under TAA
+    float filterRadius = uShadowTexelSize * 3.0;
     float shadow = PCFFilter(projCoords.xy, zRef, filterRadius, phi);
     return mix(1.0, shadow, uShadowStrength * edgeFade);
 }

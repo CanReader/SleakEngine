@@ -9,6 +9,7 @@
 #include <Camera/Camera.hpp>
 #include <Window.hpp>
 #include <Core/Application.hpp>
+#include <Core/CommandLine.hpp>
 #include <Math/Matrix.hpp>
 #include <Core/Timer.hpp>
 #include <Logger.hpp>
@@ -290,6 +291,24 @@ void LightManager::UpdateShadowData() {
 
         // LightVP = View * Projection (row-major convention)
         lightVP = lightView * lightProj;
+    }
+
+    // DIAG --shadowfreeze: latch the first lightVP forever. If shadows still
+    // shimmer with a frozen frustum, the cause is screen-space, not the
+    // frustum-follow chain.
+    {
+        static const bool s_freeze = CommandLine::HasFlag("--shadowfreeze");
+        static bool s_latched = false;
+        static float s_frozenVP[16];
+        if (s_freeze && shadowLight) {
+            if (!s_latched) {
+                std::memcpy(s_frozenVP, &lightVP(0, 0), sizeof(s_frozenVP));
+                s_latched = true;
+                SLEAK_WARN("shadowfreeze: light frustum latched");
+            } else {
+                std::memcpy(&lightVP(0, 0), s_frozenVP, sizeof(s_frozenVP));
+            }
+        }
     }
 
     // Set the light VP matrix on the renderer

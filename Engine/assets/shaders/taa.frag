@@ -87,7 +87,7 @@ void main() {
     // 50% clamped-history weight. Pure 100% current would let the sub-pixel
     // jitter shimmer through on animated character edges every frame.
     float clampFactor = clamp(clampDist / aabbRange * 2.0, 0.0, 1.0);
-    float adaptBlend  = mix(BlendFactor, 0.5, clampFactor);
+    float adaptBlend  = mix(BlendFactor, 0.35, clampFactor);
 
     vec3 resolved = mix(history, current, adaptBlend);
     outColor = vec4(resolved, 1.0);
