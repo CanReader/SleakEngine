@@ -53,7 +53,8 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     vec4  uExtraDir[3];      // xyz=direction FROM light, w=unused
     vec4  uExtraColor[3];    // rgb=color, a=intensity
     uint  uNumExtraLights;   // 0-3
-    vec3  _extraPad;
+    // no pad member: std140 aligns the mat4 to 320, matching the C++ struct
+    // (a vec3 pad here pushed uNdcToShadow to 336 -> garbage shadow matrix)
     mat4  uNdcToShadow;      // NDC -> shadow clip, CPU-composed (no shimmer)
 };
 
