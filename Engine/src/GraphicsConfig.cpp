@@ -13,20 +13,24 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.bloomEnabled = false;
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
+            cfg.lightShaftEnabled = false;
             cfg.shadowEnabled = false;
+            cfg.pcssEnabled = false;
             cfg.occlusionCullingEnabled = false;
             cfg.occlusionBufferWidth = 160;
             cfg.occlusionBufferHeight = 90;
             break;
         }
         case GraphicsQuality::Low: {
-            // Shadows only — no post-FX.
+            // Shadows only — no filter, no post-FX.
             cfg.ssaoEnabled = false;
             cfg.ssrEnabled = false;
             cfg.bloomEnabled = false;
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
+            cfg.lightShaftEnabled = false;
             cfg.shadowEnabled = true;
+            cfg.pcssEnabled = false;
             cfg.shadowMapResolution = 1024;
             cfg.shadowFrustumSize = 96.0f;
             cfg.shadowCasterDistance = 64.0f;
@@ -36,26 +40,30 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             break;
         }
         case GraphicsQuality::Medium: {
-            // Shadows + SSAO.
+            // Shadows + shadow filter + SSAO.
             cfg.ssaoEnabled = true;
             cfg.ssrEnabled = false;
             cfg.bloomEnabled = false;
             cfg.iblEnabled = false;
             cfg.taaEnabled = false;
+            cfg.lightShaftEnabled = false;
             cfg.shadowEnabled = true;
+            cfg.pcssEnabled = true;
             cfg.occlusionCullingEnabled = true;
             cfg.occlusionBufferWidth = 256;
             cfg.occlusionBufferHeight = 144;
             break;
         }
         case GraphicsQuality::High: {
-            // Shadows + SSAO + SSR + bloom + IBL.
+            // Shadows + SSAO + SSR + bloom + IBL + light shafts.
             cfg.ssaoEnabled = true;
             cfg.ssrEnabled = true;
             cfg.bloomEnabled = true;
             cfg.iblEnabled = true;
             cfg.taaEnabled = false;
+            cfg.lightShaftEnabled = true;
             cfg.shadowEnabled = true;
+            cfg.pcssEnabled = true;
             cfg.occlusionCullingEnabled = true;
             cfg.occlusionBufferWidth = 256;
             cfg.occlusionBufferHeight = 144;
@@ -68,7 +76,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.bloomEnabled = true;
             cfg.iblEnabled = true;
             cfg.taaEnabled = true;
+            cfg.lightShaftEnabled = true;
             cfg.shadowEnabled = true;
+            cfg.pcssEnabled = true;
             cfg.shadowMapResolution = 3072;
             cfg.shadowDistance = 256.0f;
             cfg.shadowFrustumSize = 160.0f;

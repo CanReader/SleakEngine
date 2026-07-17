@@ -41,6 +41,9 @@ public:
 
     virtual RenderContext* GetContext() override { return this; }
 
+    // Feature capability mask
+    virtual uint32_t GetFeatureCaps() const override { return CapShadows; }
+
     // RenderContext interface
     virtual void Draw(uint32_t vertexCount) override;
     virtual void DrawIndexed(uint32_t indexCount) override;

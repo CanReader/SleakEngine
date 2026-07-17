@@ -25,6 +25,10 @@ public:
     void EndRender() override;
     void Cleanup() override;
 
+    virtual uint32_t GetFeatureCaps() const override {
+        return CapDeferred | CapSSAO | CapIBL | CapShadows;
+    }
+
     virtual void Resize(uint32_t width, uint32_t height) override;
 
     virtual bool CreateImGUI() override;

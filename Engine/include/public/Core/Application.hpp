@@ -124,6 +124,9 @@ class ENGINE_API Application {
     void                  ApplyGraphicsConfig(const GraphicsConfig& cfg);
     const GraphicsConfig& GetGraphicsConfig() const;
 
+    // Active backend's feature capability mask (RenderEngine::GraphicsCaps)
+    uint32_t              GetGraphicsCaps() const;
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);

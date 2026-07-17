@@ -16,6 +16,22 @@ enum class RendererType {
     DirectX12
 };
 
+// Per-backend feature capability bits
+enum GraphicsCaps : uint32_t {
+    CapDeferred      = 1 << 0,
+    CapSSAO          = 1 << 1,
+    CapSSR           = 1 << 2,
+    CapTAA           = 1 << 3,
+    CapBloom         = 1 << 4,
+    CapIBL           = 1 << 5,
+    CapTonemapPass   = 1 << 6,
+    CapShadows       = 1 << 7,
+    CapHDRTarget     = 1 << 8,
+    CapVelocity      = 1 << 9,
+    CapLightShaft    = 1 << 10,
+    CapProceduralSky = 1 << 11
+};
+
 class ENGINE_API Renderer {
 public:
     virtual ~Renderer() = 0; // Pure virtual destructor
@@ -52,6 +68,9 @@ public:
             default: return "Unknown!";
         }
     }
+
+    // Feature capability mask — backends override with the audited truth
+    virtual uint32_t GetFeatureCaps() const { return CapShadows; }
 
     inline RenderMode GetRenderMode() const {
         return Mode;

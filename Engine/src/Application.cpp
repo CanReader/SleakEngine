@@ -423,10 +423,18 @@ namespace Sleak {
         renderer->SetTAAEnabled(cfg.taaEnabled);
         renderer->SetShadowMapResolution(cfg.shadowMapResolution);
         renderer->SetMSAASampleCount(cfg.msaaSamples);
+        renderer->SetTonemappingEnabled(cfg.tonemapEnabled);
+        renderer->SetExposure(cfg.exposure);
+        renderer->SetGamma(cfg.gamma);
+        renderer->SetPCSSEnabled(cfg.pcssEnabled);
     }
 
     const GraphicsConfig& Application::GetGraphicsConfig() const {
         return m_graphicsConfig;
+    }
+
+    uint32_t Application::GetGraphicsCaps() const {
+        return renderer->GetFeatureCaps();
     }
 
 }

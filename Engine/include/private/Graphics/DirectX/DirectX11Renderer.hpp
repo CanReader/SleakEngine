@@ -35,6 +35,11 @@ public:
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 
+    // Feature capability mask
+    virtual uint32_t GetFeatureCaps() const override {
+        return CapShadows | CapTonemapPass;
+    }
+
     virtual void Draw(uint32_t vertexCount) override;
     virtual void DrawIndexed(uint32_t indexCount) override;
     virtual void DrawInstance(uint32_t instanceCount, uint32_t vertexPerInstance) override;
