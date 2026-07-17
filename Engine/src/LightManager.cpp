@@ -265,29 +265,16 @@ void LightManager::UpdateShadowData() {
         const float halfShadow = shadowMapSize * 0.5f;
 
         Math::Matrix4 lightVP_raw = lightView * lightProj;
-        // Project the CAMERA position through lightVP — NOT the world origin.
-        // The world origin is a fixed point: snapping it produces zero offset
-        // whenever it already lies on a texel boundary, so the snap becomes a
-        // no-op and shadows still shimmer. The camera position drifts
-        // fractionally through the light-texel grid as the player moves, and
-        // snapping THAT point's projected location produces the corrective
-        // offset that keeps every world texel locked to the same shadow texel.
-        // Row-vector convention: (cx, cy, cz, 1) * M.
-        // Y is forced to 0 — using the eye-height Y here lets every physics
-        // sub-tick of the camera (gravity / MTV correction even while
-        // "stationary" on the ground) feed sub-mm oscillations into the snap
-        // input, which can flip round() between adjacent texels and produce a
-        // visible 1-texel shadow shake every frame. The ground plane below
-        // the camera is the correct anchor for a directional sun light.
-        float cx = camPos.GetX();
-        float cy = 0.0f;
-        float cz = camPos.GetZ();
-        float clipX = cx*lightVP_raw(0,0) + cy*lightVP_raw(1,0)
-                    + cz*lightVP_raw(2,0) +    lightVP_raw(3,0);
-        float clipY = cx*lightVP_raw(0,1) + cy*lightVP_raw(1,1)
-                    + cz*lightVP_raw(2,1) +    lightVP_raw(3,1);
-        float clipW = cx*lightVP_raw(0,3) + cy*lightVP_raw(1,3)
-                    + cz*lightVP_raw(2,3) +    lightVP_raw(3,3);
+        // Anchor the snap on the WORLD ORIGIN (fixed point). The camera is a
+        // constant offset from the light frustum (lightPos follows camXZ), so
+        // projecting the camera yields the SAME texel coords every frame —
+        // constant delta, snap no-ops, world texels crawl while moving. The
+        // origin's projected texel position drifts as the frustum follows the
+        // camera; rounding it quantizes frustum motion to whole texels.
+        // Row-vector convention: (0,0,0,1) * M = row 3.
+        float clipX = lightVP_raw(3, 0);
+        float clipY = lightVP_raw(3, 1);
+        float clipW = lightVP_raw(3, 3);
         if (clipW != 0.0f) {
             float ndcX = clipX / clipW;
             float ndcY = clipY / clipW;
