@@ -120,7 +120,9 @@ float CalcShadow(vec3 worldPos, vec3 N) {
     float edgeFade = fadeCoord.x * fadeCoord.y * zFade;
 
     float zRef = projCoords.z - uShadowBias;
-    float phi  = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
+    // Dither in shadow-texel space — world-stable, no boiling under motion
+    float phi  = InterleavedGradientNoise(projCoords.xy / uShadowTexelSize) *
+                 6.283185;
 
     // Small fixed penumbra — crisp. ~2 texels of softening hides aliasing.
     float filterRadius = uShadowTexelSize * 2.0;
