@@ -90,7 +90,7 @@ vec2 VogelDisk(int i, int count, float phi) {
 // Fixed-radius rotated PCF — crisp shadows like a classic forward renderer,
 // at a fraction of PCSS cost (no blocker search). Hardware comparison sampler
 // (gShadow) does a 2x2 lerp per tap, so 12 rotated taps read smooth and crisp.
-const int PCF_SAMPLES = 12;
+const int PCF_SAMPLES = 16;
 
 float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
     float shadow = 0.0;
@@ -124,8 +124,9 @@ float CalcShadow(vec3 worldPos, vec3 N) {
     float phi  = InterleavedGradientNoise(projCoords.xy / uShadowTexelSize) *
                  6.283185;
 
-    // ~3 texels of softening — tames voxel-edge aliasing under TAA
-    float filterRadius = uShadowTexelSize * 3.0;
+    // ~5 texels (≈0.4m at 3072/256m): world-space penumbra wide enough that
+    // camera motion cannot flicker the edge — the stability-critical knob
+    float filterRadius = uShadowTexelSize * 5.0;
     float shadow = PCFFilter(projCoords.xy, zRef, filterRadius, phi);
     return mix(1.0, shadow, uShadowStrength * edgeFade);
 }
@@ -236,10 +237,14 @@ void main() {
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
     // ------------------------------------------------------------------
-    // Direct lighting: single directional light (Cook-Torrance BRDF)
+    // Direct + indirect lighting — exactly one shadow evaluation per path
+    // (the old layout ran the PBR block AND the voxel fallback when IBL
+    //  was off: 32 PCF taps/px and a discarded GGX evaluation)
     // ------------------------------------------------------------------
     vec3 Lo = vec3(0.0);
-    {
+    vec3 ambient;
+    if (iblEnabled != 0u) {
+        // Direct: single directional light (Cook-Torrance BRDF)
         vec3  L    = normalize(-uLightDir.xyz);
         vec3  H    = normalize(V + L);
         float NdotL = max(dot(N, L), 0.0);
@@ -261,33 +266,25 @@ void main() {
             vec3 lightColor = uLightColor.rgb * uLightColor.a;
             Lo = (kD * albedo / PI + specular) * lightColor * NdotL * shadow;
         }
-    }
 
-    // ------------------------------------------------------------------
-    // Extra directional lights (fill, rim — no shadows)
-    // ------------------------------------------------------------------
-    for (uint li = 0u; li < uNumExtraLights; ++li) {
-        vec3  Lx    = normalize(-uExtraDir[li].xyz);
-        vec3  Hx    = normalize(V + Lx);
-        float NdotLx = max(dot(N, Lx), 0.0);
-        if (NdotLx > 0.0) {
-            float Dx = DistributionGGX(N, Hx, roughness);
-            float Gx = GeometrySmith(N, V, Lx, roughness);
-            vec3  Fx = FresnelSchlick(max(dot(Hx, V), 0.0), F0);
-            vec3  kSx = Fx;
-            vec3  kDx = (vec3(1.0) - kSx) * (1.0 - metallic);
-            vec3  specx = (Dx * Gx * Fx) / (4.0 * NdotV * NdotLx + 0.0001);
-            vec3  lightColorx = uExtraColor[li].rgb * uExtraColor[li].a;
-            Lo += (kDx * albedo / PI + specx) * lightColorx * NdotLx;
+        // Extra directional lights (fill, rim — no shadows)
+        for (uint li = 0u; li < uNumExtraLights; ++li) {
+            vec3  Lx    = normalize(-uExtraDir[li].xyz);
+            vec3  Hx    = normalize(V + Lx);
+            float NdotLx = max(dot(N, Lx), 0.0);
+            if (NdotLx > 0.0) {
+                float Dx = DistributionGGX(N, Hx, roughness);
+                float Gx = GeometrySmith(N, V, Lx, roughness);
+                vec3  Fx = FresnelSchlick(max(dot(Hx, V), 0.0), F0);
+                vec3  kSx = Fx;
+                vec3  kDx = (vec3(1.0) - kSx) * (1.0 - metallic);
+                vec3  specx = (Dx * Gx * Fx) / (4.0 * NdotV * NdotLx + 0.0001);
+                vec3  lightColorx = uExtraColor[li].rgb * uExtraColor[li].a;
+                Lo += (kDx * albedo / PI + specx) * lightColorx * NdotLx;
+            }
         }
-    }
 
-    // ------------------------------------------------------------------
-    // Indirect lighting: IBL split-sum approximation
-    //   or hemisphere ambient fallback when IBL is not ready
-    // ------------------------------------------------------------------
-    vec3 ambient;
-    if (iblEnabled != 0u) {
+        // Indirect: IBL split-sum approximation
         vec3 F_amb  = FresnelSchlickRoughness(NdotV, F0, roughness);
         vec3 kS_amb = F_amb;
         vec3 kD_amb = (1.0 - kS_amb) * (1.0 - metallic);

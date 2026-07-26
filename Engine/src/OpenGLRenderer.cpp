@@ -730,9 +730,11 @@ void OpenGLRenderer::RenderShadowPass() {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
 
-    // Disable face culling during shadow pass — all faces must cast shadow
-    // (front-face culling removed the outward-facing surfaces of blocks)
-    glDisable(GL_CULL_FACE);
+    // Back-face cull: voxel meshes are closed over solid volumes, so the
+    // light-facing surface always wins — same depth result, half the raster.
+    // (FRONT culling stays wrong: it removed the outward-facing surfaces.)
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     // Ensure VAO is bound for shadow pass draws
     glBindVertexArray(m_VAO);
