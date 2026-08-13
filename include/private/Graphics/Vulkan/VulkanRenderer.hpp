@@ -172,11 +172,17 @@ private:
     bool CreateShadowPipeline();
     bool CreateShadowLightUBOResources();
     void CleanupShadowResources();
+    /// Creates the Vulkan instance with validation layers when available.
     bool InitVulkan();
+    /// Creates the SDL-backed Vulkan presentation surface.
     bool CreateSurface();
+    /// Selects the physical GPU and creates the logical device and queues.
     bool CreateDevice();
+    /// Creates the swapchain from the queried surface capabilities.
     bool CreateSwapChain();
+    /// Rebuilds the swapchain and its dependents after resize or resolution change.
     bool RecreateSwapChain();
+    /// Creates an image view for each swapchain image.
     bool CreateImageViews();
     bool CreateGraphicsPipeline();
     bool CreateRenderPass();
@@ -184,43 +190,59 @@ private:
     bool CreateCommandPool();
     bool CreateCommandBuffer();
     bool CreateSyncObjects();
+    /// Creates the depth image, memory, and image view.
     bool CreateDepthResources();
     bool CreateDescriptorSetLayout();
     bool CreateDescriptorPool();
     bool AllocateDescriptorSets();
     bool CreateDefaultTexture();
     void WriteTextureDescriptors(VulkanTexture* texture);
+    /// Registers the debug messenger callback for validation output.
     bool SetupDebugMessenger();
 
+    /// Destroys the swapchain, its image views, and framebuffers.
     void CleanupSwapChain();
+    /// Destroys the depth image, memory, and image view.
     void CleanupDepthResources();
 
     // MSAA resources
+    /// Creates the MSAA color image used as the multisampled render target.
     bool CreateMSAAColorResources();
+    /// Destroys the MSAA color image, view, and memory.
     void CleanupMSAAColorResources();
+    /// Queries the highest MSAA sample count the GPU supports.
     VkSampleCountFlagBits GetMaxUsableSampleCount();
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
 
+    /// Builds one queue create info per unique queue family index.
     std::vector<VkDeviceQueueCreateInfo>
     GetUniqueQueueCreateInfos();
 
+    /// Queries surface capabilities, formats, and present modes.
     std::optional<SwapchainDetails> QuerySwapchain();
 
+    /// Picks a UNORM surface format to avoid double sRGB encoding.
     VkSurfaceFormatKHR ChooseFormat(
         const std::vector<VkSurfaceFormatKHR>& formats);
+    /// Picks FIFO when VSync is on, otherwise MAILBOX or IMMEDIATE.
     VkPresentModeKHR ChoosePresentMode(
         const std::vector<VkPresentModeKHR>& modes);
+    /// Clamps the window size to the surface's supported extent.
     VkExtent2D ChooseExtend(SwapchainDetails details);
 
+    /// Picks the first supported depth-stencil format from the candidate list.
     VkFormat FindDepthFormat();
+    /// Finds a memory type index matching the filter and property flags.
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
 
+    /// Fills the debug messenger create info with severity and callback.
     void PopulateDebugMessengerCreateInfo(
         VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
+    /// Debug messenger callback that routes Vulkan messages to the logger.
     static VkBool32 Validation(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageTypes,
