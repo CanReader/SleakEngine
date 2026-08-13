@@ -7,6 +7,8 @@
 
 namespace Sleak {
 
+    /// Move-only, exclusive-ownership smart pointer (unique_ptr equivalent).
+    /// Copying is disabled; transfer ownership with std::move.
     template <typename T>
     class ObjectPtr : public SmartPointer<T> {
     public:

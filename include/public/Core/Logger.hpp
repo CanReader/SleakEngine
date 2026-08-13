@@ -30,11 +30,16 @@
 
 namespace Sleak {
 
+/// Sets up the engine and game spdlog sinks. Access via the SLEAK_LOG /
+/// SLEAK_INFO / SLEAK_WARN / SLEAK_ERROR macros rather than directly.
 class ENGINE_API Logger {
    public:
+    /// Creates the console + file sinks and registers both loggers. Call once at startup.
     static void Init(const std::string& ProjectName);
 
+    /// Logger used by engine code (SLEAK_ENGINE builds).
     static std::shared_ptr<spdlog::logger>& GetCoreLogger();
+    /// Logger used by game code.
     static std::shared_ptr<spdlog::logger>& GetLogger();
 
    private:

@@ -4,6 +4,7 @@
 #include "Core/Logger.hpp"
 
 namespace Sleak {
+    /// RAII stopwatch: logs elapsed time on destruction under the given name.
     class ScopedTimer {
         public:
             ScopedTimer(const std::string& name)

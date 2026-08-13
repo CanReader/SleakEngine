@@ -31,30 +31,33 @@ namespace Sleak
 	class Queue {
 	public:
 	    Queue() = default;
-	
+
+	    /// Adds value to the back of the queue.
 	    void push(const T& value) {
 	        data.add(value);
 	    }
-	
+
+	    /// Removes and returns the front element; throws if empty.
 	    T pop() {
 	        if (isEmpty()) {
 	            throw Sleak::EmptyContainerException();
 	        }
-	
+
 	        T front = std::move(data[0]);
-	
+
 	        data.erase(0);
-	
+
 	        return front;
 	    }
-	
+
+	    /// Front element without removing it; throws if empty.
 	    T& front() {
 	        if (isEmpty()) {
 	            throw Sleak::EmptyContainerException();
 	        }
 	        return data[0];
 	    }
-	
+
 	    const T& front() const {
 	        if (isEmpty()) {
 	            throw Sleak::EmptyContainerException();
@@ -62,20 +65,22 @@ namespace Sleak
 	        return data[0];
 	    }
 
+		/// Reverses the queue's element order in place.
 		const void reverse() {
 			data.reverse();
 		}
-	
+
 	    bool isEmpty() const {
 	        return data.GetSize() == 0;
 	    }
-	
+
 	    size_t size() const { return data.GetSize(); }
-	
+
 	    void clear() {
 	        data.clear();
 	    }
 
+		/// Copies out the underlying List, front-to-back.
 		List<T> GetData() { return data; }
 
 		// Iterators

@@ -49,7 +49,7 @@ namespace Sleak {
             other.capacity_ = 0;
         }
 
-        // Destructor
+        /// Frees the backing buffer.
         ~String() {
             deletedata_;
         }
@@ -234,6 +234,7 @@ namespace Sleak {
 
         static const size_t npos = static_cast<size_t>(-1);
 
+        /// Frees and nulls out the backing buffer.
         void deletedata_() {
             delete[] data_;
             data_ = nullptr;

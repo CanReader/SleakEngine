@@ -17,7 +17,8 @@ namespace Sleak {
     template <typename T>
     class WeakPtr;
 
-    // Base SmartPointer class
+    /// Common base for RefPtr/ObjectPtr/WeakPtr: holds the raw pointer and the
+    /// dereference/validity operators shared by every ownership model.
     template <typename T>
     class SmartPointer {
     protected:
@@ -33,14 +34,16 @@ namespace Sleak {
         // Dereference operators
         T& operator*() const { return *ptr; }
         T* operator->() const { return ptr; }
-        T* get() const 
+        /// Raw pointer access; throws NullPointerException if unset.
+        T* get() const
         {
             if(ptr == nullptr)
                 throw  Sleak::NullPointerException("Requested object is nullptr!");
-                
-            return ptr; 
+
+            return ptr;
         }
 
+        /// True if the pointer is non-null.
         virtual bool IsValid() const {
             return ptr != nullptr;
         }

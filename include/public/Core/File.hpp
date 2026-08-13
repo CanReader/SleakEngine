@@ -7,6 +7,7 @@
 
 namespace Sleak {
 
+    /// Thin wrapper over std::fstream for text/binary file I/O.
     class File {
     public:
         // Constructor and Destructor

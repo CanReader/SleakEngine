@@ -28,6 +28,7 @@ namespace Sleak
     class Tree
     {
     private:
+        /// One binary search tree node.
         struct Node
         {
             T data;
@@ -39,6 +40,7 @@ namespace Sleak
 
         Node* root;
 
+        /// Inserts value under node per BST ordering, returning the (possibly new) subtree root.
         Node* insertRecursive(Node* node, const T& value)
         {
             if (!node)
@@ -52,6 +54,7 @@ namespace Sleak
             return node;
         }
 
+        /// Leftmost (minimum) node in the subtree rooted at node.
         Node* findMin(Node* node)
         {
             while (node->left)
@@ -59,6 +62,7 @@ namespace Sleak
             return node;
         }
 
+        /// Removes value from the subtree rooted at node, returning the (possibly new) subtree root.
         Node* removeRecursive(Node* node, const T& value)
         {
             if (!node)
@@ -90,6 +94,7 @@ namespace Sleak
             return node;
         }
 
+        /// In-order traversal of the subtree rooted at node.
         void inOrderRecursive(Node* node)
         {
             if (!node)
@@ -99,6 +104,7 @@ namespace Sleak
             inOrderRecursive(node->right);
         }
 
+        /// Deletes every node in the subtree rooted at node.
         void clearRecursive(Node* node)
         {
             if (!node)
@@ -111,21 +117,25 @@ namespace Sleak
     public:
         Tree() : root(nullptr) {}
 
+        /// Deletes every node in the tree.
         ~Tree()
         {
             clearRecursive(root);
         }
 
+        /// Inserts value, keeping BST ordering (duplicates go right).
         void insert(const T& value)
         {
             root = insertRecursive(root, value);
         }
 
+        /// Removes value from the tree, if present.
         void remove(const T& value)
         {
             root = removeRecursive(root, value);
         }
 
+        /// True if value exists in the subtree rooted at node.
         bool contains(Node* node, const T& value)
         {
             if (!node)
@@ -135,17 +145,20 @@ namespace Sleak
             return contains(value < node->data ? node->left : node->right, value);
         }
 
+        /// True if value exists anywhere in the tree.
         bool contains(const T& value)
         {
             return contains(root, value);
         }
 
+        /// Removes every node, leaving an empty tree.
         void clear()
         {
             clearRecursive(root);
             root = nullptr;
         }
 
+        /// Traverses the tree in-order (left, node, right).
         void inOrder()
         {
             inOrderRecursive(root);

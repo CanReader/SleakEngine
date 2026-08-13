@@ -30,6 +30,7 @@ namespace Sleak
     class HashTable
     {
     private:
+        /// One slot: key/value plus occupied and tombstone-deleted flags.
         struct Entry
         {
             Key key;
@@ -48,11 +49,13 @@ namespace Sleak
         static constexpr size_t DEFAULT_CAPACITY = 16;
         static constexpr float DEFAULT_LOAD_FACTOR = 0.7f;
 
+        /// Maps a key to a starting slot index via linear probing.
         size_t hash(const Key& key) const
         {
             return reinterpret_cast<uintptr_t>(&key) % capacity;
         }
 
+        /// Doubles capacity and rehashes every live entry into the new table.
         void resize()
         {
             size_t newCapacity = capacity * 2;
@@ -88,6 +91,7 @@ namespace Sleak
             delete[] table;
         }
 
+        /// Inserts or updates the value for key, resizing first if over the load factor.
         void insert(const Key& key, const Value& value)
         {
             if (size >= capacity * loadFactor)
@@ -115,6 +119,7 @@ namespace Sleak
             }
         }
 
+        /// Tombstones the entry for key; returns false if it wasn't present.
         bool remove(const Key& key)
         {
             size_t index = hash(key) % capacity;
@@ -131,6 +136,7 @@ namespace Sleak
             return false;
         }
 
+        /// Looks up key and writes its value into outValue; returns false if not found.
         bool get(const Key& key, Value& outValue) const
         {
             size_t index = hash(key) % capacity;
@@ -146,6 +152,7 @@ namespace Sleak
             return false;
         }
 
+        /// True if key currently has a live entry.
         bool contains(const Key& key) const
         {
             size_t index = hash(key) % capacity;
@@ -160,6 +167,7 @@ namespace Sleak
             return false;
         }
 
+        /// Drops every entry and reallocates the table at its current capacity.
         void clear()
         {
             delete[] table;

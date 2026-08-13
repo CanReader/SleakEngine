@@ -4,6 +4,8 @@
 #include "SceneBase.hpp"
 
 namespace Sleak {
+    /// Concrete scene type games subclass. Adds an opt-out switch for the
+    /// fixed-timestep update on top of SceneBase's lifecycle.
     class ENGINE_API Scene : public SceneBase {
     public:
         explicit Scene(const std::string& name)

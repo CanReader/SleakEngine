@@ -13,6 +13,8 @@
 
 namespace Sleak {
 
+/// SDL window wrapper: owns the native window and pumps SDL events into
+/// engine Events. Application owns exactly one.
 class ENGINE_API Window {
 public:
   Window();
@@ -22,8 +24,11 @@ public:
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;
 
+  /// Creates the SDL window and picks the graphics API flag for the active renderer.
   bool InitializeWindow();
+  /// Pumps the SDL event queue, dispatching engine events (resize, input, close, ...).
   void Update();
+  /// Marks the window for close; actual teardown happens in the destructor.
   void Close();
 
   inline bool ShouldClose() { return bShouldClose; }

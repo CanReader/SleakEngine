@@ -11,6 +11,7 @@
 
 namespace Sleak {
 namespace Math {
+/// 8-bit RGBA color. Value type, cheap to pass and store on vertices/UI.
 class Color {
    public:
     static const Color Red;
@@ -24,6 +25,7 @@ class Color {
     constexpr Color(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) noexcept
         : r(r), g(g), b(b), a(a) {}
 
+    /// Clamps every channel into [0, 255].
     [[nodiscard]] constexpr Color clamped() const noexcept {
         return {static_cast<uint8_t>(Clamp<float>(r, 0, 255)),
                 static_cast<uint8_t>(Clamp<float>(g, 0, 255)),
@@ -31,17 +33,21 @@ class Color {
                 static_cast<uint8_t>(Clamp<float>(a, 0, 255))};
     }
 
+    /// Returns a copy with alpha replaced.
     [[nodiscard]] constexpr Color withAlpha(uint8_t newAlpha) const noexcept {
         return {r, g, b, newAlpha};
     }
 
+    /// Scales RGB by alpha, for premultiplied-alpha blending.
     [[nodiscard]] Color premultiplied() const noexcept;
 
     [[nodiscard]] Color linearToSrgb() const noexcept;
     [[nodiscard]] Color srgbToLinear() const noexcept;
 
+    /// Builds a color from hue/saturation/value in [0,1].
     [[nodiscard]] static Color fromHSV(float h, float s, float v,
                                        uint8_t a = 255) noexcept;
+    /// Builds a color from a 0xRRGGBB or 0xAARRGGBB packed value.
     [[nodiscard]] static Color fromHex(uint32_t hex) noexcept;
 
     [[nodiscard]] std::string toString() const {
@@ -82,6 +88,7 @@ class Color {
     uint8_t GetB() const { return b; }
     uint8_t GetA() const { return a; }
 
+    /// Converts to a Vector4D with each channel in [0,1].
     [[nodiscard]] Vector4D normalize() const noexcept {
         return {static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f,
                 static_cast<float>(b) / 255.0f, static_cast<float>(a) / 255.0f};

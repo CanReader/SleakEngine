@@ -6,6 +6,8 @@
 #include <atomic>
 
 namespace Sleak {
+    /// Base for anything needing a stable identity: a name and a
+    /// process-unique, atomically assigned ID.
     class Object {
     public:
         Object(const std::string& name = "Object")

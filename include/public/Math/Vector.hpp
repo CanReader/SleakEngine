@@ -23,6 +23,8 @@ namespace Sleak
 {
     namespace Math
     {
+        /// Fixed-size numeric vector with the standard component-wise algebra.
+        /// Vector2D/3D/4D wrap this for the common dimensions used engine-wide.
         template <typename T, size_t N>
         class Vector {
         public:
@@ -171,6 +173,7 @@ namespace Sleak
                 return ss.str();
             }
     
+            /// Raw pointer to the backing N-element array.
             T* ToRawArray() {
                 return data.data();
             }

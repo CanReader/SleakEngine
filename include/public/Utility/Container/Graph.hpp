@@ -26,6 +26,7 @@ namespace Sleak
     class Graph
     {
     private:
+        /// One entry in a vertex's adjacency list.
         struct Node
         {
             T data;
@@ -34,6 +35,7 @@ namespace Sleak
             Node(const T& value) : data(value), next(nullptr) {}
         };
 
+        /// A graph vertex plus its outgoing edges and link to the next vertex.
         struct Vertex
         {
             T data;
@@ -43,6 +45,7 @@ namespace Sleak
 
         Vertex* vertices;
 
+        /// Linear search for the vertex holding value, or nullptr.
         Vertex* findVertex(const T& value)
         {
             Vertex* current = vertices;
@@ -58,6 +61,7 @@ namespace Sleak
     public:
         Graph() : vertices(nullptr) {}
 
+        /// Frees every vertex and its adjacency list.
         ~Graph()
         {
             while (vertices)
@@ -74,6 +78,7 @@ namespace Sleak
             }
         }
 
+        /// Adds value as a vertex if it isn't already present.
         void addVertex(const T& value)
         {
             if (!findVertex(value))
@@ -83,6 +88,7 @@ namespace Sleak
             }
         }
 
+        /// Adds a directed edge from -> to; no-ops if either vertex is missing.
         void addEdge(const T& from, const T& to)
         {
             Vertex* fromVertex = findVertex(from);

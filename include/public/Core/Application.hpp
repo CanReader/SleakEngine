@@ -13,6 +13,8 @@
 
 namespace Sleak {
 
+/// Parses raw argv into an index-and-flag lookup. Kept around on
+/// ApplicationDefaults for the lifetime of the Application.
 struct ENGINE_API Arguments {
     Arguments(int argc, char** argv) : Size(argc), Args(argv) {
         for (int i = 1; i < Size; i++) {
@@ -45,6 +47,7 @@ struct ENGINE_API Arguments {
     std::map<std::string, std::string> ArgMap;
 };
 
+/// Construction settings for Application: project name plus parsed CLI args.
 struct ENGINE_API ApplicationDefaults {
     std::string Name = "";
     Arguments CommandLineArgs;
@@ -54,6 +57,8 @@ class Window;
 class DebugOverlay;
 namespace RenderEngine { class Renderer; }
 
+/// Owns the window, renderer, and game loop. One instance per process,
+/// reachable globally through GetInstance().
 class ENGINE_API Application {
    public:
     Application(const char* ProjectName);
@@ -62,26 +67,36 @@ class ENGINE_API Application {
     Application& operator=(const Application&) = delete;
     ~Application();
 
+    /// Drives the game loop until the window closes; returns the process exit code.
     int Run(GameBase* game);
 
     Window& GetWindow();
     void CloseApplication();
+    /// Blocks until the GPU finishes all in-flight work. Call before tearing down scene resources.
     void WaitGPUIdle();
 
     void SetCursorVisible(bool visible);
     void SetMouseRelativeMode(bool enabled);
 
+    /// Active renderer backend, or null before Run() initializes it.
     RenderEngine::Renderer* GetRenderer() { return renderer; }
     GameBase* GetGame() { return Game; }
 
+    /// The one Application for this process, or null before construction.
     static Application* GetInstance() { return Instance; }
 
     // Public renderer stat accessors for Game
+    /// Frames rendered in the last second.
     int GetFPS() const;
+    /// Duration of the last frame, in seconds.
     float GetFrameTime() const;
+    /// Vertices submitted in the last frame.
     int GetVertices() const;
+    /// Triangles submitted in the last frame.
     int GetTriangles() const;
+    /// Human-readable name of the active backend (e.g. "Vulkan").
     const char* GetRendererTypeStr() const;
+    /// UI accent color associated with the active backend.
     void GetRendererTypeColor(float& r, float& g, float& b) const;
     size_t GetGPUMemoryUsed() const;
     size_t GetGPUMemoryBudget() const;
@@ -121,7 +136,9 @@ class ENGINE_API Application {
     void  SetBloomEnabled(bool enabled);
 
     // Per-game graphics configuration / quality presets
+    /// Pushes every field of cfg onto the active renderer in one call.
     void                  ApplyGraphicsConfig(const GraphicsConfig& cfg);
+    /// Config last passed to ApplyGraphicsConfig().
     const GraphicsConfig& GetGraphicsConfig() const;
 
     // Active backend's feature capability mask (RenderEngine::GraphicsCaps)
@@ -129,9 +146,12 @@ class ENGINE_API Application {
 
     Benchmark* GetBenchmark() { return m_benchmark; }
 
+    /// Stashes the new size; the resize is applied at the start of the next frame.
     void OnWindowResize(const Sleak::Events::WindowResizeEvent& e);
+    /// Treats entering/leaving fullscreen as a resize to the current window size.
     void OnWindowFullScreen(const Sleak::Events::WindowFullScreen& e);
 
+    /// Handles engine-level hotkeys (F9 camera toggle, F11 fullscreen, F12 benchmark, Esc).
     void OnKeyPressed(const Sleak::Events::Input::KeyPressedEvent& e);
     void onMouseMove(const Sleak::Events::Input::MouseMovedEvent& e);
     void onMouseClick(const Sleak::Events::Input::MouseButtonPressedEvent& e);

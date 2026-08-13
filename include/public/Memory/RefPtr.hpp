@@ -13,6 +13,8 @@ struct SharedControlBlock {
     SharedControlBlock() : refCount(1) {}
 };
 
+/// Atomic, intrusive-refcount smart pointer for engine resources. This is
+/// the standard owning pointer in the engine, used instead of shared_ptr.
 template <typename T>
 class RefPtr : public SmartPointer<T> {
     // Allow other RefPtr instantiations to access getControlBlock().
@@ -22,9 +24,10 @@ class RefPtr : public SmartPointer<T> {
 protected:
     SharedControlBlock* controlBlock;  // Shared across all types.
 
-    
+
     public:
-    
+
+    /// Drops one reference, deleting the object and control block at zero.
     void release() {
         if (controlBlock && --controlBlock->refCount == 0) {
             delete this->ptr;

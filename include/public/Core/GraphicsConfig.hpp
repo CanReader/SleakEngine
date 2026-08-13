@@ -8,8 +8,11 @@ namespace Sleak {
 
 class DirectionalLight;
 
+/// Named quality tiers a GraphicsConfig preset can be built from.
 enum class GraphicsQuality { Off, Low, Medium, High, Ultra };
 
+/// Data-driven render settings applied to a renderer in one shot via
+/// Application::ApplyGraphicsConfig(). Game owns and persists this.
 struct ENGINE_API GraphicsConfig {
     // Post-FX (deferred path)
     bool  ssaoEnabled = false;
@@ -83,10 +86,10 @@ struct ENGINE_API GraphicsConfig {
     // Render scale
     float renderScale = 1.0f;
 
-    // Factory: build a config from a named quality preset.
+    /// Builds a config from a named quality preset.
     static GraphicsConfig Preset(GraphicsQuality q);
 
-    // Apply the shadow-related fields onto a directional light.
+    /// Copies the shadow-related fields onto a directional light.
     void ApplyShadows(Sleak::DirectionalLight& light) const;
 };
 

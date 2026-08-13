@@ -6,13 +6,15 @@
 #include <iostream>
 
 namespace Sleak {
-  
+
+    /// SDL message box icon/style, maps directly to SDL_MessageBoxFlags.
     enum MessageBoxType : unsigned int {
         Info = 0x00000040u,
         Warning = 0x00000020u,
         Error = 0x00000010u
     };
 
+    /// Which button the user picked in ShowMessageBox().
     enum MessageBoxReturn {
         Ok = 0,
         Yes = 1,
@@ -20,7 +22,8 @@ namespace Sleak {
         Cancel = 3
     };
 
-    struct MessageBoxColorScheme 
+    /// RGB palette for a ShowMessageBox() dialog's background, text, and buttons.
+    struct MessageBoxColorScheme
     {
         Uint8 Background[3] = { 255,   0,   0 }; // Background
         Uint8 Text[3] = { 255, 255, 255 }; // Text
@@ -29,6 +32,7 @@ namespace Sleak {
         Uint8 ButtonText[3] = { 255, 255,   0 }; // ButtonText   
     };
 
+    /// Fire-and-forget OS message box; no return value, no custom buttons.
     void MessageBox(const char* Title, const char* Message, MessageBoxType Type) {
         if(SDL_WasInit(0) == 0)
         {
@@ -42,6 +46,7 @@ namespace Sleak {
         }
     }
 
+    /// Blocking Yes/No/Cancel dialog with a custom color scheme; returns the pressed button.
     MessageBoxReturn ShowMessageBox(const char* Title, const char* Message, MessageBoxType Type, MessageBoxColorScheme scheme = MessageBoxColorScheme()) {
         if(SDL_WasInit(0) == 0)
         {

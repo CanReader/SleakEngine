@@ -15,7 +15,7 @@ namespace Sleak {
     // Forward declarations
     class ISerializationContext;
 
-    // Serialization format types
+    /// File format a Serializable can be saved to or loaded from.
     enum class SerializationFormat {
         Binary,
         JSON,
@@ -80,7 +80,9 @@ namespace Sleak {
      */
     class SerializationFactory {
     public:
+        /// Picks a format from filePath's extension (.bin/.json/.yaml/.yml).
         static SerializationFormat DetectFormat(const std::string& filePath);
+        /// Builds the context implementation matching format.
         static std::unique_ptr<ISerializationContext> CreateContext(SerializationFormat format);
     };
 

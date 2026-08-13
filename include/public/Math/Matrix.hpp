@@ -13,6 +13,8 @@
 
 namespace Sleak {
 namespace Math {
+/// Row-major fixed-size matrix with the usual algebra plus 4x4 view/projection
+/// factory methods. Rows==Cols gives an identity default.
 template <typename T, size_t Rows, size_t Cols>
 class Matrix {
    public:
@@ -117,6 +119,7 @@ class Matrix {
         return result;
     }
 
+    /// Returns the transposed matrix; does not modify this one.
     Matrix<T, Cols, Rows> Transpose() const {
         Matrix<T, Cols, Rows> result;
         for (size_t i = 0; i < Rows; ++i) {
@@ -203,6 +206,7 @@ class Matrix {
         return result;
     }
 
+    /// Builds a left-handed perspective projection (reversed-Z: near maps to depth 1).
     static Matrix<T, 4, 4> Perspective(T fovY, T aspectRatio, T nearPlane,
                                        T farPlane) {
         static_assert(Rows == 4 && Cols == 4, "Perspective matrix must be 4x4");
@@ -222,6 +226,7 @@ class Matrix {
 
 
 
+    /// Builds an orthographic projection over the given box.
     static Matrix<T, 4, 4> Orthographic(T left, T right, T bottom, T top, T nearPlane, T farPlane) {
         static_assert(Rows == 4 && Cols == 4, "Orthographic matrix must be 4x4");
 
@@ -240,6 +245,7 @@ class Matrix {
         return result;
     }
 
+    /// Left-handed view matrix looking from eye toward center.
     static Matrix<T, 4, 4> LookAt(const Vector<T, 3>& eye,
                                   const Vector<T, 3>& center,
                                   const Vector<T, 3>& up) {
@@ -277,6 +283,7 @@ class Matrix {
 
 
 
+    /// Right-handed view matrix looking from eye toward center.
     static Matrix<T, 4, 4> LookAtRH(const Vector<T, 3>& eye,
         const Vector<T, 3>& center,
         const Vector<T, 3>& up) {
@@ -303,6 +310,7 @@ class Matrix {
             return result;
         }
 
+        /// Left-handed view matrix looking from eye along a direction (rather than at a point).
         static Matrix<T, 4, 4> LookTo(const Vector<T, 3>& eye,
             const Vector<T, 3>& direction,
             const Vector<T, 3>& up) {
@@ -330,7 +338,8 @@ class Matrix {
         return result;
     }
 
-    static Matrix<T, 4, 4> FreeLook(const Vector<T, 3>& position, 
+    /// View matrix for a yaw/pitch-driven free camera at position.
+    static Matrix<T, 4, 4> FreeLook(const Vector<T, 3>& position,
         T yaw, T pitch) {
         Vector<T, 3> forward;
         forward[0] = cos(yaw) * cos(pitch);
@@ -340,6 +349,7 @@ class Matrix {
         return LookToLH(position, forward, Vector<T, 3>{0, 1, 0});
     }
 
+    /// View matrix for a camera orbiting target at the given distance and angles.
     static Matrix<T, 4, 4> OrbitView(const Vector<T, 3>& target,
         T distance, 
         T theta, T phi) {
@@ -353,6 +363,7 @@ class Matrix {
         return LookAtLH(eye, target, Vector<T, 3>{0, 1, 0});
     }
 
+    /// Builds a translation matrix.
     static Matrix<T, 4, 4> Translate(const Vector3D& translation) {
         Matrix<T, 4, 4> result = Matrix<T, 4, 4>::Identity();
 
@@ -364,10 +375,12 @@ class Matrix {
     }
 
 
+    /// Builds a rotation matrix from a quaternion.
     static Matrix<T, 4, 4> Rotate(const Quaternion& rotation) {
         return rotation.toRotationMatrix(); // Assuming Quaternion has toRotationMatrix()
     }
 
+    /// Builds a matrix that scales about the origin.
     static Matrix<T, 4, 4> Scale(const Vector3D& scale) {
         Matrix<T, 4, 4> result =
             Matrix<T, 4, 4>::Identity();  // Ensure identity
@@ -377,6 +390,7 @@ class Matrix {
         return result;
     }
 
+    /// Builds a matrix that scales about an arbitrary center point.
     static Matrix<T, 4, 4> Scale(const Vector3D& scale, const Vector3D& center) {
         Matrix<T, 4, 4> translateToOrigin = Translate(center*(-1));
     
@@ -401,6 +415,7 @@ using Matrix4 = Matrix<float, 4, 4>;
 #ifdef PLATFORM_WIN
 #include <DirectXMath.h>
 
+/// Converts a DirectXMath matrix into Sleak's Matrix4 (row-major copy).
 static Matrix<float, 4, 4> XMToMatrix(DirectX::XMMATRIX mat) {
     Matrix<float, 4, 4> matr;
     DirectX::XMMATRIX worldMatrix;

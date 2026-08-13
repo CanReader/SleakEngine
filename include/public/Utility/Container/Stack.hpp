@@ -29,11 +29,13 @@ namespace Sleak
 	class Stack {
 	public:
 	    Stack() = default;
-	
+
+	    /// Pushes value onto the top of the stack.
 	    void push(const T& value) {
 	        data.add(value);
 	    }
-	
+
+	    /// Removes the top element; throws if empty.
 	    void pop() {
 	        if (isEmpty()) {
 	            throw "Stack is empty";
@@ -47,6 +49,7 @@ namespace Sleak
 	        }
 	    }
 	
+	    /// Top element without removing it; throws if empty.
 	    T& top() {
 	        if (isEmpty()) {
 	            throw "Stack is empty";

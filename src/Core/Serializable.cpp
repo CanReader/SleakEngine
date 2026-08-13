@@ -4,6 +4,7 @@
 #include <sstream>
 
 namespace YAML {
+    /// Lets YAML::Node hold a std::any for int/float/string; anything else throws.
     template <>
     struct convert<std::any> {
         static Node encode(const std::any& rhs) {
@@ -37,7 +38,8 @@ namespace YAML {
 
 namespace Sleak {
 
-    // Binary serialization context
+    /// ISerializationContext backed by an in-memory key/value map. WriteToStream
+    /// and ReadFromStream are stubs and always throw.
     class BinarySerializationContext : public ISerializationContext {
     public:
         std::unordered_map<std::string, std::any> Data;
@@ -67,7 +69,7 @@ namespace Sleak {
         }
     };
 
-    // JSON serialization context
+    /// ISerializationContext backed by nlohmann::json.
     class JsonSerializationContext : public ISerializationContext {
     public:
         nlohmann::json JsonData;
@@ -99,7 +101,7 @@ namespace Sleak {
         }
     };
 
-    // YAML serialization context
+    /// ISerializationContext backed by a YAML::Node.
     class YamlSerializationContext : public ISerializationContext {
     public:
         YAML::Node YamlData;

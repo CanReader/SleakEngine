@@ -6,7 +6,7 @@
 namespace Sleak {
 namespace Math {
 
-// Axis-aligned bounding box (world or local space).
+/// Axis-aligned bounding box (world or local space).
 struct AABB {
     Vector3D min{0.0f, 0.0f, 0.0f};
     Vector3D max{0.0f, 0.0f, 0.0f};
@@ -14,6 +14,7 @@ struct AABB {
     AABB() = default;
     AABB(const Vector3D& mn, const Vector3D& mx) : min(mn), max(mx) {}
 
+    /// True if min is componentwise <= max.
     bool IsValid() const {
         return min.GetX() <= max.GetX() && min.GetY() <= max.GetY() &&
                min.GetZ() <= max.GetZ();
@@ -30,6 +31,7 @@ struct AABB {
                         (i & 4) ? max.GetZ() : min.GetZ());
     }
 
+    /// Grows this box to also cover o.
     void Merge(const AABB& o) {
         if (o.min.GetX() < min.GetX()) min.SetX(o.min.GetX());
         if (o.min.GetY() < min.GetY()) min.SetY(o.min.GetY());
@@ -39,11 +41,13 @@ struct AABB {
         if (o.max.GetZ() > max.GetZ()) max.SetZ(o.max.GetZ());
     }
 
+    /// Pushes min/max outward by amount on every axis.
     void Expand(float amount) {
         min.Add(-amount, -amount, -amount);
         max.Add(amount, amount, amount);
     }
 
+    /// True if p lies within (or on the boundary of) the box.
     bool Contains(const Vector3D& p) const {
         return p.GetX() >= min.GetX() && p.GetX() <= max.GetX() &&
                p.GetY() >= min.GetY() && p.GetY() <= max.GetY() &&

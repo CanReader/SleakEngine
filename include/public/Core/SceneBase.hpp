@@ -9,6 +9,7 @@
 
 namespace Sleak {
 
+    /// Lifecycle state a SceneBase moves through via Load/Unload/Activate/Deactivate.
     enum class SceneState {
         Unloaded,
         Loading,
@@ -26,6 +27,8 @@ namespace Sleak {
 
     namespace Physics { class PhysicsWorld; }
 
+    /// Non-templated scene interface: object ownership, state machine, and
+    /// per-frame update hooks. Game scenes derive from Scene, not this directly.
     class ENGINE_API SceneBase {
     public:
         explicit SceneBase(const std::string& name)
@@ -43,6 +46,7 @@ namespace Sleak {
         virtual void OnDeactivate() {}
 
         // Initialization
+        /// Runs once before the scene's first Begin()/Update().
         virtual bool Initialize();
         virtual void Begin() = 0;
 
@@ -58,9 +62,13 @@ namespace Sleak {
         bool IsLoaded() const { return state != SceneState::Unloaded; }
 
         // Scene state transitions
+        /// Moves Unloaded -> Loading -> Active, calling OnLoad() and Initialize().
         void Load();
+        /// Deactivates if active, calls OnUnload(), and destroys all owned objects.
         void Unload();
+        /// Marks the scene active and calls OnActivate().
         void Activate();
+        /// Marks the scene inactive and calls OnDeactivate().
         void Deactivate();
         void Pause();
         void Resume();
@@ -68,6 +76,7 @@ namespace Sleak {
         // Object management — scene takes ownership of added objects
         virtual void AddObject(GameObject* object);
         virtual void RemoveObject(GameObject* object);
+        /// Queues an object for destruction; actually freed on the next ProcessPendingDestroy().
         void DestroyObject(GameObject* object);
         const List<GameObject*>& GetObjects() const { return Objects; }
 
@@ -106,7 +115,9 @@ namespace Sleak {
         Physics::PhysicsWorld* m_physicsWorld = nullptr;
         Skybox* m_skybox = nullptr;
 
+        /// Actually deletes objects queued by DestroyObject().
         void ProcessPendingDestroy();
+        /// Destroys every object still owned by the scene, e.g. during Unload().
         void DestroyAllObjects();
     };
 

@@ -31,6 +31,7 @@ namespace Sleak
         size_t capacity;
         size_t size;
 
+        /// Bubbles the element at index up until the heap property holds.
         void heapifyUp(size_t index)
         {
             while (index > 0)
@@ -46,6 +47,7 @@ namespace Sleak
             }
         }
 
+        /// Sinks the element at index down until the heap property holds.
         void heapifyDown(size_t index)
         {
             while (true)
@@ -77,6 +79,7 @@ namespace Sleak
             b = temp;
         }
 
+        /// Doubles the backing array's capacity.
         void resize()
         {
             capacity *= 2;
@@ -98,6 +101,7 @@ namespace Sleak
             delete[] data;
         }
 
+        /// Inserts value and restores the heap property.
         void push(const T& value)
         {
             if (size == capacity)
@@ -107,6 +111,7 @@ namespace Sleak
             ++size;
         }
 
+        /// Removes and returns the root (min or max, per isMinHeap).
         T pop()
         {
             if (size == 0)
@@ -118,6 +123,7 @@ namespace Sleak
             return top;
         }
 
+        /// Returns the root without removing it.
         T top() const
         {
             if (size == 0)

@@ -22,6 +22,7 @@ class List {
     size_t size = 0;
     size_t capacity = 0;
 
+    /// Recursive quicksort driving sort().
     void quickSort(int low, int high,
                    std::function<bool(const T&, const T&)> compare) {
         if (low < high) {
@@ -31,6 +32,7 @@ class List {
         }
     }
 
+    /// Lomuto partition step for quickSort; returns the pivot's final index.
     int partition(int low, int high,
                   std::function<bool(const T&, const T&)> compare) {
         T pivot = data[high];
@@ -50,6 +52,7 @@ class List {
    public:
     List() noexcept = default;
 
+    /// Adopts an existing buffer directly; List takes ownership.
     List(T* Data, size_t Size) : data(Data), size(Size), capacity(Size) {}
 
     // Copy constructor
@@ -102,6 +105,7 @@ class List {
         }
     }
 
+    /// Frees the backing array.
     ~List() { delete[] data; }
 
     // Element addition
