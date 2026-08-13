@@ -220,6 +220,7 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
     }
 }
 
+/// Finds the keyframe pair straddling time and the lerp factor between them.
 template<typename T>
 static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, float time) {
     int idx = 0;
@@ -236,6 +237,7 @@ static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, 
     return {idx, std::max(0.0f, std::min(1.0f, t))};
 }
 
+/// Componentwise vector lerp.
 static Math::Vector3D LerpVec3(const Math::Vector3D& a, const Math::Vector3D& b, float t) {
     return Math::Vector3D(
         a.GetX() + (b.GetX() - a.GetX()) * t,

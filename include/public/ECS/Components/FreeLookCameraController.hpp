@@ -7,13 +7,17 @@
 #include <string>
 
 namespace Sleak {
+    /// Editor/spectator-style camera controller: mouse-look plus accelerated
+    /// free translation, independent of gravity or collision.
     class ENGINE_API FreeLookCameraController : public CameraController {
     public:
         FreeLookCameraController(GameObject* object);
         ~FreeLookCameraController() override;
 
+        /// Derives initial yaw/pitch from the camera's current facing direction.
         bool Initialize() override;
         void Update(float deltaTime) override;
+        /// Toggles relative mouse mode and, when re-enabling, resets velocity and re-syncs yaw/pitch.
         void SetEnabled(bool enabled) override;
 
         void ToggleCursor(bool enable) override;
@@ -48,15 +52,22 @@ namespace Sleak {
         float GetRoll() const { return roll; }
 
 
+        /// Updates translation input state from a key-down event; doubles speed while LCTRL is held.
         virtual void OnKeyPressed(const Sleak::Events::Input::KeyPressedEvent& e);
+        /// Clears translation input state from a key-up event.
         virtual void OnKeyReleased(const Sleak::Events::Input::KeyReleasedEvent& e);
 
     private:
+        /// Reads and smooths mouse delta into yaw/pitch, clamped to PitchRange.
         void UpdateInput(float deltaTime) override;
+        /// Accelerates toward the input-driven target velocity, applies damping, and moves the camera.
         void UpdateCamera(float deltaTime) override;
 
+        /// Exponentially decays velocity toward zero when there's no translation input.
         void ApplyDamping(float DeltaTime);
+        /// Accelerates velocity toward the input-driven target velocity.
         void ApplyAcceleration(float DeltaTime);
+        /// Clamps velocity magnitude to maxSpeed.
         void ClampVelocity();
 
         Math::Vector3D velocity;        

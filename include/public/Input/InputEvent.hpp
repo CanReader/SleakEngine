@@ -4,14 +4,16 @@
 namespace Sleak {
     namespace Input {
 
-        enum class KeyboardEventType 
+        /// Kind of raw keyboard event delivered through this low-level input path.
+        enum class KeyboardEventType
         {
             KeyPressed,
             KeyReleased,
             Hold
         };
 
-        enum class MouseEventType 
+        /// Kind of raw mouse event delivered through this low-level input path.
+        enum class MouseEventType
         {
             ButtonPressed,
             ButtonReleased,
@@ -19,13 +21,14 @@ namespace Sleak {
             Wheel,
         };
 
+        /// Kind of raw gamepad event delivered through this low-level input path.
         enum class GamepadEventType {
             ButtonPressed,
             ButtonReleased,
             AxisMotion,
         };
 
-        // Keyboard Events
+        /// Keyboard Events
         struct KeyboardEvent {
             int deviceID;
             KEY_CODE keyCode;
@@ -34,7 +37,7 @@ namespace Sleak {
             KeyboardEvent() : deviceID(0), keyCode(KEY_CODE::KEY__UNKNOWN){}
         };
 
-        // Mouse Events
+        /// Mouse Events
         struct MouseEvent {
             int deviceID;
             int mouseButton;
@@ -45,7 +48,7 @@ namespace Sleak {
             MouseEvent() : deviceID(0), mouseButton(0), mouseX(0), mouseY(0), mouseXRel(0), mouseYRel(0), wheelX(0), wheelY(0) {}
         };
 
-        // Gamepad Events (if needed)
+        /// Gamepad Events (if needed)
         struct GamepadEvent {
             int deviceID;
             int button; // SDL_CONTROLLER_BUTTON_*

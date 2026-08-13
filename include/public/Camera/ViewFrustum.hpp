@@ -7,6 +7,7 @@
 
 namespace Sleak {
 
+/// A plane in ax + by + cz + d = 0 form, used as one face of a ViewFrustum.
 struct Plane {
     float a, b, c, d;
 
@@ -14,6 +15,7 @@ struct Plane {
         return a * p.GetX() + b * p.GetY() + c * p.GetZ() + d;
     }
 
+    /// Rescales the plane coefficients so (a, b, c) is unit length.
     void Normalize() {
         float len = std::sqrt(a * a + b * b + c * c);
         if (len > 0.0f) {
@@ -26,8 +28,11 @@ struct Plane {
     }
 };
 
+/// Six-plane view frustum, extracted from a view-projection matrix and used
+/// for CPU-side AABB visibility tests.
 class ViewFrustum {
 public:
+    /// Index of each plane within ViewFrustum::planes.
     enum { Left = 0, Right, Bottom, Top, Near, Far, COUNT };
     Plane planes[COUNT];
 

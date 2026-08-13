@@ -32,17 +32,23 @@ namespace Sleak {
                             const Quaternion& rotation, const Vector3D& scale);
         ~TransformComponent() override;
 
+        /// Allocates the transform's GPU constant buffer.
         bool Initialize() override;
+        /// Refreshes and rebinds the transform constant buffer for this frame.
         void Update(float DeltaTime) override;
 
         // Transformation matrix calculation
         Matrix4 GetTransformMatrix();
 
         // Transformations
+        /// Adds translation to position and refreshes the cached matrix.
         void Translate(const Vector3D& translation);
         void Translate(float x, float y, float z);
+        /// Composes rotation onto the current orientation.
         void Rotate(const Quaternion& rotation);
+        /// Uniformly scales by amount along all axes.
         void Scale(float amount);
+        /// Multiplies the current scale componentwise by scale.
         void Scale(const Vector3D& scale);
 
         // Setters
@@ -56,8 +62,11 @@ namespace Sleak {
         Vector3D Up() const;
 
         // Rotation utilities
+        /// Rotates by angle around axis in world space.
         void RotateAround(const Vector3D& axis, float angle);
+        /// Rotates by angle around axis expressed in the object's local space.
         void RotateAroundLocal(const Vector3D& axis, float angle);
+        /// Orients the transform to face target, using world up as reference.
         void LookAt(const Vector3D& target);
 
         // Getters
@@ -65,8 +74,9 @@ namespace Sleak {
         Quaternion GetWorldRotation() const;
         Vector3D GetWorldScale() const;
 
+        /// Cached translation/rotation/scale matrices combined into the final transform matrix.
         struct TransformMatrix {
-            
+
             TransformMatrix() : Translation(Matrix4::Identity()), Rotation(Matrix4::Identity()), Scaling(Matrix4::Identity()) {}
 
             Math::Matrix4 CalculateTransformMatrix() const {
@@ -81,15 +91,18 @@ namespace Sleak {
 
     protected:
         Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
-        Quaternion rotation = Quaternion(); 
+        Quaternion rotation = Quaternion();
         Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
         TransformMatrix* Transform;
 
     private:
         RefPtr<RenderEngine::BufferBase> ConstantBuffer;
 
+        /// Rebuilds the transform matrix and pushes it to the GPU constant buffer.
         void UpdateConstantBuffer();
+        /// Recomputes the cached Translation/Rotation/Scaling matrices from position/rotation/scale.
         void UpdateTransform();
+        /// Combines the transform with the main camera's view and projection matrices.
         Math::Matrix4 GetMVP();
     };
 

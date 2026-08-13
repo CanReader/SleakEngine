@@ -5,6 +5,8 @@
 
 namespace Sleak {
     namespace Input {
+        /// Interface for objects that want raw keyboard/mouse/gamepad callbacks
+        /// from InputManager, independent of the Events dispatch system.
         class InputEventListener {
 
             public:

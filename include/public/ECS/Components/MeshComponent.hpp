@@ -15,25 +15,33 @@ namespace Sleak {
         class BufferBase;
     }  // namespace RenderEngine
 
+    /// Untyped payload blob, currently unused by any buffer path.
     struct VoidData {
-        uint16_t size;  
+        uint16_t size;
         void* data;
     };
 
+    /// Holds the GPU vertex/index/constant buffers for a renderable mesh and
+    /// submits a draw call each Update, subject to frustum culling.
     class ENGINE_API MeshComponent : public Component {
     public:
         MeshComponent(GameObject* object) : Component(object) {}
+        /// Uploads data's vertex/index arrays to new GPU buffers.
         MeshComponent(GameObject*, MeshData data);
+        /// Uploads data's vertex/index arrays to new GPU buffers using the packed voxel vertex format.
         MeshComponent(GameObject*, VoxelMeshData data);
 
+        /// Validates that vertex and index buffers were created successfully.
         virtual bool Initialize() override;
-        
+
+        /// Culls against cull bounds if set, then submits an indexed draw call.
         virtual void Update(float deltaTime) override;
 
         void SetVertexBuffer(RefPtr<RenderEngine::BufferBase>& buffer);
 
         void SetIndexBuffer(RefPtr<RenderEngine::BufferBase>& buffer);
 
+        /// Creates a new constant buffer from bufferData and appends it to the draw's buffer list.
         void AddConstantBuffer(RenderEngine::TransformBuffer& bufferData);
 
         void AddConstantBuffer(RefPtr<RenderEngine::BufferBase>& buffer);

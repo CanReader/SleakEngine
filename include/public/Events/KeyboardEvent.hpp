@@ -11,20 +11,22 @@
 namespace Sleak {
     namespace Events {
         namespace Input {
+            /// Common base for keyboard events; carries the key code involved.
             class ENGINE_API KeyEvent : public Event
             {
             public:
                 KeyCode GetKeyCode() const { return m_KeyCode; }
                 std::string GetKeyStr() const { return Sleak::Input::Key_toString(m_KeyCode); }
-        
+
                 EVENT_CLASS_CATEGORY(EventCategory::Keyboard)
             protected:
                 KeyEvent(const KeyCode keycode)
                     : m_KeyCode(keycode) {}
-        
+
                 KeyCode m_KeyCode;
             };
-            
+
+            /// Fired on key-down; IsRepeat() distinguishes the initial press from OS auto-repeat.
             class ENGINE_API KeyPressedEvent : public KeyEvent
             {
             public:
@@ -46,6 +48,7 @@ namespace Sleak {
                 bool m_IsRepeat;
             };
         
+            /// Fired on key-up.
             class ENGINE_API KeyReleasedEvent : public KeyEvent
             {
             public:
@@ -62,6 +65,7 @@ namespace Sleak {
                 EVENT_CLASS_TYPE(KeyReleased)
             };
         
+            /// Fired for text input, after IME/layout composition rather than raw key-down.
             class ENGINE_API KeyTypedEvent : public KeyEvent
             {
             public:

@@ -7,6 +7,8 @@
 #include <Math/Color.hpp>
 
 namespace Sleak {
+    /// Owns and binds a Material for rendering; submits it into the draw
+    /// command queue each Update while enabled.
     class ENGINE_API MaterialComponent : public Component {
     public:
         // Construct with a shared material (RefPtr copy - safe for sharing)
@@ -27,13 +29,17 @@ namespace Sleak {
 
         ~MaterialComponent() override = default;
 
+        /// Initializes the owned material's GPU resources.
         bool Initialize() override;
+        /// Submits the material to the render command queue for this frame.
         void Update(float DeltaTime) override;
         void OnEnable() override;
         void OnDisable() override;
 
         // Material access
+        /// Replaces the material, re-initializing it if the component is already initialized.
         void SetMaterial(const RefPtr<Material>& material);
+        /// Takes ownership of a raw material pointer, re-initializing it if already initialized.
         void SetMaterial(Material* material);
         const RefPtr<Material>& GetMaterial() const;
         Material* GetMaterialRaw() const;

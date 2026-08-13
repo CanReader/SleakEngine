@@ -13,6 +13,7 @@
 
 namespace Sleak {
 
+/// Walks obj and its children, registering any ColliderComponent found with world.
 static void RegisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* world) {
     if (!obj || !world) return;
     auto* collider = obj->GetComponent<ColliderComponent>();
@@ -24,6 +25,7 @@ static void RegisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* w
     }
 }
 
+/// Walks obj and its children, unregistering any ColliderComponent found from world.
 static void UnregisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* world) {
     if (!obj || !world) return;
     auto* collider = obj->GetComponent<ColliderComponent>();

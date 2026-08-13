@@ -17,17 +17,23 @@ namespace Sleak {
 
     class AnimationStateMachine;
 
+    /// Samples a skeleton's bones from clips or a state machine and uploads
+    /// the result to the sibling MeshComponent's bone buffer each frame.
     class ENGINE_API AnimatorComponent : public Component {
     public:
         AnimatorComponent(GameObject* owner, Skeleton* skeleton,
                           std::vector<AnimationClip*> clips);
         virtual ~AnimatorComponent();
 
+        /// Allocates the bone constant buffer and attaches it to the sibling MeshComponent.
         virtual bool Initialize() override;
+        /// Samples the active state machine or clip and pushes the resulting bone matrices to the GPU.
         virtual void Update(float deltaTime) override;
 
         // Animation control
+        /// Switches to the clip by name, restarting from time zero.
         void Play(const std::string& clipName, bool loop = true);
+        /// Switches to the clip by index, restarting from time zero.
         void Play(int clipIndex, bool loop = true);
         void Stop();
         void Pause();
@@ -39,6 +45,7 @@ namespace Sleak {
         const std::string& GetCurrentClipName() const;
 
         // State machine
+        /// Replaces any existing state machine with a fresh, empty one.
         AnimationStateMachine* CreateStateMachine();
         AnimationStateMachine* GetStateMachine() const { return m_stateMachine; }
 
@@ -52,18 +59,23 @@ namespace Sleak {
 
     private:
         // Compute bone transforms for a specific clip/time into output buffer
+        /// Walks the skeleton's node tree for clip at animTime, writing final bone matrices to outMatrices.
         void ComputeBoneTransformsForClip(AnimationClip* clip, float animTime,
                                           std::vector<Math::Matrix4>& outMatrices);
+        /// Recursive step of ComputeBoneTransformsForClip, propagating parentTransform down the hierarchy.
         void ProcessNodeHierarchyForClip(int nodeIndex, const Math::Matrix4& parentTransform,
                                           AnimationClip* clip, float animTime,
                                           std::vector<Math::Matrix4>& outMatrices);
 
         // Legacy single-clip path
+        /// Same as ComputeBoneTransformsForClip but samples m_clips[m_currentClip] into m_boneMatrices.
         void ComputeBoneTransforms(float animTime);
+        /// Recursive step of ComputeBoneTransforms.
         void ProcessNodeHierarchy(int nodeIndex, const Math::Matrix4& parentTransform,
                                   float animTime);
 
         // Blend two sets of bone matrices
+        /// Linearly interpolates each matrix element between a and b, storing the result in out.
         static void BlendBoneMatrices(const std::vector<Math::Matrix4>& a,
                                       const std::vector<Math::Matrix4>& b,
                                       float weight,

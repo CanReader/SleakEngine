@@ -18,6 +18,7 @@
 #define GET_DISPATCHER Sleak::EventDispatcher::GetInstance()
 
 namespace Sleak {
+    /// Concrete kind of Event; each Event subclass reports one of these via GetEventType().
     enum class EventType {
         Unknown = 0,
         WindowOpen, WindowClose, WindowResize, WindowFullscreen, WindowFocus, WindowLostFocus, WindowMoved,
@@ -26,6 +27,7 @@ namespace Sleak {
         MousePressed, MouseReleased, MouseMoved, MouseScrolled
     };
 
+    /// Bitmask groups an Event can belong to, queried via Event::IsInCategory().
     enum class EventCategory {
         None = (1 << 0),
         Application = (1 << 1),
@@ -53,6 +55,8 @@ namespace Sleak {
     virtual int GetCategoryFlags() const override \
      { return static_cast<int>(category); }
 
+    /// Base for all engine events; carries type/category identity and the
+    /// Handled flag consumers can set to stop further propagation.
     class ENGINE_API Event {
     public:
         Event() {}
@@ -72,9 +76,12 @@ namespace Sleak {
         }
     };
 
+    /// Static registry mapping EventType to subscribed handlers; dispatches
+    /// events synchronously to every handler registered for its type.
     class ENGINE_API EventDispatcher {
         public:
             // Register a handler for any event type
+            /// Registers a free-function/lambda callback for EventT, returning an ID for later unregistration.
             template<typename EventT>
             static std::string RegisterEventCallback(std::function<void(const EventT&)> callback) {
                 EventType type = EventT::GetStaticType();
@@ -86,6 +93,7 @@ namespace Sleak {
             }
             
             // Register a member function handler
+            /// Registers a member-function handler bound to instance, returning an ID for later unregistration.
             template<typename T, typename EventT>
             static std::string RegisterEventHandler(T* instance, void (T::*memberFunction)(const EventT&)) {
                 EventType type = EventT::GetStaticType();
@@ -100,6 +108,7 @@ namespace Sleak {
                 return delegate->GetID();
             }
 
+            /// Removes the single handler with matching id from type's handler list.
             static void UnregisterEvent(EventType type, std::string id) {
                 for(auto it = eventHandlers[type].begin(); it != eventHandlers[type].end(); ++it) {
                     if((*it)->GetID() == id) {
@@ -109,17 +118,20 @@ namespace Sleak {
                 }
             }
 
+            /// Drops every handler registered for type.
             static void UnregisterEvents(EventType type) {
                 for(auto it = eventHandlers[type].begin(); it != eventHandlers[type].end(); ++it) {
                         eventHandlers[type].erase(it);
                 }
             }
 
+            /// Drops every handler for every event type.
             static void UnregisterAllEvents() {
                 eventHandlers.clear();
             }
-            
+
             // Dispatch an event to all registered handlers
+            /// Invokes every handler registered for event's type, in registration order.
             template<typename EventT>
             static void DispatchEvent(const EventT& event) {
                 EventType type = event.GetEventType();
@@ -140,16 +152,18 @@ namespace Sleak {
                 }
             }
             
+            /// Drops every handler for every event type; equivalent to UnregisterAllEvents().
             static void ClearEventHandlers() {
                 eventHandlers.clear();
             }
-            
+
         private:
             static inline std::unordered_map<EventType, std::vector<std::shared_ptr<IDelegate>>> eventHandlers;
         };
-        
-        
+
+
         // Helper function for easier event dispatching
+        /// Constructs a T from args and dispatches it through EventDispatcher.
         template<typename T, typename... Args>
         void DispatchEvent(Args&&... args) {
             T event(std::forward<Args>(args)...);

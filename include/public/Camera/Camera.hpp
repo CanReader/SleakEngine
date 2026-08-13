@@ -8,7 +8,11 @@
 #include <Math/Vector.hpp>
 
 namespace Sleak {
+    /// Perspective or orthographic projection mode for a Camera.
     enum class ProjectionType {Perspective, Orthographic};
+
+    /// GameObject that owns the engine's single active view/projection
+    /// matrices and view frustum. Position/orientation come from CameraController subclasses.
     class ENGINE_API Camera : public GameObject {
     public:
         Camera(std::string name = "Camera",
@@ -16,6 +20,7 @@ namespace Sleak {
                float fov = 60, float near = 1.0f, float far = 1000.0f);
 
         void Initialize() override;
+        /// Recalculates the view/projection matrices and frustum while active.
         void Update(float DeltaTime) override;
 
         void SetFieldOfView(float fov) {fieldOfView = fov;}
@@ -49,6 +54,7 @@ namespace Sleak {
         void SetProjectionType(ProjectionType type) {this->type = type;}
         ProjectionType GetProjectionType() const {return type;}
         
+        /// Updates the viewport dimensions and recomputes the projection matrix.
         void OnResize(uint32_t width, uint32_t height);
 
         static const Math::Matrix4& GetMainViewMatrix() {
@@ -68,7 +74,9 @@ namespace Sleak {
         }
 
     protected:
+        /// Rebuilds the static view matrix and view frustum from position/target/up, and begins culling for the frame.
         void RecalculateViewMatrix();
+        /// Rebuilds the static projection matrix from FOV/aspect/near/far or the orthographic extents.
         void RecalculateProjectionMatrix();
 
         float fieldOfView;

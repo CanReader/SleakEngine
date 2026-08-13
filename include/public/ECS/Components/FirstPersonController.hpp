@@ -17,8 +17,10 @@ namespace Sleak {
         FirstPersonController(GameObject* object);
         ~FirstPersonController() override;
 
+        /// Grabs the sibling RigidbodyComponent and derives initial yaw/pitch from the camera's facing.
         bool Initialize() override;
         void Update(float deltaTime) override;
+        /// Toggles relative mouse mode and, when re-enabling, resets velocity and re-syncs yaw/pitch.
         void SetEnabled(bool enabled) override;
 
         void ToggleCursor(bool enable) override;
@@ -35,6 +37,7 @@ namespace Sleak {
         void SetAirControl(float airControl) { m_airControl = airControl; }
 
         // Fly
+        /// Switches between grounded movement and free-flight, resetting vertical velocity.
         void SetFlying(bool flying);
         bool IsFlying() const { return m_flying; }
         void SetMaxFlySpeed(float speed) { m_maxFlySpeed = speed; }
@@ -47,11 +50,15 @@ namespace Sleak {
         void SetPitch(float pitch) { m_pitch = pitch; }
         void SetYaw(float yaw) { m_yaw = yaw; }
 
+        /// Updates translation/sprint input state from a key-down event.
         void OnKeyPressed(const Events::Input::KeyPressedEvent& e);
+        /// Clears translation/sprint input state from a key-up event.
         void OnKeyReleased(const Events::Input::KeyReleasedEvent& e);
 
     private:
+        /// Reads mouse delta into yaw/pitch, clamped to m_pitchRange.
         void UpdateInput(float deltaTime) override;
+        /// Applies UE-style acceleration/braking to velocity, resolves jump/fly, and moves the camera.
         void UpdateCamera(float deltaTime) override;
 
         // UE-style movement parameters — tuned slower for a calmer pace

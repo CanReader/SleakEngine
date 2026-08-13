@@ -38,21 +38,29 @@ namespace Sleak {
         virtual ~SceneBase();
 
         // Resource lifecycle hooks
+        /// Override to load scene-specific assets; called once from Load().
         virtual void OnLoad() {}
+        /// Override to release scene-specific assets; called from Unload().
         virtual void OnUnload() {}
 
         // Activation lifecycle hooks
+        /// Override for logic that should run when the scene becomes active.
         virtual void OnActivate() {}
+        /// Override for logic that should run when the scene stops being active.
         virtual void OnDeactivate() {}
 
         // Initialization
         /// Runs once before the scene's first Begin()/Update().
         virtual bool Initialize();
+        /// Activates every owned object; runs once after Initialize().
         virtual void Begin() = 0;
 
         // Update loops
+        /// Advances all active, root-level objects by deltaTime, then steps lighting and physics.
         virtual void Update(float deltaTime) = 0;
+        /// Advances all active, root-level objects on the fixed timestep.
         virtual void FixedUpdate(float fixedDeltaTime);
+        /// Advances all active, root-level objects after the main Update pass.
         virtual void LateUpdate(float deltaTime);
 
         // State
@@ -70,19 +78,26 @@ namespace Sleak {
         void Activate();
         /// Marks the scene inactive and calls OnDeactivate().
         void Deactivate();
+        /// Freezes the scene without tearing it down; leaves it in the Paused state.
         void Pause();
+        /// Reactivates a paused scene without re-running OnActivate().
         void Resume();
 
         // Object management — scene takes ownership of added objects
+        /// Takes ownership of object, registering it with lighting and physics as needed.
         virtual void AddObject(GameObject* object);
+        /// Unregisters and deletes object immediately.
         virtual void RemoveObject(GameObject* object);
         /// Queues an object for destruction; actually freed on the next ProcessPendingDestroy().
         void DestroyObject(GameObject* object);
         const List<GameObject*>& GetObjects() const { return Objects; }
 
         // Object queries
+        /// Linear search for the first object with a matching name.
         GameObject* FindObjectByName(const std::string& name);
+        /// Linear search for the object with a matching unique ID.
         GameObject* FindObjectByID(uint64_t id);
+        /// Collects every object whose tag matches.
         List<GameObject*> FindObjectsByTag(const std::string& tag);
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
@@ -97,6 +112,7 @@ namespace Sleak {
             return m_physicsWorld;
         }
 
+        /// Replaces the scene's skybox, deleting the previous one.
         void SetSkybox(Skybox* skybox);
         Skybox* GetSkybox() const { return m_skybox; }
 

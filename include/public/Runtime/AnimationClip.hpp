@@ -10,12 +10,14 @@
 
 namespace Sleak {
 
+    /// A single timed sample of a value, used as a control point for interpolation.
     template<typename T>
     struct Keyframe {
         float time;
         T value;
     };
 
+    /// Position/rotation/scale keyframe tracks for one bone or scene node.
     struct AnimationChannel {
         std::string boneName;
         int boneId = -1;
@@ -24,6 +26,7 @@ namespace Sleak {
         std::vector<Keyframe<Math::Vector3D>> scaleKeys;
     };
 
+    /// A named set of per-bone keyframe channels sampled by AnimatorComponent.
     class ENGINE_API AnimationClip {
     public:
         std::string name;
@@ -35,6 +38,7 @@ namespace Sleak {
             return (ticksPerSecond > 0.0f) ? duration / ticksPerSecond : 0.0f;
         }
 
+        /// O(1) channel lookup by bone name; requires BuildLookup() to have run.
         const AnimationChannel* FindChannel(const std::string& boneName) const {
             auto it = m_channelLookup.find(boneName);
             return (it != m_channelLookup.end()) ? &channels[it->second] : nullptr;

@@ -6,6 +6,7 @@
 
 namespace Sleak {
     namespace Events {
+        /// Fired when the window's client area changes size.
         class ENGINE_API WindowResizeEvent : public Event {
             public:
                 WindowResizeEvent(uint16_t Width, uint16_t Height) : width(Width), height(Height) {}
@@ -26,6 +27,7 @@ namespace Sleak {
                 uint16_t width, height;
         };
 
+        /// Fired once the window has been created and is ready for use.
         class ENGINE_API WindowOpenEvent : public Event {
             public:
                 WindowOpenEvent() = default;
@@ -34,6 +36,7 @@ namespace Sleak {
                 EVENT_CLASS_CATEGORY(EventCategory::Application)
         };
 
+        /// Fired when the window enters or leaves fullscreen mode.
         class ENGINE_API WindowFullScreen : public Event {
             public:
                 WindowFullScreen(bool bIsFullScreen) : bIsFullScreen(bIsFullScreen) {};
@@ -47,6 +50,7 @@ namespace Sleak {
                 bool bIsFullScreen;
         };
 
+        /// Fired when the window is about to close.
         class ENGINE_API WindowCloseEvent : public Event {
             public:
                 WindowCloseEvent() = default;
@@ -55,7 +59,8 @@ namespace Sleak {
                 EVENT_CLASS_CATEGORY(EventCategory::Application)
         };
 
-        
+
+        /// Fired once per frame at the start of the application loop.
         class ENGINE_API TickEvent : public Event {
             public:
                 TickEvent() = default;
@@ -64,6 +69,7 @@ namespace Sleak {
                 EVENT_CLASS_CATEGORY(EventCategory::Application)
         };
 
+        /// Fired once per frame during the update phase.
         class ENGINE_API UpdateEvent : public Event {
             public:
                 UpdateEvent() = default;
@@ -72,6 +78,7 @@ namespace Sleak {
                 EVENT_CLASS_CATEGORY(EventCategory::Application)
         };
 
+        /// Fired once per frame during the render phase.
         class ENGINE_API RenderEvent : public Event {
             public:
                 RenderEvent() = default;

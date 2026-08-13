@@ -134,6 +134,7 @@ namespace Sleak {
         Components.clear();
     }
 
+    /// Fallback material for the primitive factories below, using the default shader.
     static Material* CreateDefaultMaterial() {
         auto* mat = new Material();
         mat->SetShader("assets/shaders/default_shader.hlsl");

@@ -6,6 +6,7 @@
  namespace Sleak {
     namespace Input {
 
+    /// Mouse button identifiers, numbered to match SDL's button indices.
     enum class MOUSE_CODE {
         Button0 = 0,
         Button1 = 1,
@@ -21,6 +22,7 @@
         ButtonRight = Button3,   // SDL_BUTTON_RIGHT = 3
     };
 
+     /// Physical key identifiers, numbered to match SDL scancode values.
      enum class KEY_CODE
      {
      KEY__UNKNOWN = 0,
@@ -302,6 +304,7 @@
      
     };
 
+    /// Human-readable label for key, used in event ToString() output.
     inline std::string Key_toString(KEY_CODE key) {
         switch (key) {
             case KEY_CODE::KEY__UNKNOWN: return "Unknown";
@@ -555,6 +558,7 @@
         }
     }
 
+    /// Human-readable label for button, used in event ToString() output.
     inline std::string Button_toString(MOUSE_CODE button) {
         switch(button) {
             case MOUSE_CODE::Button0:

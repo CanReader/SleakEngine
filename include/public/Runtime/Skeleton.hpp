@@ -12,6 +12,7 @@ namespace Sleak {
     static constexpr int MAX_BONES = 256;
     static constexpr int MAX_BONE_INFLUENCE = 4;
 
+    /// One skinning joint: its offset matrix and parent link within the skeleton.
     struct Bone {
         std::string name;
         int id;
@@ -19,7 +20,7 @@ namespace Sleak {
         Math::Matrix4 offsetMatrix; // mesh space -> bone space
     };
 
-    // Full scene node (bones + non-bone nodes)
+    /// Full scene node (bones + non-bone nodes).
     struct NodeData {
         std::string name;
         Math::Matrix4 defaultTransform; // node's local transform from scene graph
@@ -27,6 +28,8 @@ namespace Sleak {
         std::vector<int> children;      // indices into node array
     };
 
+    /// Bone hierarchy plus the full imported scene node tree, used to drive
+    /// skinned mesh animation.
     class ENGINE_API Skeleton {
     public:
         Skeleton() : m_globalInverseTransform(Math::Matrix4::Identity()) {}
@@ -40,6 +43,7 @@ namespace Sleak {
 
         const Bone& GetBone(int id) const { return m_bones[id]; }
 
+        /// Appends bone, assigning it the next bone id.
         int AddBone(const Bone& bone) {
             int id = static_cast<int>(m_bones.size());
             Bone b = bone;
@@ -57,6 +61,7 @@ namespace Sleak {
             m_globalInverseTransform = mat;
         }
 
+        /// Appends node, returning its index in the node array.
         int AddNode(const NodeData& node) {
             int idx = static_cast<int>(m_nodes.size());
             m_nodes.push_back(node);
@@ -64,6 +69,7 @@ namespace Sleak {
             return idx;
         }
 
+        /// Links childIdx under parentIdx in the node tree.
         void AddNodeChild(int parentIdx, int childIdx) {
             if (parentIdx >= 0 && parentIdx < static_cast<int>(m_nodes.size()))
                 m_nodes[parentIdx].children.push_back(childIdx);
@@ -81,6 +87,7 @@ namespace Sleak {
 
         bool HasNodeTree() const { return !m_nodes.empty(); }
 
+        /// Reassigns the parent of boneId, e.g. once the full hierarchy is known.
         void SetBoneParent(int boneId, int parentId) {
             if (boneId >= 0 && boneId < static_cast<int>(m_bones.size()))
                 m_bones[boneId].parentId = parentId;
