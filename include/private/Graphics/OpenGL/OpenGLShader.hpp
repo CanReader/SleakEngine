@@ -1,7 +1,7 @@
 #ifndef OPENGLSHADER_HPP_
 #define OPENGLSHADER_HPP_
 
-#include "../Shader.hpp"
+#include "../Common/Shader.hpp"
 #include <glad/glad.h>
 
 namespace Sleak {

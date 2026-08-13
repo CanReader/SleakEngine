@@ -1,8 +1,8 @@
 #ifndef VULKANRENDERER_HPP
 #define VULKANRENDERER_HPP
 
-#include "../Renderer.hpp"
-#include "../RenderContext.hpp"
+#include "../Common/Renderer.hpp"
+#include "../Common/RenderContext.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 #include "Logger.hpp"

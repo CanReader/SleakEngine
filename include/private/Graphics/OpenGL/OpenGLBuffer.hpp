@@ -1,7 +1,7 @@
 #ifndef OPENGLBUFFER_HPP_
 #define OPENGLBUFFER_HPP_
 
-#include "../BufferBase.hpp"
+#include "../Common/BufferBase.hpp"
 #include <glad/glad.h>
 
 namespace Sleak {

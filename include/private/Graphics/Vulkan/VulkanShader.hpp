@@ -2,7 +2,7 @@
 #define _VULKANSHADER_H_
 
 #include <vector>
-#include "Graphics/Shader.hpp"
+#include "Graphics/Common/Shader.hpp"
 #include "vulkan/vulkan_core.h"
 
 namespace Sleak {

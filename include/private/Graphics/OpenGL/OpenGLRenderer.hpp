@@ -2,9 +2,9 @@
 #define _OPENGLRENDERER_H
 
 #include <Core/OSDef.hpp>
-#include "../Renderer.hpp"
-#include "../RenderContext.hpp"
-#include "../../Window.hpp"
+#include "../Common/Renderer.hpp"
+#include "../Common/RenderContext.hpp"
+#include "../../Core/Window.hpp"
 #include <SDL3/SDL.h>
 #include <glad/glad.h>
 #include <array>
