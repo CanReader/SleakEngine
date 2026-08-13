@@ -252,16 +252,17 @@ bool VulkanRenderer::CreateImGUI() {
     if (!imguiRenderPass)
         return false;
 
-    // Create a dedicated descriptor pool for ImGUI (extra sets for user textures)
+    // ImGui backend allocates split SAMPLED_IMAGE + SAMPLER sets, not COMBINED_IMAGE_SAMPLER
     VkDescriptorPoolSize poolSizes[] = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 64},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE},
     };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.maxSets = 64;
-    poolInfo.poolSizeCount = 1;
+    poolInfo.maxSets = 64 + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE;
+    poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes = poolSizes;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr,
