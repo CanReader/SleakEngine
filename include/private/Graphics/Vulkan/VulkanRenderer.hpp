@@ -131,23 +131,32 @@ public:
     virtual void EndDebugLinePass() override;
 
     // Shadow pass support
+    /// Marks the shadow pass active and invalidates the push constant cache.
     virtual void BeginShadowPass() override;
+    /// Marks the shadow pass inactive.
     virtual void EndShadowPass() override;
     virtual bool IsShadowPassActive() const override { return m_shadowPassActive; }
 
     // Light UBO update (called by LightManager)
+    /// Copies light and shadow data into the current frame's mapped UBO.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    /// Stages the light view-projection matrix for commit at the next BeginRender.
     void SetLightVP(const float* lightVP) override;
 
     // Deferred rendering overrides
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
     virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
+    /// Binds the GBuffer pipeline and marks the geometry pass active.
     virtual void BindGBufferShader() override;
     /// Writes a material's textures and params into its ring slot and binds it at set 0.
     virtual void BindPBRMaterial(Sleak::Material* material) override;
+    /// Runs the deferred lighting pass, reading the GBuffer and writing the HDR scene image.
     virtual void ExecuteDeferredLightingPass() override;
+    /// Begins the forward transparent render pass over the HDR scene image.
     virtual void BeginForwardTransparentPass() override;
+    /// Marks the forward transparent pass ended; EndRender closes the actual render pass.
     virtual void EndForwardTransparentPass() override;
+    /// Copies deferred CB data into the current frame's UBO and snapshots the camera matrices.
     virtual void UpdateDeferredCB(const void* data, uint32_t size) override;
 
     // MSAA
@@ -163,28 +172,47 @@ private:
 
     // Deferred rendering
     bool CreateGBufferResources();
+    /// Creates the GBuffer render pass with its three color attachments and depth.
     bool CreateGBufferRenderPass();
+    /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
     bool CreateGBufferFramebuffer();
+    /// Compiles the GBuffer shaders and creates the geometry pipeline, reusing pipelineLay.
     bool CreateGBufferPipeline();
+    /// Compiles the skinned GBuffer shaders so skinned meshes write into the GBuffer.
     bool CreateSkinnedGbufferPipeline();
+    /// Creates the deferred lighting render pass with a single color attachment.
     bool CreateLightingRenderPass();
+    /// Creates one lighting pass framebuffer per swapchain image, all aliasing the HDR target.
     bool CreateLightingFramebuffers();
+    /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
     bool CreateLightingPipeline();
+    /// Creates the forward transparent render pass writing into the HDR scene image.
     bool CreateForwardRenderPass();
+    /// Creates one forward transparent framebuffer per swapchain image, all aliasing the HDR target.
     bool CreateForwardFramebuffers();
+    /// Creates the GBuffer sampler descriptor set layout, pool, and per-frame sets.
     bool CreateGBufferDescriptorSets();
+    /// Creates the per-frame deferred constant buffer holding InvViewProj and screen size.
     bool CreateDeferredCBResources();
     /// Creates the PBR material descriptor layout, pool, ring of sets, and GBuffer geometry pipeline layout.
     bool CreatePBRMaterialResources();
+    /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and descriptor set.
     bool CreateIBLResources();
+    /// Destroys all GBuffer, lighting, and forward transparent pass resources.
     void CleanupGBufferResources();
+    /// Destroys the IBL images, samplers, and descriptor resources.
     void CleanupIBLResources();
+    /// Writes the GBuffer, depth, and shadow images into the sampler descriptor sets before the lighting pass.
     void UpdateGBufferDescriptors();
 
     // Shadow mapping
+    /// Creates the shadow depth image, sampler, render pass, and framebuffer.
     bool CreateShadowResources();
+    /// Compiles the shadow depth shader and creates the shadow pass pipeline.
     bool CreateShadowPipeline();
+    /// Creates the per-frame light and shadow UBO buffers and descriptor sets.
     bool CreateShadowLightUBOResources();
+    /// Destroys the shadow map image, pipeline, render pass, and light UBO resources.
     void CleanupShadowResources();
     /// Creates the Vulkan instance with validation layers when available.
     bool InitVulkan();
@@ -442,7 +470,8 @@ private:
     VkImage        m_gbufferImages[GBUFFER_COUNT]   = {};
     VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT]   = {};
     VkImageView    m_gbufferViews[GBUFFER_COUNT]    = {};
-    static const VkFormat m_gbufferFormats[GBUFFER_COUNT];  // defined in .cpp
+    /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit. Defined in VulkanDeferred.cpp.
+    static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
     VkRenderPass   m_gbufferRenderPass              = VK_NULL_HANDLE;
     VkFramebuffer  m_gbufferFramebuffer             = VK_NULL_HANDLE;
     VkPipeline     m_gbufferPipeline                = VK_NULL_HANDLE;
