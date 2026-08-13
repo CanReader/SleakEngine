@@ -501,7 +501,6 @@ private:
     static constexpr uint32_t SSAO_KERNEL_SIZE = 32;
     static constexpr uint32_t SSAO_NOISE_SIZE  = 4;
     bool       m_ssaoResourcesCreated      = false;
-    bool       m_ssaoEnabled               = false;  // off by default (match light renderer); toggle in settings
     VkExtent2D m_ssaoExtent                = {0, 0};
     VkFormat   m_ssaoFormat                = VK_FORMAT_R8_UNORM;
 
