@@ -15,18 +15,23 @@ namespace Sleak {
         struct LightCBData;
     }
 
+    /// Owns the registered light list and the GPU-side light/fog constant buffers; one instance per scene.
     class ENGINE_API LightManager {
     public:
         LightManager();
         ~LightManager();
 
+        /// Allocates the GPU light buffer; call once before the first UpdateAndBind.
         void Initialize();
 
         void RegisterLight(Light* light);
         void UnregisterLight(Light* light);
 
+        /// Packs every registered light and the fog/ambient parameters into the light buffer and binds it.
         void UpdateAndBind();
+        /// Picks the active shadow-casting light and refreshes its shadow-space matrices.
         void UpdateShadowData();
+        /// Refreshes the deferred-pass constant buffer (fog, ambient) independent of the per-light data.
         void UpdateDeferredCB();
 
         void SetAmbientColor(float r, float g, float b);
@@ -53,15 +58,15 @@ namespace Sleak {
         float GetFogStart() const { return m_fogStart; }
         float GetFogEnd() const { return m_fogEnd; }
 
-        // Two-color sky-matched fog gradient. SetFogColor(r,g,b) above sets
-        // the horizon color; the zenith color blends in as the view direction
-        // tilts upward.
+        /// Two-color sky-matched fog gradient. SetFogColor(r,g,b) above sets
+        /// the horizon color; the zenith color blends in as the view direction
+        /// tilts upward.
         void SetFogZenithColor(float r, float g, float b) {
             m_fogZenithR = r; m_fogZenithG = g; m_fogZenithB = b;
         }
 
-        // Height fog: exponential density that thickens below HeightFogTop.
-        // density(y) = HeightFogDensity * exp(-max(0, y - HeightFogTop) * HeightFogFalloff)
+        /// Height fog: exponential density that thickens below HeightFogTop.
+        /// density(y) = HeightFogDensity * exp(-max(0, y - HeightFogTop) * HeightFogFalloff)
         void SetHeightFogEnabled(bool enabled) { m_heightFogEnabled = enabled; }
         void SetHeightFogTop(float worldY)     { m_heightFogTop = worldY; }
         void SetHeightFogDensity(float d)      { m_heightFogDensity = d; }

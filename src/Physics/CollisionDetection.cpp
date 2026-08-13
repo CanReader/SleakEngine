@@ -68,6 +68,7 @@ void ClosestPointsSegmentSegment(const Vector3D& a1, const Vector3D& a2,
     closestB = b1 + d2 * t;
 }
 
+/// Clamps point into the box, giving the nearest surface or interior point.
 static Vector3D ClosestPointOnAABB(const AABB& aabb, const Vector3D& point) {
     return Vector3D(
         std::clamp(point.GetX(), aabb.min.GetX(), aabb.max.GetX()),

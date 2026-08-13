@@ -11,6 +11,7 @@ namespace Sleak {
     using IndexType = uint32_t;
     using IndexGroup = List<IndexType>;
 
+    /// Standard 96-byte vertex format: position, normal, tangent, color, UV, and up to 4 skinning bone influences.
     struct Vertex {
         float px, py, pz;
         float nx, ny, nz;
@@ -69,6 +70,7 @@ namespace Sleak {
         }
     };
 
+    /// Growable CPU-side buffer of Vertex, ready to hand to MeshBatch::CreateMesh.
     class VertexGroup {
     public:
         VertexGroup() = default;
@@ -94,14 +96,14 @@ namespace Sleak {
         Sleak::List<Vertex> vertices;
     };
 
+    /// CPU-side vertex and index buffers for one mesh, ready for upload.
     struct MeshData {
         VertexGroup vertices;
         IndexGroup indices;
     };
 
-    // Compact vertex for voxel meshes — 48 bytes vs Vertex's 96.
-    // Drops tangent (float4) and bone data (int4 + float4) that
-    // voxels never use.
+    /// Compact 48-byte vertex format, dropping the tangent and bone-weight
+    /// fields that Vertex carries but this format's meshes don't need.
     struct VoxelVertex {
         float px, py, pz;     // position  (offset  0, 12 bytes)
         float nx, ny, nz;     // normal    (offset 12, 12 bytes)
@@ -133,6 +135,7 @@ namespace Sleak {
         }
     };
 
+    /// Growable CPU-side buffer of VoxelVertex, the compact counterpart to VertexGroup.
     class VoxelVertexGroup {
     public:
         VoxelVertexGroup() = default;
@@ -164,6 +167,7 @@ namespace Sleak {
         Sleak::List<VoxelVertex> m_vertices;
     };
 
+    /// CPU-side vertex and index buffers for a mesh built from VoxelVertex.
     struct VoxelMeshData {
         VoxelVertexGroup vertices;
         IndexGroup indices;

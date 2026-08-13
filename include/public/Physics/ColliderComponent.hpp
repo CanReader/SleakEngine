@@ -9,17 +9,20 @@ namespace Sleak {
 
     struct MeshData;
 
+    /// Attaches a collision shape to a GameObject and registers it with PhysicsWorld's broadphase.
     class ENGINE_API ColliderComponent : public Component {
     public:
-        // Manual shape constructors
+        /// Wraps a pre-built axis-aligned box shape.
         ColliderComponent(GameObject* owner, const Physics::AABB& aabb);
+        /// Wraps a pre-built sphere shape.
         ColliderComponent(GameObject* owner, const Physics::BoundingSphere& sphere);
+        /// Wraps a pre-built capsule shape.
         ColliderComponent(GameObject* owner, const Physics::BoundingCapsule& capsule);
 
-        // Auto-compute from mesh vertices
+        /// Derives a bounding shape of the given type from the mesh's vertex positions.
         ColliderComponent(GameObject* owner, const MeshData& meshData, Physics::ColliderType preferred);
 
-        // Triangle mesh collider
+        /// Builds an exact triangle-mesh collider from the mesh's vertices and indices.
         ColliderComponent(GameObject* owner, const MeshData& meshData, bool asMesh);
 
         ~ColliderComponent() override = default;
@@ -30,6 +33,7 @@ namespace Sleak {
         const Physics::ColliderShape& GetShape() const { return m_shape; }
         Physics::ColliderType GetType() const { return m_type; }
 
+        /// Local shape transformed into world space by the owner's current transform.
         Physics::AABB GetWorldAABB() const;
 
         // Offset from owner's transform

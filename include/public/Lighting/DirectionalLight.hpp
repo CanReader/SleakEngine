@@ -5,6 +5,7 @@
 
 namespace Sleak {
 
+    /// Parallel-ray light with a directional shadow frustum; typically the sun/moon.
     class ENGINE_API DirectionalLight : public Light {
     public:
         explicit DirectionalLight(

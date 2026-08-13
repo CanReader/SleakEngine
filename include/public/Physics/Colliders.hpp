@@ -15,6 +15,7 @@ namespace Physics {
 
     using Math::Vector3D;
 
+    /// Axis-aligned bounding box; the workhorse broadphase and collision shape.
     struct AABB {
         Vector3D min;
         Vector3D max;
@@ -66,6 +67,7 @@ namespace Physics {
             );
         }
 
+        /// Computes a tight AABB over raw interleaved vertex positions.
         static AABB FromVertices(const float* positions, size_t count, size_t stride) {
             if (count == 0) return AABB();
 
@@ -91,6 +93,7 @@ namespace Physics {
         }
     };
 
+    /// Sphere collider, cheapest shape to test against.
     struct BoundingSphere {
         Vector3D center;
         float radius;
@@ -115,6 +118,7 @@ namespace Physics {
             );
         }
 
+        /// Builds the sphere circumscribing the given AABB.
         static BoundingSphere FromAABB(const AABB& aabb) {
             Vector3D center = aabb.GetCenter();
             float radius = (aabb.max - center).Magnitude();
@@ -122,6 +126,7 @@ namespace Physics {
         }
     };
 
+    /// Cylinder-plus-hemispherical-caps shape, commonly used for character controllers.
     struct BoundingCapsule {
         Vector3D center;
         float radius;
@@ -133,6 +138,7 @@ namespace Physics {
         BoundingCapsule(const Vector3D& center, float radius, float halfHeight, int axis = 1)
             : center(center), radius(radius), halfHeight(halfHeight), axis(axis) {}
 
+        /// World position of the capsule's positive-axis cap center.
         Vector3D GetPointA() const {
             Vector3D offset(0, 0, 0);
             if (axis == 0) offset.SetX(halfHeight);
@@ -141,6 +147,7 @@ namespace Physics {
             return center + offset;
         }
 
+        /// World position of the capsule's negative-axis cap center.
         Vector3D GetPointB() const {
             Vector3D offset(0, 0, 0);
             if (axis == 0) offset.SetX(-halfHeight);
@@ -165,6 +172,7 @@ namespace Physics {
             return AABB(minPt, maxPt);
         }
 
+        /// Fits a capsule inside the AABB, picking its longest axis as the capsule axis.
         static BoundingCapsule FromAABB(const AABB& aabb) {
             Vector3D center = aabb.GetCenter();
             Vector3D extents = aabb.GetExtents();
@@ -188,11 +196,13 @@ namespace Physics {
         }
     };
 
+    /// Exact triangle-soup collision shape; heavier than the primitive shapes, used for static geometry.
     struct TriangleMesh {
         std::vector<Vector3D> vertices;
         std::vector<uint32_t> indices;
         AABB bounds;
 
+        /// Copies vertex positions and indices out of raw mesh buffers and recomputes bounds.
         void Build(const float* positions, size_t count, size_t stride,
                    const uint32_t* indexData, size_t indexCount) {
             vertices.resize(count);
@@ -206,6 +216,7 @@ namespace Physics {
         }
     };
 
+    /// Discriminates which alternative of ColliderShape a collider currently holds.
     enum class ColliderType {
         AABB,
         Sphere,
@@ -213,9 +224,10 @@ namespace Physics {
         Mesh
     };
 
+    /// Tagged union of the shapes a ColliderComponent can hold.
     using ColliderShape = std::variant<AABB, BoundingSphere, BoundingCapsule, TriangleMesh>;
 
-    // Transform a local collider shape to a world-space AABB for broadphase
+    /// Transforms a local-space collider shape into a world-space AABB for broadphase queries.
     inline AABB GetWorldAABB(const ColliderShape& shape, const Vector3D& worldPos, const Vector3D& worldScale) {
         AABB local;
 

@@ -11,12 +11,13 @@ namespace Sleak {
 
 namespace RenderEngine { class Renderer; }
 
-// A custom metric that the game module (or anyone) can register
+/// A custom metric that the game module (or anyone) can register.
 struct BenchmarkMetric {
     std::string Name;
     std::function<float()> Getter;
 };
 
+/// Records per-frame performance data to a CSV session file while recording is active.
 class ENGINE_API Benchmark {
 public:
     Benchmark() = default;
@@ -24,14 +25,14 @@ public:
 
     void Initialize(RenderEngine::Renderer* renderer);
 
-    // Register a custom metric (e.g. render distance from Game)
+    /// Register a custom metric (e.g. render distance from Game).
     void RegisterMetric(const std::string& name, std::function<float()> getter);
     void UnregisterMetric(const std::string& name);
 
-    // Call once per frame from the main loop
+    /// Call once per frame from the main loop.
     void Tick(float deltaTime);
 
-    // Toggle recording on/off (F12)
+    /// Toggle recording on/off (F12).
     void ToggleRecording();
     bool IsRecording() const { return m_recording; }
 

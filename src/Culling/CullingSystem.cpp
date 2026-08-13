@@ -11,11 +11,12 @@ namespace {
 constexpr float kWEps = 1e-4f;
 constexpr float kZBias = 1e-4f;
 
-// Clip-space vertex (row-vector convention: clip = point * VP).
+/// Clip-space vertex (row-vector convention: clip = point * VP).
 struct ClipVert {
     float x, y, z, w;
 };
 
+/// One submitted occluder queued for FinalizeOccluders, either a box or a range into triVerts.
 struct OccluderEntry {
     bool isBox = true;
     Math::AABB bounds{};
@@ -24,6 +25,7 @@ struct OccluderEntry {
     float distSq = 0.0f;
 };
 
+/// All per-frame culling state: settings, the software depth buffer, and pending occluders.
 struct CullState {
     bool frustumEnabled = true;
     bool occlusionEnabled = true;
@@ -50,12 +52,13 @@ struct CullState {
     CullingSystem::Stats stats{};
 };
 
+/// Process-wide singleton culling state (the class is all static methods).
 CullState& State() {
     static CullState s;
     return s;
 }
 
-// World point -> clip space.
+/// World point -> clip space.
 inline ClipVert ToClip(const Math::Vector3D& p, const Math::Matrix4& m) {
     float x = p.GetX(), y = p.GetY(), z = p.GetZ();
     ClipVert c;
@@ -66,7 +69,7 @@ inline ClipVert ToClip(const Math::Vector3D& p, const Math::Matrix4& m) {
     return c;
 }
 
-// Clip space -> buffer pixels + NDC z (0 near, 1 far).
+/// Clip space -> buffer pixels + NDC z (0 near, 1 far).
 inline void ToScreen(const ClipVert& c, float w, float h, float& sx,
                      float& sy, float& sz) {
     float inv = 1.0f / c.w;
@@ -77,7 +80,7 @@ inline void ToScreen(const ClipVert& c, float w, float h, float& sx,
     sy = (0.5f - ndcy * 0.5f) * h;
 }
 
-// Sutherland-Hodgman clip against near plane (w >= kWEps).
+/// Sutherland-Hodgman clip against near plane (w >= kWEps).
 int ClipNear(const ClipVert* in, int n, ClipVert* out) {
     int m = 0;
     for (int i = 0; i < n; ++i) {
@@ -99,7 +102,7 @@ int ClipNear(const ClipVert* in, int n, ClipVert* out) {
     return m;
 }
 
-// Edge-function rasterizer with incremental row stepping, min-depth write.
+/// Edge-function rasterizer with incremental row stepping, min-depth write.
 void RasterScreenTri(float x0, float y0, float z0, float x1, float y1,
                      float z1, float x2, float y2, float z2) {
     CullState& s = State();
@@ -158,7 +161,7 @@ void RasterScreenTri(float x0, float y0, float z0, float x1, float y1,
     }
 }
 
-// Near-clip a clip-space triangle, fan-triangulate, rasterize.
+/// Near-clip a clip-space triangle, fan-triangulate, rasterize.
 void RasterClipTri(const ClipVert& a, const ClipVert& b, const ClipVert& c) {
     ClipVert in[3] = {a, b, c};
     ClipVert out[8];
@@ -179,12 +182,13 @@ void RasterClipTri(const ClipVert& a, const ClipVert& b, const ClipVert& c) {
     }
 }
 
+/// Projects a world-space triangle and rasterizes it into the depth buffer.
 void RasterWorldTri(const Math::Vector3D& p0, const Math::Vector3D& p1,
                     const Math::Vector3D& p2, const Math::Matrix4& vp) {
     RasterClipTri(ToClip(p0, vp), ToClip(p1, vp), ToClip(p2, vp));
 }
 
-// Rasterize up to 3 camera-facing faces of a solid box.
+/// Rasterize up to 3 camera-facing faces of a solid box.
 void RasterBox(const Math::AABB& box, const Math::Matrix4& vp,
                const Math::Vector3D& cam) {
     float mnx = box.min.GetX(), mny = box.min.GetY(), mnz = box.min.GetZ();
@@ -208,8 +212,8 @@ void RasterBox(const Math::AABB& box, const Math::Matrix4& vp,
     if (cam.GetZ() > mxz) quad(c001, c101, c111, c011);
 }
 
-// Conservative depth test: true when the box could be in front of the
-// rasterized occluders anywhere in its projected rect.
+/// Conservative depth test: true when the box could be in front of the
+/// rasterized occluders anywhere in its projected rect.
 bool DepthRectVisible(const Math::AABB& box) {
     CullState& s = State();
     float w = static_cast<float>(s.width);
@@ -250,7 +254,7 @@ bool DepthRectVisible(const Math::AABB& box) {
     return false;
 }
 
-// True when the box projects entirely in front but spans < 2x2 px.
+/// True when the box projects entirely in front but spans < 2x2 px.
 bool ProjectedTooSmall(const Math::AABB& b, const Math::Matrix4& vp) {
     CullState& s = State();
     float w = static_cast<float>(s.width);

@@ -17,8 +17,8 @@
 #include <cmath>
 
 namespace {
-// 4x4 row-major matrix inverse via cofactors (Cramer's rule).
-// Returns false if matrix is singular.
+/// 4x4 row-major matrix inverse via cofactors (Cramer's rule).
+/// Returns false if matrix is singular.
 static bool Invert4x4(const float m[16], float inv[16]) {
     float inv0  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
     float inv4  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];

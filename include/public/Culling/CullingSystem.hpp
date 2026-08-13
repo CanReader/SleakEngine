@@ -10,19 +10,20 @@
 
 namespace Sleak {
 
-// CPU visibility system: view-frustum culling plus software occlusion
-// culling against a low-resolution depth buffer rasterized from
-// game-submitted occluder volumes. Backend-agnostic (no GPU work).
-//
-// Frame protocol:
-//   1. BeginFrame(...)              once per frame after camera update
-//      (the engine calls this automatically from the main camera)
-//   2. SubmitOccluderBox/Triangles  any number of world-space occluders
-//   3. FinalizeOccluders()          sort by distance, rasterize budget
-//   4. IsVisible(aabb)              frustum + occlusion query
-// Steps 2-3 are optional; IsVisible degrades to frustum-only.
+/// CPU visibility system: view-frustum culling plus software occlusion
+/// culling against a low-resolution depth buffer rasterized from
+/// game-submitted occluder volumes. Backend-agnostic (no GPU work).
+///
+/// Frame protocol:
+///   1. BeginFrame(...)              once per frame after camera update
+///      (the engine calls this automatically from the main camera)
+///   2. SubmitOccluderBox/Triangles  any number of world-space occluders
+///   3. FinalizeOccluders()          sort by distance, rasterize budget
+///   4. IsVisible(aabb)              frustum + occlusion query
+/// Steps 2-3 are optional; IsVisible degrades to frustum-only.
 class ENGINE_API CullingSystem {
 public:
+    /// Per-frame counters for the last completed culling pass.
     struct Stats {
         uint32_t occludersSubmitted = 0;
         uint32_t occludersRasterized = 0;
@@ -38,40 +39,43 @@ public:
     static bool IsFrustumCullingEnabled();
     static bool IsOcclusionCullingEnabled();
 
-    // Occlusion depth buffer resolution (default 256x144).
+    /// Occlusion depth buffer resolution (default 256x144).
     static void SetOcclusionBufferSize(uint32_t width, uint32_t height);
-    // Max occluders rasterized per frame after the distance sort
-    // (default 192).
+    /// Max occluders rasterized per frame after the distance sort
+    /// (default 192).
     static void SetMaxOccluders(uint32_t count);
 
-    // Adaptive occlusion (default on, interval 20): when a rasterized
-    // frame culls nothing, skip rasterization for `probeInterval` frames
-    // and probe again. Queries degrade to frustum-only while skipping.
+    /// Adaptive occlusion (default on, interval 20): when a rasterized
+    /// frame culls nothing, skip rasterization for `probeInterval` frames
+    /// and probe again. Queries degrade to frustum-only while skipping.
     static void SetAdaptiveOcclusion(bool enabled, uint32_t probeInterval);
 
-    // viewProj uses the engine row-vector convention: clip = point * VP,
-    // depth range [0, w]. cameraPos is world-space.
+    /// viewProj uses the engine row-vector convention: clip = point * VP,
+    /// depth range [0, w]. cameraPos is world-space.
     static void BeginFrame(const ViewFrustum& frustum,
                            const Math::Matrix4& viewProj,
                            const Math::Vector3D& cameraPos);
 
-    // World-space occluders. Boxes must be fully solid volumes.
+    /// World-space occluders. Boxes must be fully solid volumes.
     static void SubmitOccluderBox(const Math::AABB& box);
+    /// World-space triangle occluder; same fully-solid-volume requirement as SubmitOccluderBox.
     static void SubmitOccluderTriangles(const Math::Vector3D* vertices,
                                         uint32_t vertexCount,
                                         const uint32_t* indices,
                                         uint32_t indexCount);
+    /// Sorts submitted occluders by distance and rasterizes them into the depth buffer up to the max-occluder budget.
     static void FinalizeOccluders();
 
-    // Frustum test, then conservative depth test against the occlusion
-    // buffer. Never falsely culls a visible box (given valid occluders).
+    /// Frustum test, then conservative depth test against the occlusion
+    /// buffer. Never falsely culls a visible box (given valid occluders).
     static bool IsVisible(const Math::AABB& box);
+    /// Frustum-only visibility test, skipping the occlusion buffer entirely.
     static bool IsVisibleFrustumOnly(const Math::AABB& box);
 
     static const Stats& GetStats();
 
-    // Debug: row-major width*height floats, NDC depth (0 near, 1 far).
-    // Returns nullptr if occlusion has never rasterized.
+    /// Debug: row-major width*height floats, NDC depth (0 near, 1 far).
+    /// Returns nullptr if occlusion has never rasterized.
     static const float* GetDepthBuffer(uint32_t& width, uint32_t& height);
 
     static void Shutdown();

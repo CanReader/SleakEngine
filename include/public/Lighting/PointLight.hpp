@@ -5,6 +5,7 @@
 
 namespace Sleak {
 
+    /// Omnidirectional light that falls off with distance out to Range.
     class ENGINE_API PointLight : public Light {
     public:
         explicit PointLight(const std::string& name = "PointLight");

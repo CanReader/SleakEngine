@@ -5,6 +5,7 @@
 #include <cstdint>
 
 namespace Sleak {
+/// Pixel layout a Texture's data is stored/uploaded in.
 enum class TextureFormat {
     RGBA8,
     RGB8,
@@ -13,12 +14,14 @@ enum class TextureFormat {
     DXT5,
 };
 
+/// Dimensionality/layout a Texture represents on the GPU.
 enum class TextureType {
     Texture2D,
     TextureCube,
     Texture3D,
 };
 
+/// Sampling quality, from point sampling up through anisotropic filtering.
 enum class TextureFilter {
     Nearest,        // Point / no filtering
     Bilinear,       // Linear min/mag, nearest mip
@@ -32,6 +35,7 @@ enum class TextureFilter {
     Anisotropic = Anisotropic16x,
 };
 
+/// How UV coordinates outside [0,1] are resolved when sampling.
 enum class TextureWrapMode {
     Repeat,
     ClampToEdge,
@@ -40,12 +44,15 @@ enum class TextureWrapMode {
     MirrorClampToEdge,
 };
 
-class Texture { 
+/// Backend-agnostic GPU texture interface; each renderer backend supplies its own implementation.
+class Texture {
 public:
     virtual ~Texture() = default;
 
+    /// Uploads raw pixel data as the texture's contents, replacing any existing image.
     virtual bool LoadFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format) = 0;
 
+    /// Loads and uploads an image file from disk.
     virtual bool LoadFromFile(const std::string& filePath) = 0;
 
     virtual void Bind(uint32_t slot = 0) const = 0;

@@ -27,7 +27,7 @@
 
 namespace Sleak {
 
-// Recursively initialize a GameObject and all its children
+/// Recursively initialize a GameObject and all its children.
 static void InitializeRecursive(GameObject* obj) {
     obj->Initialize();
     for (size_t i = 0; i < obj->GetChildren().GetSize(); ++i) {

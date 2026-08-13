@@ -28,13 +28,14 @@ namespace Sleak {
         struct MaterialGPUData;
     }
 
-    // Controls how a material handles transparency
+    /// Controls how a material handles transparency.
     enum class MaterialRenderMode : uint8_t {
         Opaque = 0,      // Fully opaque, no alpha blending
         Cutout = 1,      // Binary alpha test (clip below AlphaCutoff)
         Transparent = 2   // Alpha blending
     };
 
+    /// PBR-ish surface properties, textures, and GPU buffer for a drawable; shared across any mesh that references it.
     class ENGINE_API Material : public Object {
     public:
         Material();
@@ -43,10 +44,12 @@ namespace Sleak {
         void Initialize();
         void Bind();
 
+        // Shader
         void SetShader(RenderEngine::Shader* shader);
         void SetShader(const std::string& shaderPath);
         RenderEngine::Shader* GetShader() const;
 
+        // Texture slots: each pair of Set overloads takes either an owned Texture* or loads by path
         void SetDiffuseTexture(Texture* texture);
         void SetDiffuseTexture(const std::string& path);
         Texture* GetDiffuseTexture() const;
@@ -82,6 +85,7 @@ namespace Sleak {
         Texture* GetEmissiveTexture() const;
         bool HasEmissiveTexture() const;
 
+        // Color properties
         void SetDiffuseColor(Math::Color color);
         void SetDiffuseColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         void SetDiffuseColor(float r, float g, float b, float a = 1.0f);
@@ -96,6 +100,7 @@ namespace Sleak {
         void SetEmissiveColor(float r, float g, float b);
         Math::Color GetEmissiveColor() const;
 
+        // Scalar PBR/shading properties
         void SetShininess(float shininess);
         float GetShininess() const;
 
@@ -120,6 +125,7 @@ namespace Sleak {
         void SetAlphaCutoff(float cutoff);
         float GetAlphaCutoff() const;
 
+        // UV transform
         void SetTiling(float x, float y);
         void SetTiling(Math::Vector2D tiling);
         Math::Vector2D GetTiling() const;
@@ -128,22 +134,23 @@ namespace Sleak {
         void SetOffset(Math::Vector2D offset);
         Math::Vector2D GetOffset() const;
 
+        // Rendering state
         void SetRenderMode(MaterialRenderMode mode);
         MaterialRenderMode GetRenderMode() const;
 
         void SetTwoSided(bool twoSided);
         bool IsTwoSided() const;
 
-        // Returns true if this material must be rendered in a forward pass
-        // (transparent, alpha-blended). Opaque and cutout materials return false.
+        /// True if this material must be rendered in a forward pass
+        /// (transparent, alpha-blended). Opaque and cutout materials return false.
         bool IsForwardRendered() const;
 
-        // Bind only textures and material CB (skips shader bind).
-        // Used by the deferred geometry pass which overrides the shader.
+        /// Bind only textures and material CB (skips shader bind).
+        /// Used by the deferred geometry pass which overrides the shader.
         void BindTexturesAndCB();
 
     private:
-        // Build GPU-aligned data struct from current properties
+        /// Build GPU-aligned data struct from current properties.
         RenderEngine::MaterialGPUData BuildGPUData() const;
 
         // Shader

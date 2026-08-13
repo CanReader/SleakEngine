@@ -4,6 +4,7 @@
 #include <Math/Math.hpp>
 #include <Math/Vector.hpp>
 
+/// Builds a subdivided flat quad on the XZ plane, facing up.
 inline Sleak::MeshData GetPlaneMesh(float width, float height, int subdivisionsX = 1, int subdivisionsY = 1) {
     Sleak::MeshData mesh;
 
@@ -52,6 +53,7 @@ inline Sleak::MeshData GetPlaneMesh(float width, float height, int subdivisionsX
     return mesh;
 }
 
+/// Builds a unit cube with per-face vertices for hard-edged normals.
 inline Sleak::MeshData GetCubeMesh() {
     Sleak::MeshData mesh;
                                           //Position        | Normal | Tangent    | UV
@@ -110,6 +112,7 @@ inline Sleak::MeshData GetCubeMesh() {
     return mesh;
 }
 
+/// Builds a UV sphere of unit radius with the given stack/slice resolution.
 inline Sleak::MeshData GetSphereMesh(int stacks = 16, int slices = 16) {
     Sleak::MeshData mesh;
     
@@ -143,6 +146,7 @@ inline Sleak::MeshData GetSphereMesh(int stacks = 16, int slices = 16) {
     return mesh;
 }
 
+/// Builds a capped cylinder centered at the origin, extending +/- height/2 along Y.
 inline Sleak::MeshData GetCylinderMesh(int segments, float height, float radius) {
     Sleak::MeshData mesh;
 
@@ -206,6 +210,7 @@ inline Sleak::MeshData GetCylinderMesh(int segments, float height, float radius)
     return mesh;
 }
 
+/// Builds a capsule (cylinder with hemispherical caps) centered at the origin.
 inline Sleak::MeshData GetCapsuleMesh(int segments, int rings, float height, float radius) {
     Sleak::MeshData mesh;
     float halfHeight = height * 0.5f;
@@ -261,6 +266,7 @@ inline Sleak::MeshData GetCapsuleMesh(int segments, int rings, float height, flo
     return mesh;
 }
 
+/// Builds a torus (donut) mesh spanning innerRadius to outerRadius.
 inline Sleak::MeshData GetTorusMesh(int segments, int rings, float innerRadius, float outerRadius) {
     Sleak::MeshData mesh;
 
@@ -306,6 +312,7 @@ inline Sleak::MeshData GetTorusMesh(int segments, int rings, float innerRadius, 
     return mesh;
 }
 
+/// Builds a square-based pyramid (4 triangular faces plus a quad base).
 inline Sleak::MeshData GetPyramidMesh() {
     Sleak::MeshData mesh;
 

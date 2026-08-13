@@ -12,6 +12,7 @@
 
 namespace Sleak {
 
+/// GPU constant buffer layout for the skybox shader.
 struct alignas(16) SkyboxCBData {
     Math::Matrix4 ViewProjection;
 };

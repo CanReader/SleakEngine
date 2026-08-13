@@ -14,6 +14,7 @@ namespace Sleak {
     }
     class Texture;
 
+    /// Renders the background sky as a cubemap, panorama, or procedural gradient.
     class ENGINE_API Skybox {
     public:
         /// Construct skybox from 6 cubemap face image paths
@@ -46,6 +47,7 @@ namespace Sleak {
         Texture* GetCubemapTexture() const { return m_cubemapTexture.get(); }
 
     private:
+        /// Which construction path built this skybox, and so how Render() sources its imagery.
         enum class SkyboxMode { Cubemap, Panorama, Gradient, Default };
         SkyboxMode m_mode = SkyboxMode::Default;
 

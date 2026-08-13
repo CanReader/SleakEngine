@@ -10,6 +10,7 @@
 
 namespace Sleak {
 
+    /// Cone light with separate inner/outer cone angles for a soft penumbra edge.
     class ENGINE_API SpotLight : public Light {
     public:
         explicit SpotLight(const std::string& name = "SpotLight");

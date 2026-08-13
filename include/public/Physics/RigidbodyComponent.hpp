@@ -7,12 +7,14 @@
 
 namespace Sleak {
 
+    /// How a rigidbody participates in collision response.
     enum class BodyType {
         Static,     // Never moves, infinite mass
         Kinematic,  // Moves but controlled by code, full pushback
         Dynamic     // Mass-based response, affected by gravity
     };
 
+    /// Tracks velocity, gravity, and collision state for a GameObject; PhysicsWorld drives its integration.
     class ENGINE_API RigidbodyComponent : public Component {
     public:
         RigidbodyComponent(GameObject* owner, BodyType type = BodyType::Kinematic);
@@ -21,6 +23,7 @@ namespace Sleak {
         bool Initialize() override;
         void Update(float deltaTime) override;
 
+        /// Pushes the body out along normal by penetration and updates ground/wall collision state.
         void ResolveCollision(const Math::Vector3D& normal, float penetration);
 
         BodyType GetBodyType() const { return m_bodyType; }
@@ -36,6 +39,7 @@ namespace Sleak {
         bool HadWallCollision() const { return m_hadWallCollision; }
         Math::Vector3D GetWallNormal() const { return m_wallNormal; }
 
+        /// Resets HadCollision/HadGroundCollision/HadWallCollision for the next frame.
         void ClearCollisionState();
 
         // Velocity

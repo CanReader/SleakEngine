@@ -8,6 +8,7 @@ namespace Sleak {
 class GameBase;
 namespace RenderEngine { class Renderer; }
 
+/// Which panels DebugOverlay draws and how often it refreshes its metrics.
 struct DebugOverlayConfig {
     bool ShowCameraPanel = true;
     bool ShowPerformancePanel = true;
@@ -15,6 +16,7 @@ struct DebugOverlayConfig {
     float MetricRefreshInterval = 0.5f;
 };
 
+/// In-game ImGui panels showing camera state and performance metrics, built on UI.hpp.
 class ENGINE_API DebugOverlay {
 public:
     DebugOverlay() = default;
@@ -22,6 +24,7 @@ public:
 
     void Initialize(RenderEngine::Renderer* renderer,
                     GameBase* game);
+    /// Refreshes cached metrics on the configured interval and draws the enabled panels.
     void Render(float deltaTime);
 
     void SetVisible(bool visible) { m_visible = visible; }
@@ -31,7 +34,9 @@ public:
     DebugOverlayConfig& GetConfig() { return m_config; }
 
 private:
+    /// Draws position/rotation/mode readouts for the active camera.
     void RenderCameraPanel();
+    /// Draws FPS, frame time, and renderer-specific stats.
     void RenderPerformancePanel();
 
     RenderEngine::Renderer* m_renderer = nullptr;

@@ -25,6 +25,7 @@ namespace Sleak {
     struct MeshData;
     template <typename T> class RefPtr;
 
+    /// Import-time adjustments applied while loading a model file.
     struct ModelLoadOptions {
         float scaleFactor = 1.0f;
         bool flipUVs = true;
@@ -34,26 +35,28 @@ namespace Sleak {
         Math::Quaternion rotation = Math::Quaternion();
     };
 
-    // Per-load texture cache to avoid loading the same texture file multiple times
+    /// Per-load texture cache to avoid loading the same texture file multiple times.
     using TextureCache = std::unordered_map<std::string, ::Sleak::Texture*>;
 
+    /// Assimp-backed importer that builds a GameObject hierarchy (meshes, materials, optionally a skeleton) from a model file.
     class ENGINE_API ModelLoader {
     public:
+        /// Imports a model file and returns the root of the resulting GameObject hierarchy.
         static GameObject* Load(const std::string& filePath,
                                 const ModelLoadOptions& options = {});
 
-        // Load only animations from an FBX, reusing an existing skeleton
+        /// Load only animations from an FBX, reusing an existing skeleton.
         static std::vector<AnimationClip*> LoadAnimationsOnly(
             const std::string& filePath, Skeleton* skeleton);
 
     private:
-        // Static mesh path (with PreTransformVertices)
+        /// Static mesh path (with PreTransformVertices).
         static void ProcessNode(aiNode* node, const aiScene* scene,
                                 GameObject* parent, const std::string& directory,
                                 const ModelLoadOptions& options,
                                 TextureCache& textureCache);
 
-        // Animated mesh path (without PreTransformVertices)
+        /// Animated mesh path (without PreTransformVertices).
         static void ProcessNodeAnimated(aiNode* node, const aiScene* scene,
                                         GameObject* parent, const std::string& directory,
                                         const ModelLoadOptions& options,
@@ -61,29 +64,35 @@ namespace Sleak {
                                         Skeleton* skeleton,
                                         std::vector<AnimationClip*>& clips);
 
+        /// Converts one Assimp mesh into engine MeshData, wiring up bone weights when a skeleton is given.
         static MeshData ProcessMesh(aiMesh* mesh, const ModelLoadOptions& options,
                                     Skeleton* skeleton = nullptr);
 
+        /// Converts one Assimp material into an engine Material, loading its textures through textureCache.
         static RefPtr<Material> ProcessMaterial(aiMaterial* mat,
                                                 const aiScene* scene,
                                                 const std::string& directory,
                                                 TextureCache& textureCache,
                                                 bool skinned = false);
 
+        /// Resolves and loads a single texture slot off an Assimp material, reusing textureCache when possible.
         static ::Sleak::Texture* LoadMaterialTexture(aiMaterial* mat, int type,
                                                      const aiScene* scene,
                                                      const std::string& directory,
                                                      TextureCache& textureCache);
 
-        // Animation extraction
+        /// Builds a Skeleton from the scene's bone hierarchy.
         static Skeleton* ExtractSkeleton(const aiScene* scene);
+        /// Converts every Assimp animation in the scene into engine AnimationClips bound to skeleton.
         static std::vector<AnimationClip*> ExtractAnimations(const aiScene* scene,
                                                               Skeleton* skeleton);
+        /// Recursively registers each Assimp node as a skeleton bone under parentId.
         static void BuildBoneHierarchy(const aiNode* node, Skeleton* skeleton,
                                        int parentId);
+        /// Recursively mirrors the Assimp node tree into the skeleton's bone tree, returning the created bone's id.
         static int BuildNodeTree(const aiNode* node, Skeleton* skeleton);
 
-        // Assimp matrix to engine matrix conversion
+        /// Assimp matrix to engine matrix conversion.
         static Math::Matrix4 ConvertMatrix(const void* aiMat);
     };
 

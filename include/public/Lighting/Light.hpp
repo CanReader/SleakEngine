@@ -12,6 +12,7 @@ namespace Sleak {
         struct LightGPUEntry;
     }
 
+    /// Base class for every light type; owns the color/intensity/shadow parameters LightManager uploads to the GPU.
     class ENGINE_API Light : public GameObject {
     public:
         explicit Light(const std::string& name = "Light");
@@ -19,7 +20,7 @@ namespace Sleak {
 
         bool IsLight() const override { return true; }
 
-        // Build GPU data for the lighting constant buffer
+        /// Packs this light's parameters into the GPU-side entry used by the lighting constant buffer.
         virtual RenderEngine::LightGPUEntry BuildGPUData() const = 0;
 
         void SetColor(float r, float g, float b);

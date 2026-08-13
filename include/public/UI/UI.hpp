@@ -5,8 +5,10 @@
 
 namespace Sleak { class Texture; }
 
+/// Thin Dear ImGui wrapper; the only UI surface Game is allowed to call (ImGui itself is a private Engine dependency).
 namespace Sleak::UI {
 
+/// Bit flags controlling BeginPanel's window chrome and interactivity.
 enum PanelFlags : int {
     PanelFlags_None            = 0,
     PanelFlags_NoTitleBar      = 1 << 0,
@@ -16,6 +18,7 @@ enum PanelFlags : int {
     PanelFlags_NoFocusOnAppear = 1 << 4,
 };
 
+/// Opens a floating overlay window at (x, y); pair with EndPanel.
 ENGINE_API void BeginPanel(const char* name, float x, float y,
                            float bgAlpha = 0.4f,
                            int flags = PanelFlags_NoTitleBar |
@@ -82,17 +85,18 @@ ENGINE_API void TextWrapped(const char* fmt, ...);
 // Texture display
 ENGINE_API void Image(uint64_t textureID, float width, float height);
 ENGINE_API void DrawImage(uint64_t textureID, float x, float y, float width, float height);
+/// Loads an image file and caches it as a UI-bindable texture id, reusing the cache on repeat calls for the same path.
 ENGINE_API uint64_t LoadTextureForUI(const std::string& filePath, float* outWidth = nullptr, float* outHeight = nullptr);
 ENGINE_API void ShutdownTextureCache();  // engine calls at teardown
 
-// Create a texture from raw RGBA pixel data (for runtime atlas building etc.)
+/// Create a texture from raw RGBA pixel data (for runtime atlas building etc.).
 ENGINE_API Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels, uint32_t maxMipLevels = 0);
 
-// Load image file into RGBA pixels (caller must free with FreeImagePixels)
+/// Load image file into RGBA pixels (caller must free with FreeImagePixels).
 ENGINE_API unsigned char* LoadImagePixels(const char* path, int* w, int* h);
 ENGINE_API void FreeImagePixels(unsigned char* pixels);
 
-// Style color indices (mirrors ImGuiCol_)
+/// Style color indices (mirrors ImGuiCol_).
 enum StyleColor : int {
     StyleColor_Text = 0,
     StyleColor_WindowBg = 2,
@@ -107,7 +111,7 @@ enum StyleColor : int {
     StyleColor_ScrollbarBg = 14,
 };
 
-// Style var indices (must match ImGuiStyleVar_)
+/// Style var indices (must match ImGuiStyleVar_).
 enum StyleVar : int {
     StyleVar_WindowPadding = 2,    // ImVec2
     StyleVar_WindowRounding = 3,   // float

@@ -5,11 +5,13 @@
 
 namespace Sleak {
 
+    /// Emitting surface shape for an AreaLight.
     enum class AreaLightShape : uint8_t {
         Rectangle = 0,
         Disc = 1
     };
 
+    /// Light emitted from a rectangular or disc surface rather than a point.
     class ENGINE_API AreaLight : public Light {
     public:
         explicit AreaLight(const std::string& name = "AreaLight");
