@@ -90,10 +90,6 @@ enum class DepthCompare {
             virtual void BeginSkinnedPass() {}
             virtual void EndSkinnedPass() {}
 
-            // Voxel pipeline support (compact 48-byte vertex layout for chunk meshes)
-            virtual void BeginVoxelPass() {}
-            virtual void EndVoxelPass() {}
-
             // Custom vertex format pipeline support (registered via VertexFormatRegistry)
             /// Binds the pipeline built for a registered vertex layout in the active render pass.
             virtual void BeginCustomFormatPass(VertexFormatHandle format) { (void)format; }

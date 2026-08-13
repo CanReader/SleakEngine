@@ -37,29 +37,6 @@ MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
     return h;
 }
 
-/// Uploads compact voxel vertices/indices as GPU buffers, tagging the vertex buffer as voxel-format.
-MeshHandle MeshBatch::CreateVoxelMesh(VoxelVertexGroup& vertices,
-                                       IndexGroup& indices) {
-    MeshHandle h;
-    if (vertices.GetSize() == 0 || indices.GetSize() == 0) return h;
-
-    auto* vb = RenderEngine::ResourceManager::CreateBuffer(
-        RenderEngine::BufferType::Vertex,
-        static_cast<uint32_t>(vertices.GetSizeInBytes()),
-        vertices.GetRawData());
-    if (vb) vb->SetVoxelFormat(true);
-    h.vertexBuffer = RefPtr(vb);
-
-    h.indexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
-        RenderEngine::BufferType::Index,
-        static_cast<uint32_t>(indices.GetByteSize()),
-        indices.GetRawData()));
-
-    h.indexCount = static_cast<uint32_t>(indices.GetSize());
-    h.isVoxelFormat = true;
-    return h;
-}
-
 /// Uploads raw custom-format vertices/indices as GPU buffers, tagging the vertex buffer with the format handle.
 MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
                                  const void* vertexData,
@@ -112,7 +89,7 @@ void MeshBatch::BeginBatch(Material* material) {
     queue->SubmitBindConstantBuffer(s_batchTransformBuffer, 0);
 }
 
-/// Submits an indexed draw for a mesh already created via CreateMesh/CreateVoxelMesh.
+/// Submits an indexed draw for a mesh already created via CreateMesh.
 void MeshBatch::Draw(const MeshHandle& mesh, bool castsShadow) {
     if (!mesh.IsValid()) return;
     RenderEngine::RenderCommandQueue::GetInstance()->SubmitDrawIndexed(

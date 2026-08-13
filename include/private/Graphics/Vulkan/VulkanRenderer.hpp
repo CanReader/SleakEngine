@@ -119,8 +119,8 @@ public:
     virtual void ClearDepthStencil(bool clearDepth, bool clearStencil,
                                    float depth, uint8_t stencil) override;
 
-    /// Binds a vertex buffer slot, switching to/from the voxel pipeline
-    /// based on its format.
+    /// Binds a vertex buffer slot, switching to the pipeline built for the
+    /// buffer's registered vertex format.
     virtual void BindVertexBuffer(RefPtr<BufferBase> buffer,
                                   uint32_t slot = 0) override;
     /// Binds a 32-bit index buffer.
@@ -161,10 +161,6 @@ public:
     virtual void BeginSkinnedPass() override;
     /// Restores the previous pipeline after skinned draws.
     virtual void EndSkinnedPass() override;
-    /// Binds the voxel pipeline matching the currently active render pass.
-    virtual void BeginVoxelPass() override;
-    /// Restores the previous pipeline and descriptor set after voxel draws.
-    virtual void EndVoxelPass() override;
     /// Binds the custom-format pipeline matching the currently active render pass.
     virtual void BeginCustomFormatPass(VertexFormatHandle format) override;
     /// Restores the previous pipeline and descriptor set after custom-format draws.
@@ -439,16 +435,6 @@ private:
     /// Compiles the debug line shaders and creates the line-list pipeline.
     bool CreateDebugLinePipeline();
 
-    // Voxel pipeline (compact 48-byte vertex layout for chunk meshes)
-    VkPipeline m_voxelPipeline = VK_NULL_HANDLE;
-    VkPipeline m_voxelShadowPipeline = VK_NULL_HANDLE;
-    VkPipeline m_gbufferVoxelPipeline = VK_NULL_HANDLE;
-    bool m_inVoxelPass = false;
-    /// Compiles the flat_shader SPIR-V and creates the forward and GBuffer voxel pipelines.
-    bool CreateVoxelPipeline();
-    /// Compiles the voxel shadow vertex shader and creates the voxel shadow-pass pipeline.
-    bool CreateVoxelShadowPipeline();
-
     // Custom vertex format pipelines (built lazily per registered VertexFormatHandle)
     /// The four pipeline variants a registered vertex layout can drive.
     /// A failed flag marks a variant as permanently absent so draws skip it
@@ -475,12 +461,6 @@ private:
     bool CreateCustomFormatPipelines(VertexFormatHandle format);
     /// Destroys every cached custom-format pipeline (all variants, all formats).
     void DestroyCustomFormatPipelines();
-
-    // Water pipeline (forward transparent, uses water_shader SPIR-V)
-    VkPipeline m_waterPipeline = VK_NULL_HANDLE;
-    VulkanShader* m_waterShader = nullptr;
-    /// Compiles the optional water shaders and creates the alpha-blended water pipeline.
-    bool CreateWaterPipeline();
 
     // Bone UBO (for skeletal animation — set 1, binding 0)
     VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;

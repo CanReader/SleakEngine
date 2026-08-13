@@ -592,9 +592,8 @@ bool VulkanRenderer::CreatePBRMaterialResources() {
 void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     if (!bFrameStarted || !m_pbrMaterialResourcesCreated || !material) return;
 
-    // Switch to GBuffer pipeline (non-voxel) and reset voxel flag
+    // Switch to the default GBuffer pipeline and drop the active custom format
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
-    m_inVoxelPass = false;
     m_activeCustomFormat = 0;
 
     // Claim this material's own ring slot (own set + own UBO region) so the

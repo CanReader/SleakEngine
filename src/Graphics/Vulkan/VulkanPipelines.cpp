@@ -19,8 +19,7 @@ void VulkanRenderer::BeginSkyboxPass() {
     if (skyboxPipeline == VK_NULL_HANDLE || !m_skyboxDescriptorsWritten)
         return;
 
-    m_inVoxelPass = false;  // prevent BindVertexBuffer from overriding this pipeline
-    m_activeCustomFormat = 0;
+    m_activeCustomFormat = 0;  // prevent BindVertexBuffer from overriding this pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       skyboxPipeline);
 
@@ -37,14 +36,10 @@ void VulkanRenderer::EndSkyboxPass() {
     if (!bFrameStarted) return;
 
     // Restore pipeline: inside geometry pass restore to the GBuffer pipeline;
-    // inside the forward transparent pass restore to water/forward; otherwise main forward.
-    VkPipeline restoreTo;
-    if (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE)
-        restoreTo = m_gbufferPipeline;
-    else if (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE)
-        restoreTo = m_waterPipeline;
-    else
-        restoreTo = pipeline;
+    // otherwise the main forward pipeline.
+    VkPipeline restoreTo =
+        (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE)
+            ? m_gbufferPipeline : pipeline;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
 
     // Rebind main texture descriptor sets.
@@ -721,617 +716,9 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
 }
 
 
-/// Compiles the optional water shaders and creates the alpha-blended water pipeline.
-bool VulkanRenderer::CreateWaterPipeline() {
-    if (m_waterPipeline != VK_NULL_HANDLE) return true;
-
-    // Water shaders are optional — skip silently when not present in this project
-    {
-        std::ifstream vCheck("assets/shaders/water_shader.vert.spv");
-        std::ifstream fCheck("assets/shaders/water_shader.frag.spv");
-        if (!vCheck.good() || !fCheck.good()) return false;
-    }
-
-    m_waterShader = new VulkanShader(device);
-    if (!m_waterShader->compile("assets/shaders/water_shader")) {
-        SLEAK_ERROR("VulkanRenderer: Failed to compile water shaders");
-        delete m_waterShader;
-        m_waterShader = nullptr;
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {
-        m_waterShader->GetVertexInfo(), m_waterShader->GetFragInfo()};
-
-    std::vector<VkDynamicState> dynamicStates = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
-    // Compact vertex input: 48-byte VoxelVertex stride, 4 attributes
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
-    // Position: float3 at offset 0
-    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
-    // Normal: float3 at offset 12
-    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
-    // Color: float4 at offset 24
-    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
-    // UV: float2 at offset 40
-    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(attributeDescs.size());
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
-    inputAssemblyInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
-
-    VkPipelineViewportStateCreateInfo viewportInfo{};
-    viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportInfo.viewportCount = 1;
-    viewportInfo.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    // Water is two-sided (see MainScene waterMat->SetTwoSided(true))
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo msaa{};
-    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    msaa.sampleShadingEnable = VK_FALSE;
-    // Forward transparent pass runs on m_forwardRenderPass when deferred is
-    // enabled (1 sample); use main renderPass samples otherwise.
-    msaa.rasterizationSamples =
-        (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
-            ? VK_SAMPLE_COUNT_1_BIT
-            : m_msaaSamples;
-
-    // Depth: test LESS, write ENABLED (water occludes what's behind it)
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_FALSE;
-
-    // Alpha blending: SRC_ALPHA / ONE_MINUS_SRC_ALPHA
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.blendEnable = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
-    colorBlendInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlendInfo.logicOpEnable = VK_FALSE;
-    colorBlendInfo.attachmentCount = 1;
-    colorBlendInfo.pAttachments = &colorBlendAttachment;
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
-    pipelineInfo.pViewportState = &viewportInfo;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &msaa;
-    pipelineInfo.pDepthStencilState = &depthStencil;
-    pipelineInfo.pColorBlendState = &colorBlendInfo;
-    pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = pipelineLay;  // reuse main layout (same descriptor sets)
-    pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass =
-        (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
-            ? m_forwardRenderPass
-            : renderPass;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
-
-    VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_waterPipeline);
-    if (result != VK_SUCCESS) {
-        SLEAK_ERROR("VulkanRenderer: Failed to create water pipeline!");
-        return false;
-    }
-
-    SLEAK_INFO("VulkanRenderer: Water pipeline created successfully");
-    return true;
-}
-
-// ============================================================
-// Voxel pipeline — compact 48-byte VoxelVertex layout
-// Used for chunk opaque meshes (flat_shader SPIR-V).
-// ============================================================
-/// Compiles the flat_shader SPIR-V and creates the forward and GBuffer voxel pipelines.
-bool VulkanRenderer::CreateVoxelPipeline() {
-    if (m_voxelPipeline != VK_NULL_HANDLE) return true;
-
-    // Voxel shaders are optional — skip silently when not present in this project
-    {
-        std::ifstream vCheck("assets/shaders/flat_shader.vert.spv");
-        std::ifstream fCheck("assets/shaders/flat_shader.frag.spv");
-        if (!vCheck.good() || !fCheck.good()) return false;
-    }
-
-    // Compile flat_shader SPIR-V for voxel opaque rendering
-    auto* voxelShader = new VulkanShader(device);
-    if (!voxelShader->compile("assets/shaders/flat_shader")) {
-        SLEAK_WARN("VulkanRenderer: Failed to compile flat_shader for voxel pipeline — voxels will use default pipeline");
-        delete voxelShader;
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {
-        voxelShader->GetVertexInfo(), voxelShader->GetFragInfo()};
-
-    std::vector<VkDynamicState> dynamicStates = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
-    // Compact vertex input: 48-byte stride, 4 attributes
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
-    // Position: float3 at offset 0
-    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
-    // Normal: float3 at offset 12
-    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
-    // Color: float4 at offset 24
-    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
-    // UV: float2 at offset 40
-    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(attributeDescs.size());
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
-    inputAssemblyInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
-
-    VkPipelineViewportStateCreateInfo viewportInfo{};
-    viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportInfo.viewportCount = 1;
-    viewportInfo.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo msaa{};
-    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = m_msaaSamples;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.blendEnable = VK_TRUE;
-    colorBlendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
-    colorBlendInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlendInfo.logicOpEnable = VK_FALSE;
-    colorBlendInfo.attachmentCount = 1;
-    colorBlendInfo.pAttachments = &colorBlendAttachment;
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
-    pipelineInfo.pViewportState = &viewportInfo;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &msaa;
-    pipelineInfo.pDepthStencilState = &depthStencil;
-    pipelineInfo.pColorBlendState = &colorBlendInfo;
-    pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = pipelineLay;  // reuse main layout (same descriptor sets)
-    pipelineInfo.subpass = 0;
-    pipelineInfo.renderPass = (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
-                              ? m_forwardRenderPass : renderPass;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
-
-    VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_voxelPipeline);
-
-    delete voxelShader;
-
-    if (result != VK_SUCCESS) {
-        SLEAK_ERROR("VulkanRenderer: Failed to create voxel pipeline!");
-        return false;
-    }
-
-    // Also create voxel shadow pipeline
-    CreateVoxelShadowPipeline();
-
-    // Create GBuffer-compatible voxel pipeline for deferred geometry pass
-    if (m_gbufferResourcesCreated && m_gbufferRenderPass != VK_NULL_HANDLE) {
-        auto* gbufVoxelShader = new VulkanShader(device);
-        if (gbufVoxelShader->compile("assets/shaders/gbuffer_voxel.vert.spv",
-                                      "assets/shaders/gbuffer.frag.spv")) {
-            VkPipelineShaderStageCreateInfo gbufStages[] = {
-                gbufVoxelShader->GetVertexInfo(),
-                gbufVoxelShader->GetFragInfo()};
-
-            VkVertexInputBindingDescription voxBind{};
-            voxBind.binding = 0;
-            voxBind.stride = sizeof(VoxelVertex);
-            voxBind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-            std::array<VkVertexInputAttributeDescription, 4> voxAttr{};
-            // Position: float3 at offset 0
-            voxAttr[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                          static_cast<uint32_t>(offsetof(VoxelVertex, px))};
-            // Normal: float3 at offset 12
-            voxAttr[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                          static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
-            // Color: float4 at offset 24
-            voxAttr[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                          static_cast<uint32_t>(offsetof(VoxelVertex, r))};
-            // UV: float2 at offset 40
-            voxAttr[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
-                          static_cast<uint32_t>(offsetof(VoxelVertex, u))};
-
-            VkPipelineVertexInputStateCreateInfo voxVertInfo{};
-            voxVertInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-            voxVertInfo.vertexBindingDescriptionCount = 1;
-            voxVertInfo.pVertexBindingDescriptions = &voxBind;
-            voxVertInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(voxAttr.size());
-            voxVertInfo.pVertexAttributeDescriptions = voxAttr.data();
-
-            VkPipelineInputAssemblyStateCreateInfo ia{};
-            ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-            ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            ia.primitiveRestartEnable = VK_FALSE;
-
-            VkPipelineViewportStateCreateInfo vp{};
-            vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-            vp.viewportCount = 1;
-            vp.scissorCount = 1;
-
-            VkPipelineRasterizationStateCreateInfo rs{};
-            rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-            rs.polygonMode = VK_POLYGON_MODE_FILL;
-            rs.lineWidth = 1.0f;
-            rs.cullMode = VK_CULL_MODE_BACK_BIT;
-            rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-            VkPipelineMultisampleStateCreateInfo ms{};
-            ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-            ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-            VkPipelineDepthStencilStateCreateInfo ds{};
-            ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-            ds.depthTestEnable = VK_TRUE;
-            ds.depthWriteEnable = VK_TRUE;
-            ds.depthCompareOp = VK_COMPARE_OP_LESS;
-
-            VkPipelineColorBlendAttachmentState opaqueBlend{};
-            opaqueBlend.blendEnable = VK_FALSE;
-            opaqueBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-            std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> gbAtts;
-            gbAtts.fill(opaqueBlend);
-
-            VkPipelineColorBlendStateCreateInfo cb{};
-            cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-            cb.attachmentCount = static_cast<uint32_t>(gbAtts.size());
-            cb.pAttachments = gbAtts.data();
-
-            VkGraphicsPipelineCreateInfo gbPipeInfo{};
-            gbPipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-            gbPipeInfo.stageCount = 2;
-            gbPipeInfo.pStages = gbufStages;
-            gbPipeInfo.pVertexInputState = &voxVertInfo;
-            gbPipeInfo.pInputAssemblyState = &ia;
-            gbPipeInfo.pViewportState = &vp;
-            gbPipeInfo.pRasterizationState = &rs;
-            gbPipeInfo.pMultisampleState = &ms;
-            gbPipeInfo.pDepthStencilState = &ds;
-            gbPipeInfo.pColorBlendState = &cb;
-            gbPipeInfo.pDynamicState = &dynamicState;
-            // GBuffer voxel pipeline runs inside m_gbufferRenderPass and uses
-            // gbuffer.frag, which reads set 0 as m_pbrMaterialDSL (6 samplers + 1 UBO).
-            // Must use m_gbufferGeomLayout — NOT pipelineLay — so layout compatibility
-            // is maintained for all sets when the GBuffer pipeline is active.
-            gbPipeInfo.layout = m_gbufferGeomLayout;
-            gbPipeInfo.renderPass = m_gbufferRenderPass;
-            gbPipeInfo.subpass = 0;
-
-            VkResult gbResult = vkCreateGraphicsPipelines(
-                device, VK_NULL_HANDLE, 1, &gbPipeInfo, nullptr, &m_gbufferVoxelPipeline);
-            if (gbResult != VK_SUCCESS) {
-                SLEAK_WARN("VulkanRenderer: Failed to create GBuffer voxel pipeline");
-            } else {
-                SLEAK_INFO("VulkanRenderer: GBuffer voxel pipeline created");
-            }
-        }
-        delete gbufVoxelShader;
-    }
-
-    SLEAK_INFO("VulkanRenderer: Voxel pipeline created successfully");
-    return true;
-}
-
-
-/// Compiles the voxel shadow vertex shader and creates the voxel shadow-pass pipeline.
-bool VulkanRenderer::CreateVoxelShadowPipeline() {
-    if (m_voxelShadowPipeline != VK_NULL_HANDLE) return true;
-    if (m_shadowRenderPass == VK_NULL_HANDLE) return false;
-    if (!m_shadowShader) return false;
-
-    // Compile voxel-specific shadow shader with compact 4-attribute layout
-    auto* voxelShadowShader = new VulkanShader(device);
-    if (!voxelShadowShader->compileVertexOnly("assets/shaders/shadow_depth_voxel.vert.spv")) {
-        SLEAK_WARN("VulkanRenderer: Failed to compile voxel shadow shader, falling back to default");
-        delete voxelShadowShader;
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStage = voxelShadowShader->GetVertexInfo();
-
-    std::vector<VkDynamicState> dynamicStates = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
-    // Compact vertex input: 48-byte stride, only position needed for shadows
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(VoxelVertex);  // 48 bytes
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    // Compact VoxelVertex layout: 4 attributes matching the voxel shadow shader
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs{};
-    // loc 0: position (float3)
-    attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, px))};
-    // loc 1: normal (float3)
-    attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, nx))};
-    // loc 2: color (float4)
-    attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, r))};
-    // loc 3: UV (float2)
-    attributeDescs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,
-                         static_cast<uint32_t>(offsetof(VoxelVertex, u))};
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(attributeDescs.size());
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    // Back-face cull: same winding as the main voxel pass, ~2x fewer
-    // shadow-rasterized triangles
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = 1.25f;
-    rasterizer.depthBiasSlopeFactor = 1.75f;
-    rasterizer.depthBiasClamp = 0.0f;
-
-    VkPipelineMultisampleStateCreateInfo msaa{};
-    msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    msaa.sampleShadingEnable = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_FALSE;
-
-    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
-    colorBlendInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlendInfo.logicOpEnable = VK_FALSE;
-    colorBlendInfo.attachmentCount = 0;
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 1;
-    pipelineInfo.pStages = &shaderStage;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &msaa;
-    pipelineInfo.pDepthStencilState = &depthStencil;
-    pipelineInfo.pColorBlendState = &colorBlendInfo;
-    pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = pipelineLay;
-    pipelineInfo.renderPass = m_shadowRenderPass;
-    pipelineInfo.subpass = 0;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
-
-    VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_voxelShadowPipeline);
-    if (result != VK_SUCCESS) {
-        SLEAK_WARN("VulkanRenderer: Failed to create voxel shadow pipeline");
-        return false;
-    }
-
-    delete voxelShadowShader;
-    SLEAK_INFO("VulkanRenderer: Voxel shadow pipeline created successfully");
-    return true;
-}
-
-
-/// Binds the voxel pipeline matching the currently active render pass.
-void VulkanRenderer::BeginVoxelPass() {
-    if (!bFrameStarted) return;
-    if (m_inVoxelPass) return;
-    m_inVoxelPass = true;
-
-    if (m_voxelPipeline == VK_NULL_HANDLE) {
-        if (!CreateVoxelPipeline()) return;
-    }
-
-    if (m_shadowPassActive) {
-        if (m_voxelShadowPipeline != VK_NULL_HANDLE) {
-            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              m_voxelShadowPipeline);
-        }
-    } else if (m_inGeometryPass && m_gbufferVoxelPipeline != VK_NULL_HANDLE) {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_gbufferVoxelPipeline);
-    } else if (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE) {
-        // Forward transparent voxel draws are water — keep the water pipeline
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_waterPipeline);
-    } else {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_voxelPipeline);
-    }
-}
-
-
-/// Restores the previous pipeline and descriptor set after voxel draws.
-void VulkanRenderer::EndVoxelPass() {
-    if (!bFrameStarted) return;
-    if (!m_inVoxelPass) return;
-    m_inVoxelPass = false;
-
-    if (m_shadowPassActive) {
-        if (m_shadowPipeline != VK_NULL_HANDLE) {
-            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              m_shadowPipeline);
-        }
-    } else if (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE) {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_gbufferPipeline);
-    } else if (m_inForwardTransparentPass) {
-        VkPipeline restoreTo = (m_waterPipeline != VK_NULL_HANDLE)
-                                   ? m_waterPipeline : pipeline;
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
-    } else {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    }
-
-    // Re-bind descriptors after pipeline change.
-    // In the GBuffer geometry pass set 0 belongs to m_gbufferGeomLayout and is
-    // managed by BindPBRMaterial — do NOT overwrite it with the forward
-    // single-sampler descriptor set or use pipelineLay here.
-    if (!m_inGeometryPass && m_textureDescriptorsWritten &&
-        CurrentFrameIndex < descriptorSets.size()) {
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipelineLay, 0, 1,
-                                &descriptorSets[CurrentFrameIndex], 0, nullptr);
-    }
-}
-
-
 // ============================================================
 // Custom vertex format pipelines — vertex input and shader stems
-// come from VertexFormatRegistry instead of the hard-coded voxel layout.
+// come from VertexFormatRegistry, so no layout is hard-coded in the backend.
 // ============================================================
 
 /// Translates a registry attribute format into its Vulkan vertex format.
@@ -1386,7 +773,7 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
 
-    // Forward/main variant — mirrors CreateVoxelPipeline
+    // Forward/main variant — opaque geometry in the forward pass
     if (pipes.main == VK_NULL_HANDLE && !pipes.mainFailed) {
         if (desc->shaderStem.empty()) {
             SLEAK_ERROR("VulkanRenderer: Vertex format {} has no main shader stem", format);
@@ -1495,7 +882,7 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
         }
     }
 
-    // Shadow variant — mirrors CreateVoxelShadowPipeline
+    // Shadow variant — depth-only, rendered into the shadow map
     if (pipes.shadow == VK_NULL_HANDLE && !pipes.shadowFailed &&
         !desc->shadowShaderStem.empty() &&
         m_shadowRenderPass != VK_NULL_HANDLE && m_shadowShader) {
@@ -1584,7 +971,7 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
         }
     }
 
-    // GBuffer variant — mirrors the GBuffer voxel pipeline in CreateVoxelPipeline
+    // GBuffer variant — deferred geometry pass, writes the GBuffer attachments
     if (pipes.gbuffer == VK_NULL_HANDLE && !pipes.gbufferFailed &&
         !desc->gbufferShaderStem.empty() && m_gbufferResourcesCreated &&
         m_gbufferRenderPass != VK_NULL_HANDLE) {
@@ -1838,10 +1225,6 @@ void VulkanRenderer::EndCustomFormatPass() {
     } else if (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE) {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_gbufferPipeline);
-    } else if (m_inForwardTransparentPass) {
-        VkPipeline restoreTo = (m_waterPipeline != VK_NULL_HANDLE)
-                                   ? m_waterPipeline : pipeline;
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
     } else {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     }
@@ -1879,8 +1262,7 @@ void VulkanRenderer::BeginDebugLinePass() {
     if (debugLinePipeline == VK_NULL_HANDLE) {
         if (!CreateDebugLinePipeline()) return;
     }
-    m_inVoxelPass = false;  // prevent BindVertexBuffer from overriding this pipeline
-    m_activeCustomFormat = 0;
+    m_activeCustomFormat = 0;  // prevent BindVertexBuffer from overriding this pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       debugLinePipeline);
 }
@@ -1891,14 +1273,10 @@ void VulkanRenderer::EndDebugLinePass() {
     if (!bFrameStarted) return;
 
     // Restore pipeline: inside geometry pass restore to the GBuffer pipeline;
-    // inside the forward transparent pass restore to water/forward; otherwise main forward.
-    VkPipeline restoreTo;
-    if (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE)
-        restoreTo = m_gbufferPipeline;
-    else if (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE)
-        restoreTo = m_waterPipeline;
-    else
-        restoreTo = pipeline;
+    // otherwise the main forward pipeline.
+    VkPipeline restoreTo =
+        (m_inGeometryPass && m_gbufferPipeline != VK_NULL_HANDLE)
+            ? m_gbufferPipeline : pipeline;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, restoreTo);
 
     // Rebind main texture descriptor sets.

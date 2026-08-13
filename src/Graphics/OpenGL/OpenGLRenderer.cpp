@@ -345,7 +345,7 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
     glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLBuffer());
 
-    // Registered custom layouts win over the legacy voxel flag
+    // A registered layout drives the attribute pointers; 0 means default Vertex
     const uint32_t customFormat = buffer->GetVertexFormat();
     const VertexLayoutDesc* customDesc =
         customFormat != 0 ? VertexFormatRegistry::Get(customFormat) : nullptr;
@@ -385,32 +385,6 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
         for (uint32_t loc = 0; loc < TRACKED_ATTRIB_SLOTS; ++loc) {
             if (!(enabledMask & (1u << loc))) glDisableVertexAttribArray(loc);
         }
-    } else if (buffer->IsVoxelFormat()) {
-        // Compact VoxelVertex layout: 48-byte stride, 4 attributes
-        // Position: float3 at offset 0
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
-                              sizeof(VoxelVertex),
-                              (void*)offsetof(VoxelVertex, px));
-        // Normal: float3 at offset 12
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
-                              sizeof(VoxelVertex),
-                              (void*)offsetof(VoxelVertex, nx));
-        // Color: float4 at offset 24
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE,
-                              sizeof(VoxelVertex),
-                              (void*)offsetof(VoxelVertex, r));
-        // UV: float2 at offset 40
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE,
-                              sizeof(VoxelVertex),
-                              (void*)offsetof(VoxelVertex, u));
-        // Disable unused attributes from previous binds
-        glDisableVertexAttribArray(4);
-        glDisableVertexAttribArray(5);
-        glDisableVertexAttribArray(6);
     } else {
         // Standard 96-byte Vertex layout: 7 attributes
         // Position: 3 floats at offset 0
@@ -772,8 +746,8 @@ void OpenGLRenderer::RenderShadowPass() {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
 
-    // Back-face cull: voxel meshes are closed over solid volumes, so the
-    // light-facing surface always wins — same depth result, half the raster.
+    // Back-face cull: closed solid volumes always have the light-facing
+    // surface win — same depth result, half the raster.
     // (FRONT culling stays wrong: it removed the outward-facing surfaces.)
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);

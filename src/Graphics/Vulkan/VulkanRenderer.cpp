@@ -166,7 +166,6 @@ void VulkanRenderer::BeginRender() {
     m_inGeometryPass = false;
     m_inForwardTransparentPass = false;
     m_forwardPassOpen = false;
-    m_inVoxelPass = false;
     m_activeCustomFormat = 0;
     if (!bRender)
         return;
@@ -677,30 +676,19 @@ void VulkanRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
     // Handled by render pass clear values
 }
 
-/// Binds a vertex buffer slot, switching to the custom-format or voxel
-/// pipeline that matches the buffer's vertex layout.
+/// Binds a vertex buffer slot, switching to the pipeline that matches the
+/// buffer's registered vertex format.
 void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
     if (!bFrameStarted) return;
     auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
 
-    // Registered custom formats win over the legacy voxel flag
     VertexFormatHandle wantFormat = buffer->GetVertexFormat();
     if (wantFormat != 0) {
         BeginCustomFormatPass(wantFormat);
-    } else {
-        if (m_activeCustomFormat != 0) EndCustomFormatPass();
-
-        // Switch to/from voxel pipeline based on vertex buffer format
-        bool wantVoxel = buffer->IsVoxelFormat();
-        if (wantVoxel != m_inVoxelPass) {
-            if (wantVoxel) {
-                BeginVoxelPass();
-            } else {
-                EndVoxelPass();
-            }
-        }
+    } else if (m_activeCustomFormat != 0) {
+        EndCustomFormatPass();
     }
 
     VkBuffer buffers[] = {vkBuf->GetVkBuffer()};
@@ -1097,28 +1085,6 @@ void VulkanRenderer::Cleanup() {
     delete debugLineShader;
     debugLineShader = nullptr;
 
-    // Destroy water pipeline resources
-    if (m_waterPipeline) {
-        vkDestroyPipeline(device, m_waterPipeline, nullptr);
-        m_waterPipeline = VK_NULL_HANDLE;
-    }
-    delete m_waterShader;
-    m_waterShader = nullptr;
-
-    // Destroy voxel pipeline resources
-    if (m_voxelPipeline) {
-        vkDestroyPipeline(device, m_voxelPipeline, nullptr);
-        m_voxelPipeline = VK_NULL_HANDLE;
-    }
-    if (m_gbufferVoxelPipeline) {
-        vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
-        m_gbufferVoxelPipeline = VK_NULL_HANDLE;
-    }
-    if (m_voxelShadowPipeline) {
-        vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr);
-        m_voxelShadowPipeline = VK_NULL_HANDLE;
-    }
-
     // Destroy custom vertex format pipelines
     DestroyCustomFormatPipelines();
 
@@ -1393,12 +1359,9 @@ void VulkanRenderer::ApplyMSAAChange() {
         vkDestroyPipeline(device, debugLinePipeline, nullptr);
         debugLinePipeline = VK_NULL_HANDLE;
     }
-    if (m_waterPipeline) {
-        vkDestroyPipeline(device, m_waterPipeline, nullptr);
-        m_waterPipeline = VK_NULL_HANDLE;
-    }
-    delete m_waterShader;
-    m_waterShader = nullptr;
+    // Custom-format variants are built against the render passes torn down
+    // here; drop them so the next draw rebuilds against the new ones.
+    DestroyCustomFormatPipelines();
 
     // Cleanup GBuffer BEFORE swapchain/depth (avoids dangling image view refs)
     CleanupGBufferResources();
@@ -1427,8 +1390,6 @@ void VulkanRenderer::ApplyMSAAChange() {
     CreateSkinnedPipeline();
     CreateDebugLinePipeline();
     if (m_deferredEnabled) CreateGBufferResources();
-    CreateWaterPipeline();
-    CreateVoxelPipeline();
     CreateImGUI();
 
     // Re-bind skybox cubemap texture to the new descriptor sets
@@ -1824,14 +1785,8 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
         if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
-        if (m_waterPipeline)  { vkDestroyPipeline(device, m_waterPipeline, nullptr);  m_waterPipeline = VK_NULL_HANDLE; }
-        if (m_voxelPipeline)  { vkDestroyPipeline(device, m_voxelPipeline, nullptr);  m_voxelPipeline = VK_NULL_HANDLE; }
-        if (m_gbufferVoxelPipeline) { vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr); m_gbufferVoxelPipeline = VK_NULL_HANDLE; }
         if (m_skinnedGbufferPipeline) { vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr); m_skinnedGbufferPipeline = VK_NULL_HANDLE; }
-        if (m_voxelShadowPipeline) { vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr); m_voxelShadowPipeline = VK_NULL_HANDLE; }
         DestroyCustomFormatPipelines();
-        delete m_waterShader;
-        m_waterShader = nullptr;
         // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
         if (skyboxDescriptorPool) {
             vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
@@ -1848,9 +1803,6 @@ bool VulkanRenderer::CreateGBufferResources() {
         CreateSkinnedGbufferPipeline();
 
         m_gbufferResourcesCreated = true;
-
-        CreateWaterPipeline();
-        CreateVoxelPipeline();
 
         // Re-bind skybox cubemap to the newly allocated descriptor sets
         if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {

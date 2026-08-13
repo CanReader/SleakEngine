@@ -9,7 +9,6 @@
 
 namespace Sleak {
     class MeshData;
-    struct VoxelMeshData;
     namespace RenderEngine {
         class TransformBuffer;
         class BufferBase;
@@ -28,8 +27,6 @@ namespace Sleak {
         MeshComponent(GameObject* object) : Component(object) {}
         /// Uploads data's vertex/index arrays to new GPU buffers.
         MeshComponent(GameObject*, MeshData data);
-        /// Uploads data's vertex/index arrays to new GPU buffers using the packed voxel vertex format.
-        MeshComponent(GameObject*, VoxelMeshData data);
 
         /// Validates that vertex and index buffers were created successfully.
         virtual bool Initialize() override;

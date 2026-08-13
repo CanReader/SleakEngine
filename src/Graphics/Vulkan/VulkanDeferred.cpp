@@ -948,10 +948,6 @@ void VulkanRenderer::CleanupGBufferResources() {
         vkDestroyPipeline(device, m_gbufferPipeline, nullptr);
         m_gbufferPipeline = VK_NULL_HANDLE;
     }
-    if (m_gbufferVoxelPipeline) {
-        vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
-        m_gbufferVoxelPipeline = VK_NULL_HANDLE;
-    }
     // Every cached variant is built against a render pass destroyed below
     // (GBuffer or forward); drop them all and let the next draw rebuild.
     DestroyCustomFormatPipelines();
@@ -1122,11 +1118,10 @@ void VulkanRenderer::CleanupGBufferResources() {
 void VulkanRenderer::BindGBufferShader() {
     if (!bFrameStarted || !m_gbufferResourcesCreated) return;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
-    // Reset voxel flag — this binds the default GBuffer pipeline (96-byte Vertex stride).
-    // Without this reset, the next voxel draw's BindVertexBuffer sees m_inVoxelPass==true,
-    // skips switching to the voxel pipeline, and draws 48-byte VoxelVertex data with
-    // a 96-byte stride → corruption.
-    m_inVoxelPass = false;
+    // This binds the default GBuffer pipeline (96-byte Vertex stride). Without
+    // the reset, the next custom-format draw's BindVertexBuffer sees its format
+    // already active, skips the pipeline switch, and feeds the compact vertices
+    // to a 96-byte stride.
     m_activeCustomFormat = 0;
 }
 
@@ -1138,8 +1133,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     //    depth → DEPTH_STENCIL_READ_ONLY via finalLayout in CreateGBufferRenderPass
     vkCmdEndRenderPass(command);
     m_inGeometryPass = false;
-    m_inVoxelPass = false;  // geometry pass is over; pipeline state doesn't survive across render passes
-    m_activeCustomFormat = 0;
+    m_activeCustomFormat = 0;  // geometry pass is over; pipeline state doesn't survive across render passes
 
     // 2. Run SSAO (raw + bilateral blur) using GBuffer normal + depth.
     //    This writes to m_ssaoBlurImage which the lighting pass binding 7 reads.
@@ -1249,12 +1243,9 @@ void VulkanRenderer::BeginForwardTransparentPass() {
     scissor.extent = scExtent;
     vkCmdSetScissor(command, 0, 1, &scissor);
 
-    // Bind water pipeline when available (uses water_shader SPIR-V for
-    // Gerstner waves, Fresnel, sky reflection, GGX specular, SSS, caustics).
-    // Fall back to the default forward pipeline otherwise.
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_waterPipeline != VK_NULL_HANDLE ? m_waterPipeline
-                                                        : pipeline);
+    // Default to the forward pipeline; a custom vertex format with a
+    // transparent variant swaps to it when its vertex buffer is bound.
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
     // Bind descriptor sets 0-3 (same as normal forward pass)
     if (m_textureDescriptorsWritten && CurrentFrameIndex < descriptorSets.size()) {
@@ -1278,8 +1269,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
 
     m_inForwardTransparentPass = true;
     m_forwardPassOpen = true;
-    m_inVoxelPass = false;  // new render pass; voxel pipeline state is stale
-    m_activeCustomFormat = 0;
+    m_activeCustomFormat = 0;  // new render pass; cached pipeline state is stale
 }
 
 /// Marks the forward transparent pass ended; EndRender closes the actual render pass.

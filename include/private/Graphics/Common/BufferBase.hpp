@@ -37,10 +37,6 @@ namespace Sleak {
                 Slot = slot;
             }
 
-            // Mark as compact voxel vertex buffer (48-byte stride)
-            bool IsVoxelFormat() const { return m_isVoxelFormat; }
-            void SetVoxelFormat(bool v) { m_isVoxelFormat = v; }
-
             /// Registered custom vertex layout of this buffer; 0 means the engine default Vertex.
             uint32_t GetVertexFormat() const { return m_vertexFormat; }
             /// Tags the buffer with a VertexFormatRegistry handle so backends pick the matching pipeline.
@@ -63,7 +59,6 @@ namespace Sleak {
             int Slot = 0;
             void* Data = nullptr;
             bool bIsMapped = false;
-            bool m_isVoxelFormat = false;
             uint32_t m_vertexFormat = 0;
             // Small inline storage for transform CB shadow copy (128 bytes = 2 matrices)
             const void* m_cpuShadowCopy = nullptr;

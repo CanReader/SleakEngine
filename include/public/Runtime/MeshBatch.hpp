@@ -23,7 +23,6 @@ namespace Sleak {
         RefPtr<RenderEngine::BufferBase> vertexBuffer;
         RefPtr<RenderEngine::BufferBase> indexBuffer;
         uint32_t indexCount = 0;
-        bool isVoxelFormat = false;
         /// Registered custom vertex layout of this mesh; 0 means the engine default Vertex.
         uint32_t vertexFormat = 0;
 
@@ -47,10 +46,6 @@ namespace Sleak {
     public:
         /// Create GPU vertex+index buffers from CPU mesh data.
         static MeshHandle CreateMesh(VertexGroup& vertices, IndexGroup& indices);
-
-        /// Create GPU vertex+index buffers from compact voxel mesh data.
-        static MeshHandle CreateVoxelMesh(VoxelVertexGroup& vertices,
-                                          IndexGroup& indices);
 
         /// Create GPU buffers from raw vertex bytes laid out per a registered
         /// custom vertex format. The handle keys the pipeline the backend binds.

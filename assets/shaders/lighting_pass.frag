@@ -221,7 +221,7 @@ void main() {
     vec4  metalEmit = texture(gMetalEmit,   fragUV); // R16G16B16A16: .r=metallic, .gba=emissive
 
     vec3  albedo    = albedoAO.rgb;
-    float bakedAO   = albedoAO.a;          // vertex AO baked into GBuffer — always [0.4, 1.0] for voxels
+    float bakedAO   = albedoAO.a;          // vertex AO baked into GBuffer — always [0.4, 1.0]
     float ssao      = texture(gSSAO, fragUV).r;
     float ao        = bakedAO * ssao;      // combined AO used for IBL path
     vec3  N         = normalize(normalRg.rgb * 2.0 - 1.0);
@@ -238,7 +238,7 @@ void main() {
 
     // ------------------------------------------------------------------
     // Direct + indirect lighting — exactly one shadow evaluation per path
-    // (the old layout ran the PBR block AND the voxel fallback when IBL
+    // (the old layout ran the PBR block AND the non-PBR fallback when IBL
     //  was off: 32 PCF taps/px and a discarded GGX evaluation)
     // ------------------------------------------------------------------
     vec3 Lo = vec3(0.0);
@@ -301,7 +301,7 @@ void main() {
 
         ambient = (diffuse_ibl + specular_ibl) * ao * iblIntensity;
     } else {
-        // Classic voxel lighting: wrap diffuse + hemisphere ambient
+        // Classic non-PBR lighting: wrap diffuse + hemisphere ambient
         vec3 skyAmbient    = uAmbient.rgb * uAmbient.a;
         vec3 groundAmbient = skyAmbient * vec3(0.55, 0.50, 0.45);
         float hemisphere   = N.y * 0.5 + 0.5;
