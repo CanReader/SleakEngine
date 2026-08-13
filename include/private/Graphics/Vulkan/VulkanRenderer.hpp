@@ -43,9 +43,8 @@ struct SwapchainDetails {
 };
 
 /// Vulkan backend for Renderer/RenderContext: owns the device, swapchain,
-/// and per-frame command recording. Its implementation spans this file plus
-/// the VulkanDevice/Swapchain/Pipelines/Descriptors/Shadow/Deferred/IBL/
-/// SSAO/SSR/TAA/Bloom subsystem TUs, all declared here.
+/// and per-frame command recording. Implementation spans this file plus
+/// the Vulkan* subsystem TUs (Device, Swapchain, Pipelines, Shadow, etc.).
 class ENGINE_API VulkanRenderer : public Renderer, public RenderContext {
 public:
     /// Constructs the renderer, sets the clear color, and registers
