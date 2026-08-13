@@ -634,20 +634,32 @@ private:
     // SSAO/SSR passes to reconstruct world position from the depth buffer.
     float m_cachedInvViewProj[16] = {};
 
+    /// Creates all SSAO images, render pass, framebuffers, descriptors, and pipelines.
     bool CreateSSAOResources();
     // One-time init of the disabled-effect fallback images (ssaoBlur=white,
     // ssr=black, bloom mip0=black) to SHADER_READ_ONLY so the per-frame
     // disabled paths can skip re-clearing them every frame.
+    /// Clears the SSAO/SSR/bloom fallback images once so disabled effects sample defined black/white content.
     void InitDisabledEffectFallbacks();
+    /// Destroys all SSAO pipelines, framebuffers, descriptors, images, and samplers.
     void CleanupSSAOResources();
+    /// Creates the full-res raw and blurred SSAO color images, views, and samplers.
     bool CreateSSAOImages();
+    /// Creates the shared SSAO render pass (R8 color, DONT_CARE load, shader-read-only output).
     bool CreateSSAORenderPass();
+    /// Creates the raw and blur SSAO framebuffers.
     bool CreateSSAOFramebuffers();
+    /// Compiles the SSAO and SSAO-blur shaders and creates their pipelines.
     bool CreateSSAOPipelines();
+    /// Creates the SSAO input/UBO/blur descriptor layouts, pool, sets, and UBO buffers.
     bool CreateSSAODescriptorResources();
+    /// Generates and uploads the 4x4 tangent-plane rotation noise texture.
     bool CreateSSAONoiseTexture();
+    /// Writes the GBuffer, depth, and noise samplers into the SSAO input and blur descriptor sets.
     void UpdateSSAODescriptors();
+    /// Fills the SSAO UBO with the cached camera matrices and a cosine-weighted hemisphere kernel.
     void UpdateSSAOUBO();
+    /// Runs the raw SSAO and bilateral blur passes, or clears the blur target when SSAO is disabled.
     void RenderSSAOPasses();
 
     // ---- SSR (Screen-Space Reflections) resources ----
@@ -691,10 +703,15 @@ private:
     std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_ssrUboMemory{};
     std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_ssrUboMapped{};
 
+    /// Creates the SSR image, render pass, framebuffer, descriptors, UBOs, and pipeline.
     bool CreateSSRResources();
+    /// Destroys the SSR pipeline, framebuffer, descriptors, image, and sampler.
     void CleanupSSRResources();
+    /// Fills the SSR UBO with the cached camera matrices, camera position, and ray march parameters.
     void UpdateSSRUBO();
+    /// Writes the GBuffer and HDR scene samplers into the SSR input descriptor sets.
     void UpdateSSRDescriptors();
+    /// Ray marches screen-space reflections into the SSR buffer, or clears it when SSR is disabled.
     void RenderSSRPass();
 
     // ---- TAA (Temporal Anti-Aliasing) resources ----
@@ -736,9 +753,13 @@ private:
     float m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
     float m_taaJitter[2]     = {};  // current frame jitter in UV space
 
+    /// Creates the ping-pong TAA history images, render pass, framebuffers, descriptors, and pipeline.
     bool CreateTAAResources();
+    /// Destroys the TAA pipeline, framebuffers, descriptors, images, and sampler.
     void CleanupTAAResources();
+    /// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
     void UpdateTAAUBO();
+    /// Resolves the current frame against TAA history and copies the result back into the HDR scene image.
     void RenderTAAPass();
 
     // Per-image "fallback content is valid" flags. Set true once the image is
@@ -808,19 +829,30 @@ private:
 
     VkSampler m_bloomSampler = VK_NULL_HANDLE;  // linear clamp
 
+    /// Creates the HDR scene, bloom mip chain, passes, descriptors, pipelines, and TAA resources.
     bool CreateBloomResources();
+    /// Destroys all bloom and HDR scene resources, then cleans up TAA resources.
     void CleanupBloomResources();
+    /// Creates the HDR scene color image, view, and the shared bloom-source sampler.
     bool CreateHDRSceneResources();
+    /// Creates the multi-mip bloom image and a per-mip image view.
     bool CreateBloomImages();
+    /// Creates the bloom threshold/downsample, additive-upsample, and composite render passes.
     bool CreateBloomRenderPasses();
+    /// Creates the per-mip bloom framebuffers and one composite framebuffer per swapchain image.
     bool CreateBloomFramebuffers();
+    /// Compiles the bloom threshold/downsample/upsample/composite shaders and creates their pipelines.
     bool CreateBloomPipelines();
+    /// Creates the bloom filter and composite descriptor layouts, pool, and sets.
     bool CreateBloomDescriptorResources();
+    /// Runs the threshold, downsample, and additive-upsample bloom mip chain, or clears mip 0 when bloom is disabled.
     void RenderBloomPass();
+    /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
     void RenderBloomCompositePass();
 
     // Helper used by the upload path of the default renderer to pick a
     // reasonable linear-clamp sampler for post-process work.
+    /// Sets the dynamic viewport and scissor to fill the given extent. Defined in VulkanBloom.cpp (most call sites of the four post-effect TUs).
     static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
 };
 
