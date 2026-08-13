@@ -594,9 +594,15 @@ void VulkanRenderer::EndRender() {
     UpdateFrameMetrics();
 }
 
+/// True while the bound vertex buffer's format has no pipeline for this pass.
+bool VulkanRenderer::CustomFormatDrawsSuppressed() const {
+    return m_activeCustomFormat != 0 && m_customFormatUnbound;
+}
+
 /// Issues a non-indexed draw call and updates the vertex/triangle counters.
 void VulkanRenderer::Draw(uint32_t vertexCount) {
     if (!bFrameStarted) return;
+    if (CustomFormatDrawsSuppressed()) return;
     vkCmdDraw(command, vertexCount, 1, 0, 0);
     if (!m_shadowPassActive) {
         DrawnVertices += vertexCount;
@@ -607,6 +613,7 @@ void VulkanRenderer::Draw(uint32_t vertexCount) {
 /// Issues an indexed draw call and updates the vertex/triangle counters.
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
     if (!bFrameStarted) return;
+    if (CustomFormatDrawsSuppressed()) return;
     vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
     if (!m_shadowPassActive) {
         DrawnVertices += indexCount;
@@ -618,6 +625,7 @@ void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
 void VulkanRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
     if (!bFrameStarted) return;
+    if (CustomFormatDrawsSuppressed()) return;
     vkCmdDraw(command, vertexPerInstance, instanceCount, 0, 0);
 }
 
@@ -625,6 +633,7 @@ void VulkanRenderer::DrawInstance(uint32_t instanceCount,
 void VulkanRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
     if (!bFrameStarted) return;
+    if (CustomFormatDrawsSuppressed()) return;
     vkCmdDrawIndexed(command, indexPerInstance, instanceCount, 0, 0, 0);
 }
 

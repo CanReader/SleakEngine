@@ -952,7 +952,9 @@ void VulkanRenderer::CleanupGBufferResources() {
         vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
         m_gbufferVoxelPipeline = VK_NULL_HANDLE;
     }
-    DestroyCustomFormatGBufferPipelines();
+    // Every cached variant is built against a render pass destroyed below
+    // (GBuffer or forward); drop them all and let the next draw rebuild.
+    DestroyCustomFormatPipelines();
     if (m_skinnedGbufferPipeline) {
         vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr);
         m_skinnedGbufferPipeline = VK_NULL_HANDLE;

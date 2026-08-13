@@ -450,26 +450,31 @@ private:
     bool CreateVoxelShadowPipeline();
 
     // Custom vertex format pipelines (built lazily per registered VertexFormatHandle)
-    /// The three pipeline variants a registered vertex layout can drive.
+    /// The four pipeline variants a registered vertex layout can drive.
     /// A failed flag marks a variant as permanently absent so draws skip it
     /// instead of retrying compilation every frame.
     struct CustomFormatPipelines {
         VkPipeline main = VK_NULL_HANDLE;
         VkPipeline shadow = VK_NULL_HANDLE;
         VkPipeline gbuffer = VK_NULL_HANDLE;
+        VkPipeline transparent = VK_NULL_HANDLE;
         bool mainFailed = false;
         bool shadowFailed = false;
         bool gbufferFailed = false;
+        bool transparentFailed = false;
     };
     std::unordered_map<VertexFormatHandle, CustomFormatPipelines>
         m_customFormatPipelines;
     VertexFormatHandle m_activeCustomFormat = 0;
+    /// Set while the active custom format has no pipeline for the current pass;
+    /// draws are dropped rather than issued against a mismatched vertex layout.
+    bool m_customFormatUnbound = false;
+    /// True while the bound vertex buffer's format has no pipeline for this pass.
+    bool CustomFormatDrawsSuppressed() const;
     /// Creates any missing pipeline variant for a registered format; returns false when the main variant is unusable.
     bool CreateCustomFormatPipelines(VertexFormatHandle format);
     /// Destroys every cached custom-format pipeline (all variants, all formats).
     void DestroyCustomFormatPipelines();
-    /// Destroys only the GBuffer variants so they rebuild against a new GBuffer render pass.
-    void DestroyCustomFormatGBufferPipelines();
 
     // Water pipeline (forward transparent, uses water_shader SPIR-V)
     VkPipeline m_waterPipeline = VK_NULL_HANDLE;

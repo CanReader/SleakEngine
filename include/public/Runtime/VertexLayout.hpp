@@ -29,6 +29,7 @@ struct VertexLayoutDesc {
     std::string                  shaderStem;         // forward/main variant
     std::string                  shadowShaderStem;   // depth-only shadow variant ("" = no shadows)
     std::string                  gbufferShaderStem;  // deferred geometry variant ("" = forward only)
+    std::string                  transparentShaderStem;  // forward transparent variant ("" = no transparent pass)
 };
 
 /// 0 is reserved for the engine's default Vertex layout; registered formats start at 1.

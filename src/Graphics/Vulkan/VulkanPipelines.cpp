@@ -1673,6 +1673,116 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
         }
     }
 
+    // Transparent variant — alpha-blended, two-sided, runs in the forward
+    // transparent pass over the deferred scene image.
+    if (pipes.transparent == VK_NULL_HANDLE && !pipes.transparentFailed &&
+        !desc->transparentShaderStem.empty()) {
+        const std::string transparentPath =
+            "assets/shaders/" + desc->transparentShaderStem;
+        auto* transparentShader = new VulkanShader(device);
+        if (!transparentShader->compile(transparentPath)) {
+            SLEAK_ERROR("VulkanRenderer: Failed to compile '{}' for vertex format {}",
+                        transparentPath, format);
+            pipes.transparentFailed = true;
+            delete transparentShader;
+        } else {
+            VkPipelineShaderStageCreateInfo trStages[] = {
+                transparentShader->GetVertexInfo(),
+                transparentShader->GetFragInfo()};
+
+            VkPipelineInputAssemblyStateCreateInfo ia{};
+            ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            ia.primitiveRestartEnable = VK_FALSE;
+
+            VkPipelineViewportStateCreateInfo vp{};
+            vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            vp.viewportCount = 1;
+            vp.scissorCount = 1;
+
+            VkPipelineRasterizationStateCreateInfo rs{};
+            rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rs.depthClampEnable = VK_FALSE;
+            rs.rasterizerDiscardEnable = VK_FALSE;
+            rs.polygonMode = VK_POLYGON_MODE_FILL;
+            rs.lineWidth = 1.0f;
+            // Transparent surfaces are viewed from both sides
+            rs.cullMode = VK_CULL_MODE_NONE;
+            rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            rs.depthBiasEnable = VK_FALSE;
+
+            VkPipelineMultisampleStateCreateInfo ms{};
+            ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            ms.sampleShadingEnable = VK_FALSE;
+            // The forward transparent pass runs on m_forwardRenderPass (1 sample)
+            // when deferred is enabled; use the main render pass samples otherwise.
+            ms.rasterizationSamples =
+                (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                    ? VK_SAMPLE_COUNT_1_BIT
+                    : m_msaaSamples;
+
+            VkPipelineDepthStencilStateCreateInfo ds{};
+            ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            ds.depthTestEnable = VK_TRUE;
+            ds.depthWriteEnable = VK_TRUE;
+            ds.depthCompareOp = VK_COMPARE_OP_LESS;
+            ds.depthBoundsTestEnable = VK_FALSE;
+            ds.stencilTestEnable = VK_FALSE;
+
+            VkPipelineColorBlendAttachmentState blendAtt{};
+            blendAtt.blendEnable = VK_TRUE;
+            blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blendAtt.colorBlendOp = VK_BLEND_OP_ADD;
+            blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
+            blendAtt.colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+            VkPipelineColorBlendStateCreateInfo cb{};
+            cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            cb.logicOpEnable = VK_FALSE;
+            cb.attachmentCount = 1;
+            cb.pAttachments = &blendAtt;
+
+            VkGraphicsPipelineCreateInfo trPipeInfo{};
+            trPipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            trPipeInfo.stageCount = 2;
+            trPipeInfo.pStages = trStages;
+            trPipeInfo.pVertexInputState = &vertexInputInfo;
+            trPipeInfo.pInputAssemblyState = &ia;
+            trPipeInfo.pViewportState = &vp;
+            trPipeInfo.pRasterizationState = &rs;
+            trPipeInfo.pMultisampleState = &ms;
+            trPipeInfo.pDepthStencilState = &ds;
+            trPipeInfo.pColorBlendState = &cb;
+            trPipeInfo.pDynamicState = &dynamicState;
+            trPipeInfo.layout = pipelineLay;  // reuse main layout (same descriptor sets)
+            trPipeInfo.subpass = 0;
+            trPipeInfo.renderPass =
+                (m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE)
+                    ? m_forwardRenderPass
+                    : renderPass;
+            trPipeInfo.basePipelineHandle = VK_NULL_HANDLE;
+            trPipeInfo.basePipelineIndex = -1;
+
+            VkResult trResult = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &trPipeInfo, nullptr, &pipes.transparent);
+            delete transparentShader;
+
+            if (trResult != VK_SUCCESS) {
+                SLEAK_ERROR("VulkanRenderer: Failed to create transparent pipeline for vertex format {}",
+                            format);
+                pipes.transparent = VK_NULL_HANDLE;
+                pipes.transparentFailed = true;
+            } else {
+                SLEAK_INFO("VulkanRenderer: Custom format {} transparent pipeline created", format);
+            }
+        }
+    }
+
     return pipes.main != VK_NULL_HANDLE;
 }
 
@@ -1683,25 +1793,33 @@ void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     if (format == 0) return;
     if (m_activeCustomFormat == format) return;
     m_activeCustomFormat = format;
+    m_customFormatUnbound = false;
 
-    if (!CreateCustomFormatPipelines(format)) return;
+    if (!CreateCustomFormatPipelines(format)) {
+        m_customFormatUnbound = true;
+        return;
+    }
     const CustomFormatPipelines& pipes = m_customFormatPipelines[format];
 
+    VkPipeline target;
     if (m_shadowPassActive) {
-        if (pipes.shadow != VK_NULL_HANDLE) {
-            vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipes.shadow);
-        }
+        target = pipes.shadow;
     } else if (m_inGeometryPass && pipes.gbuffer != VK_NULL_HANDLE) {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          pipes.gbuffer);
-    } else if (m_inForwardTransparentPass && m_waterPipeline != VK_NULL_HANDLE) {
-        // Forward transparent custom-format draws are water — keep the water pipeline
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_waterPipeline);
+        target = pipes.gbuffer;
+    } else if (m_inForwardTransparentPass) {
+        target = pipes.transparent;
     } else {
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipes.main);
+        target = pipes.main;
     }
+
+    // No variant for this pass: drop the draws rather than rasterize this
+    // layout's vertices through a pipeline built for another one.
+    if (target == VK_NULL_HANDLE) {
+        m_customFormatUnbound = true;
+        return;
+    }
+
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, target);
 }
 
 
@@ -1710,6 +1828,7 @@ void VulkanRenderer::EndCustomFormatPass() {
     if (!bFrameStarted) return;
     if (m_activeCustomFormat == 0) return;
     m_activeCustomFormat = 0;
+    m_customFormatUnbound = false;
 
     if (m_shadowPassActive) {
         if (m_shadowPipeline != VK_NULL_HANDLE) {
@@ -1745,24 +1864,13 @@ void VulkanRenderer::DestroyCustomFormatPipelines() {
         if (pipes.main) vkDestroyPipeline(device, pipes.main, nullptr);
         if (pipes.shadow) vkDestroyPipeline(device, pipes.shadow, nullptr);
         if (pipes.gbuffer) vkDestroyPipeline(device, pipes.gbuffer, nullptr);
+        if (pipes.transparent)
+            vkDestroyPipeline(device, pipes.transparent, nullptr);
     }
     m_customFormatPipelines.clear();
     m_activeCustomFormat = 0;
 }
 
-
-/// Destroys only the GBuffer variants; they rebuild lazily against the new GBuffer render pass.
-void VulkanRenderer::DestroyCustomFormatGBufferPipelines() {
-    for (auto& entry : m_customFormatPipelines) {
-        CustomFormatPipelines& pipes = entry.second;
-        if (pipes.gbuffer) {
-            vkDestroyPipeline(device, pipes.gbuffer, nullptr);
-            pipes.gbuffer = VK_NULL_HANDLE;
-        }
-        pipes.gbufferFailed = false;
-    }
-    m_activeCustomFormat = 0;
-}
 
 
 /// Binds the debug line pipeline for the current frame.
