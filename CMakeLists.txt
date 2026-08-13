@@ -128,6 +128,7 @@ set(GRAPHICS_COMMON_SOURCES
     src/Graphics/Common/RenderCommands.cpp
     src/Graphics/Common/RendererFactory.cpp
     src/Graphics/Common/ResourceManager.cpp
+    src/Graphics/Common/VertexLayout.cpp
 )
 
 set(GRAPHICS_OPENGL_SOURCES
