@@ -466,7 +466,7 @@ bool VulkanTexture::CreateSampler() {
     switch (m_filter) {
         case TextureFilter::Nearest:
             // GL parity: NEAREST_MIPMAP_NEAREST, no aniso (aniso + nearest
-            // min filter speckles steep faces like leaf-block tops)
+            // min filter speckles steep, thin-geometry silhouettes)
             magFilter = VK_FILTER_NEAREST;
             minFilter = VK_FILTER_NEAREST;
             mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;

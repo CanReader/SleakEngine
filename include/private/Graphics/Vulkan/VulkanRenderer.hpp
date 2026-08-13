@@ -494,7 +494,7 @@ private:
 
     // Shadow push-constant memo: LightVP*World is frame-constant per unique
     // World, so cache it and skip the matmul when consecutive casters (all
-    // chunk draws share the identity transform) reuse the same World matrix.
+    // draws share the identity transform) reuse the same World matrix.
     float m_shadowWorldCache[16] = {};
     float m_shadowPCCache[32] = {};
     bool  m_shadowPCCacheValid = false;

@@ -362,7 +362,7 @@ bool DirectX12Renderer::CreateRootSignature() {
     // Static samplers
     D3D12_STATIC_SAMPLER_DESC staticSamplers[3] = {};
 
-    // s0: ANISOTROPIC 16x — block textures (high quality filtering)
+    // s0: ANISOTROPIC 16x — surface textures (high quality filtering)
     staticSamplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
     staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;

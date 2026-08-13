@@ -750,7 +750,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         // Shadow mode: push [LightVP*World (64)][World (64)].
         // Buffer layout: [WVP (64 bytes)][World (64 bytes)].
         // LightVP is frame-constant, so memoize on World and reuse the result
-        // across the many chunk draws that share the identity transform.
+        // across the many draws that share the identity transform.
         const float* srcWorld = reinterpret_cast<const float*>(
             static_cast<const char*>(data) + 64);
 

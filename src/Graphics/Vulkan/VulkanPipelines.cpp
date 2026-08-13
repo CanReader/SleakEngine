@@ -734,16 +734,16 @@ static VkFormat ToVkVertexFormat(VertexAttribFormat format) {
     return VK_FORMAT_R32G32B32_SFLOAT;
 }
 
-/// Creates any missing pipeline variant (main, shadow, GBuffer) for a
-/// registered vertex layout. Variants whose shader fails to load are marked
-/// absent so draws skip them without retrying every frame.
+/// Creates any missing pipeline variant (main, shadow, GBuffer, transparent)
+/// for a registered vertex layout. Variants whose shader fails to load are
+/// marked absent so draws skip them without retrying every frame.
 bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
     const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
     if (!desc || desc->stride == 0 || desc->attributes.empty()) return false;
 
     CustomFormatPipelines& pipes = m_customFormatPipelines[format];
 
-    // Vertex input state shared by all three variants
+    // Vertex input state shared by all four variants
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
     bindingDescription.stride = desc->stride;
@@ -1191,7 +1191,7 @@ void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     VkPipeline target;
     if (m_shadowPassActive) {
         target = pipes.shadow;
-    } else if (m_inGeometryPass && pipes.gbuffer != VK_NULL_HANDLE) {
+    } else if (m_inGeometryPass) {
         target = pipes.gbuffer;
     } else if (m_inForwardTransparentPass) {
         target = pipes.transparent;

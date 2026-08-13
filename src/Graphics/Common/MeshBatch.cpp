@@ -38,6 +38,7 @@ MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
 }
 
 /// Uploads raw custom-format vertices/indices as GPU buffers, tagging the vertex buffer with the format handle.
+/// format == 0 creates a mesh using the engine's default vertex layout.
 MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
                                  const void* vertexData,
                                  size_t vertexBytes,
@@ -70,7 +71,7 @@ void MeshBatch::BeginBatch(Material* material) {
     // Bind material once for all draws in this batch
     queue->SubmitBindMaterial(material);
 
-    // Build identity world matrix — chunk vertices are already in world space
+    // Build identity world matrix — batch vertices are already in world space
     auto world = Math::Matrix4::Identity();
     RenderEngine::TransformBuffer tb(world,
                                      Camera::GetMainViewMatrix(),
