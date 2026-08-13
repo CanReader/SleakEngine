@@ -42,22 +42,40 @@ struct SwapchainDetails {
     std::vector<VkPresentModeKHR> presentModes;
 };
 
+/// Vulkan backend for Renderer/RenderContext: owns the device, swapchain,
+/// and per-frame command recording. Its implementation spans this file plus
+/// the VulkanDevice/Swapchain/Pipelines/Descriptors/Shadow/Deferred/IBL/
+/// SSAO/SSR/TAA/Bloom subsystem TUs, all declared here.
 class ENGINE_API VulkanRenderer : public Renderer, public RenderContext {
 public:
+    /// Constructs the renderer, sets the clear color, and registers
+    /// ResourceManager factory callbacks.
     VulkanRenderer(Window* window);
+    /// Calls Cleanup() to tear down all Vulkan resources.
     ~VulkanRenderer();
 
+    /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
+    /// pipelines, and sync objects.
     virtual bool Initialize() override;
+    /// Prepares the command buffer and begins the shadow/GBuffer/forward
+    /// render pass; drawing happens via the RenderContext methods below.
     virtual void BeginRender() override;
+    /// Ends the active render pass, submits the command buffer, and presents.
     virtual void EndRender() override;
+    /// Tears down every Vulkan resource in reverse dependency order.
     virtual void Cleanup() override;
+    /// Blocks until the device finishes all submitted GPU work.
     virtual void WaitIdle() override;
+    /// Kicks off the current frame's async buffer upload batch.
     virtual void FlushPendingTransfers() override;
 
     // GPU memory tracking
+    /// Returns total bytes currently allocated by VulkanBuffer.
     virtual size_t GetGPUMemoryUsed() const override;
+    /// Returns the device-local heap size reported by the allocator.
     virtual size_t GetGPUMemoryBudget() const override;
 
+    /// Recreates the swapchain for the new window dimensions.
     virtual void Resize(uint32_t width, uint32_t height) override;
 
     inline void SetRender(bool value) { bRender = value; }
@@ -75,41 +93,63 @@ public:
     }
 
     // RenderContext interface
+    /// Issues a non-indexed draw call and updates the vertex/triangle counters.
     virtual void Draw(uint32_t vertexCount) override;
+    /// Issues an indexed draw call and updates the vertex/triangle counters.
     virtual void DrawIndexed(uint32_t indexCount) override;
+    /// Issues an instanced, non-indexed draw call.
     virtual void DrawInstance(uint32_t instanceCount,
                               uint32_t vertexPerInstance) override;
+    /// Issues an instanced, indexed draw call.
     virtual void DrawIndexedInstance(uint32_t instanceCount,
                                      uint32_t indexPerInstance) override;
 
+    /// Stores the cull face for the next pipeline rebuild (Vulkan state is baked).
     virtual void SetRenderFace(RenderFace face) override;
+    /// Stores the polygon mode for the next pipeline rebuild (Vulkan state is baked).
     virtual void SetRenderMode(RenderMode mode) override;
+    /// Sets the dynamic viewport on the active command buffer.
     virtual void SetViewport(float x, float y, float width, float height,
                              float minDepth = 0.0f,
                              float maxDepth = 1.0f) override;
+    /// Stores the clear color used by the next BeginRender.
     virtual void ClearRenderTarget(float r, float g, float b,
                                    float a) override;
+    /// No-op; depth/stencil clears are driven by the render pass clear values.
     virtual void ClearDepthStencil(bool clearDepth, bool clearStencil,
                                    float depth, uint8_t stencil) override;
 
+    /// Binds a vertex buffer slot, switching to/from the voxel pipeline
+    /// based on its format.
     virtual void BindVertexBuffer(RefPtr<BufferBase> buffer,
                                   uint32_t slot = 0) override;
+    /// Binds a 32-bit index buffer.
     virtual void BindIndexBuffer(RefPtr<BufferBase> buffer,
                                  uint32_t slot = 0) override;
+    /// Pushes constant-buffer data via push constants, applying TAA jitter
+    /// or the shadow push-constant cache as needed.
     virtual void BindConstantBuffer(RefPtr<BufferBase> buffer,
                                     uint32_t slot = 0) override;
 
+    /// Allocates and initializes a VulkanBuffer.
     virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size,
                                      void* data) override;
+    /// Compiles a VulkanShader from source.
     virtual Shader* CreateShader(const std::string& shaderSource) override;
+    /// Loads a texture from disk and writes its descriptor sets.
     virtual Texture* CreateTexture(const std::string& TexturePath) override;
+    /// Loads a texture from an in-memory RGBA8 buffer.
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    /// Loads a cubemap from six face images and writes it into the skybox descriptor sets.
     Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    /// Loads an equirectangular panorama as a cubemap and writes it into the skybox descriptor sets.
     Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
+    /// Binds a texture's descriptor set at slot 0, skipping cubemaps and the GBuffer geometry pass.
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
+    /// Raw-pointer variant of BindTexture.
     virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) override;
     /// Binds the skybox pipeline and its descriptor set for the current frame.
     virtual void BeginSkyboxPass() override;
@@ -161,8 +201,12 @@ public:
     virtual void UpdateDeferredCB(const void* data, uint32_t size) override;
 
     // MSAA
+    /// Rebuilds the swapchain-dependent pipelines and render pass for a
+    /// queued MSAA sample count change.
     void ApplyMSAAChange() override;
+    /// Recreates the swapchain to apply a queued VSync toggle.
     void ApplyVSyncChange() override;
+    /// Recreates the extent-dependent shadow map objects at the queued resolution.
     void ApplyShadowResolutionChange() override;
 
 private:
@@ -172,6 +216,8 @@ private:
     bool CreateSkinnedPipeline();
 
     // Deferred rendering
+    /// Creates the GBuffer color images, render passes, descriptors, and
+    /// pipelines that make up the deferred lighting path.
     bool CreateGBufferResources();
     /// Creates the GBuffer render pass with its three color attachments and depth.
     bool CreateGBufferRenderPass();
@@ -233,8 +279,12 @@ private:
     bool CreateRenderPass();
     /// Creates one framebuffer per swapchain image for the main render pass.
     bool CreateFrameBuffer();
+    /// Creates the graphics command pool.
     bool CreateCommandPool();
+    /// Allocates one primary command buffer per frame in flight.
     bool CreateCommandBuffer();
+    /// Creates the per-swapchain-image semaphores and per-frame fences and
+    /// transfer semaphores.
     bool CreateSyncObjects();
     /// Creates the depth image, memory, and image view.
     bool CreateDepthResources();
@@ -264,7 +314,9 @@ private:
     /// Queries the highest MSAA sample count the GPU supports.
     VkSampleCountFlagBits GetMaxUsableSampleCount();
 
+    /// No-op; Vulkan polygon mode changes require pipeline recreation.
     virtual void ConfigureRenderMode() override;
+    /// No-op; Vulkan cull mode changes require pipeline recreation.
     virtual void ConfigureRenderFace() override;
 
     /// Builds one queue create info per unique queue family index.

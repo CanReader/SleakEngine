@@ -39,6 +39,8 @@
 namespace Sleak {
     namespace RenderEngine {
 
+/// Constructs the renderer, sets the clear color, and registers
+/// ResourceManager factory callbacks.
 VulkanRenderer::VulkanRenderer(Window* window)
     : sdlWindow(window) {
     this->Type = RendererType::Vulkan;
@@ -68,10 +70,13 @@ VulkanRenderer::VulkanRenderer(Window* window)
         });
 }
 
+/// Calls Cleanup() to tear down all Vulkan resources.
 VulkanRenderer::~VulkanRenderer() {
     Cleanup();
 }
 
+/// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
+/// pipelines, and sync objects.
 bool VulkanRenderer::Initialize() {
     if (!InitVulkan())
         SLEAK_RETURN_ERR("Failed to initialize Vulkan Instance!");
@@ -153,9 +158,9 @@ bool VulkanRenderer::Initialize() {
     return true;
 }
 
-// BeginRender: prepare the command buffer, begin render pass.
-// Do NOT end the command buffer here — the RenderCommandQueue will
-// record draw commands via the RenderContext interface.
+/// Prepares the command buffer and begins the shadow/GBuffer/forward render
+/// pass. Does not end the command buffer; the RenderCommandQueue records
+/// draw commands via the RenderContext interface after this returns.
 void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
     m_inGeometryPass = false;
@@ -454,7 +459,7 @@ void VulkanRenderer::BeginRender() {
     }
 }
 
-// EndRender: end render pass, end command buffer, submit, present.
+/// Ends the active render pass, submits the command buffer, and presents.
 void VulkanRenderer::EndRender() {
     if (!bRender || !bFrameStarted)
         return;
@@ -588,6 +593,7 @@ void VulkanRenderer::EndRender() {
     UpdateFrameMetrics();
 }
 
+/// Issues a non-indexed draw call and updates the vertex/triangle counters.
 void VulkanRenderer::Draw(uint32_t vertexCount) {
     if (!bFrameStarted) return;
     vkCmdDraw(command, vertexCount, 1, 0, 0);
@@ -597,6 +603,7 @@ void VulkanRenderer::Draw(uint32_t vertexCount) {
     }
 }
 
+/// Issues an indexed draw call and updates the vertex/triangle counters.
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
     if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
@@ -606,29 +613,34 @@ void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
     }
 }
 
+/// Issues an instanced, non-indexed draw call.
 void VulkanRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
     if (!bFrameStarted) return;
     vkCmdDraw(command, vertexPerInstance, instanceCount, 0, 0);
 }
 
+/// Issues an instanced, indexed draw call.
 void VulkanRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
     if (!bFrameStarted) return;
     vkCmdDrawIndexed(command, indexPerInstance, instanceCount, 0, 0, 0);
 }
 
+/// Stores the cull face for the next pipeline rebuild (Vulkan state is baked).
 void VulkanRenderer::SetRenderFace(RenderFace face) {
-    // Vulkan pipeline state is baked — would need pipeline recreation.
+    // Vulkan pipeline state is baked, needs pipeline recreation.
     // Store for next pipeline rebuild.
     Face = face;
 }
 
+/// Stores the polygon mode for the next pipeline rebuild (Vulkan state is baked).
 void VulkanRenderer::SetRenderMode(RenderMode mode) {
-    // Vulkan pipeline state is baked — would need pipeline recreation.
+    // Vulkan pipeline state is baked, needs pipeline recreation.
     Mode = mode;
 }
 
+/// Sets the dynamic viewport on the active command buffer.
 void VulkanRenderer::SetViewport(float x, float y, float width,
                                   float height, float minDepth,
                                   float maxDepth) {
@@ -643,16 +655,20 @@ void VulkanRenderer::SetViewport(float x, float y, float width,
     vkCmdSetViewport(command, 0, 1, &viewport);
 }
 
+/// Stores the clear color used by the next BeginRender.
 void VulkanRenderer::ClearRenderTarget(float r, float g, float b,
                                         float a) {
     clearColor = {{r, g, b, a}};
 }
 
+/// No-op; depth/stencil clears are driven by the render pass clear values.
 void VulkanRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
                                         float depth, uint8_t stencil) {
     // Handled by render pass clear values
 }
 
+/// Binds a vertex buffer slot, switching to/from the voxel pipeline based
+/// on its format.
 void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
     if (!bFrameStarted) return;
@@ -674,6 +690,7 @@ void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     vkCmdBindVertexBuffers(command, slot, 1, buffers, offsets);
 }
 
+/// Binds a 32-bit index buffer.
 void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                                       uint32_t slot) {
     if (!bFrameStarted) return;
@@ -683,6 +700,8 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                          VK_INDEX_TYPE_UINT32);
 }
 
+/// Pushes constant-buffer data via push constants, applying TAA jitter or
+/// the shadow push-constant cache as needed.
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
     if (!bFrameStarted) return;
@@ -754,6 +773,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     }
 }
 
+/// Allocates and initializes a VulkanBuffer.
 BufferBase* VulkanRenderer::CreateBuffer(BufferType type, uint32_t size,
                                           void* data) {
     auto* buffer = new VulkanBuffer(device, physicalDevice, size, type,
@@ -765,6 +785,7 @@ BufferBase* VulkanRenderer::CreateBuffer(BufferType type, uint32_t size,
     return buffer;
 }
 
+/// Compiles a VulkanShader from source.
 Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     auto* shader = new VulkanShader(device);
     if (shader->compile(shaderSource)) {
@@ -774,6 +795,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
+/// Loads a texture from disk and writes its descriptor sets.
 ::Sleak::Texture* VulkanRenderer::CreateTexture(const std::string& TexturePath) {
     auto* texture = new VulkanTexture(device, physicalDevice, commands,
                                        graphicsQueue);
@@ -785,6 +807,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
+/// Loads a texture from an in-memory RGBA8 buffer.
 ::Sleak::Texture* VulkanRenderer::CreateTextureFromData(uint32_t width,
                                                 uint32_t height,
                                                 void* data) {
@@ -797,6 +820,8 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
+/// Loads a cubemap from six face images and writes it into the skybox
+/// descriptor sets.
 ::Sleak::Texture* VulkanRenderer::CreateCubemapTexture(
     const std::array<std::string, 6>& facePaths) {
     auto* texture = new VulkanCubemapTexture(device, physicalDevice,
@@ -843,6 +868,8 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
+/// Loads an equirectangular panorama as a cubemap and writes it into the
+/// skybox descriptor sets.
 ::Sleak::Texture* VulkanRenderer::CreateCubemapTextureFromPanorama(
     const std::string& panoramaPath) {
     auto* texture = new VulkanCubemapTexture(device, physicalDevice,
@@ -890,6 +917,8 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
     return nullptr;
 }
 
+/// Binds a texture's descriptor set at slot 0, skipping cubemaps and the
+/// GBuffer geometry pass.
 void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
                                   uint32_t slot) {
     if (!bFrameStarted) return;
@@ -919,6 +948,7 @@ void VulkanRenderer::BindTexture(RefPtr<Sleak::Texture> texture,
     }
 }
 
+/// Raw-pointer variant of BindTexture.
 void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     if (!bFrameStarted) return;
     if (!texture || slot != 0)
@@ -947,6 +977,7 @@ void VulkanRenderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     }
 }
 
+/// Allocates one primary command buffer per frame in flight.
 bool VulkanRenderer::CreateCommandBuffer() {
     commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
@@ -963,23 +994,28 @@ bool VulkanRenderer::CreateCommandBuffer() {
     return true;
 }
 
+/// Blocks until the device finishes all submitted GPU work.
 void VulkanRenderer::WaitIdle() {
     if (device) vkDeviceWaitIdle(device);
 }
 
+/// Kicks off the current frame's async buffer upload batch.
 void VulkanRenderer::FlushPendingTransfers() {
     m_asyncFlush[currentFrame] = VulkanBuffer::FlushPendingCopiesAsync(
         m_transferSemaphores[currentFrame]);
 }
 
+/// Returns total bytes currently allocated by VulkanBuffer.
 size_t VulkanRenderer::GetGPUMemoryUsed() const {
     return static_cast<size_t>(VulkanBuffer::GetTotalAllocatedBytes());
 }
 
+/// Returns the device-local heap size reported by the allocator.
 size_t VulkanRenderer::GetGPUMemoryBudget() const {
     return static_cast<size_t>(VulkanBuffer::GetDeviceLocalHeapSize());
 }
 
+/// Tears down every Vulkan resource in reverse dependency order.
 void VulkanRenderer::Cleanup() {
     SLEAK_INFO("Cleaning Vulkan...");
 
@@ -1237,12 +1273,15 @@ void VulkanRenderer::Cleanup() {
     }
 }
 
+/// Recreates the swapchain for the new window dimensions.
 void VulkanRenderer::Resize(uint32_t width, uint32_t height) {
     if (device) {
         RecreateSwapChain();
     }
 }
 
+/// Rebuilds the swapchain and its dependents (image views, depth, MSAA,
+/// framebuffers, GBuffer) after a resize or resolution change.
 bool VulkanRenderer::RecreateSwapChain() {
     vkDeviceWaitIdle(device);
 
@@ -1287,6 +1326,8 @@ bool VulkanRenderer::RecreateSwapChain() {
     return true;
 }
 
+/// Rebuilds the swapchain-dependent pipelines and render pass for a queued
+/// MSAA sample count change.
 void VulkanRenderer::ApplyMSAAChange() {
     if (!m_msaaChangeRequested)
         return;
@@ -1394,6 +1435,7 @@ void VulkanRenderer::ApplyMSAAChange() {
     SLEAK_INFO("MSAA change applied successfully");
 }
 
+/// Recreates the swapchain to apply a queued VSync toggle.
 void VulkanRenderer::ApplyVSyncChange() {
     if (!m_vsyncChangeRequested)
         return;
@@ -1402,14 +1444,17 @@ void VulkanRenderer::ApplyVSyncChange() {
     SLEAK_INFO("VSync {}", m_vsync ? "enabled" : "disabled");
 }
 
+/// No-op; Vulkan polygon mode changes require pipeline recreation.
 void VulkanRenderer::ConfigureRenderMode() {
     // Pipeline recreation needed for Vulkan polygon mode changes
 }
 
+/// No-op; Vulkan cull mode changes require pipeline recreation.
 void VulkanRenderer::ConfigureRenderFace() {
     // Pipeline recreation needed for Vulkan cull mode changes
 }
 
+/// Creates the graphics command pool.
 bool VulkanRenderer::CreateCommandPool() {
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1423,6 +1468,8 @@ bool VulkanRenderer::CreateCommandPool() {
     return true;
 }
 
+/// Creates the per-swapchain-image semaphores and per-frame fences and
+/// transfer semaphores.
 bool VulkanRenderer::CreateSyncObjects() {
     uint32_t imageCount = static_cast<uint32_t>(swapChainImages.size());
 
@@ -1465,10 +1512,9 @@ bool VulkanRenderer::CreateSyncObjects() {
     return true;
 }
 
-// Recreate only the extent-dependent shadow objects (image/view/framebuffer)
-// at the queued resolution. Samplers, render pass and pipeline are
-// extent-independent (dynamic viewport). Keep blocks in sync with
-// CreateShadowResources.
+/// Recreates the extent-dependent shadow map objects (image, view,
+/// framebuffer) at the queued resolution. Keep in sync with
+/// CreateShadowResources; samplers, render pass, and pipeline are extent-independent.
 void VulkanRenderer::ApplyShadowResolutionChange() {
     if (!m_shadowResChangeRequested) return;
     m_shadowResChangeRequested = false;
@@ -1652,11 +1698,9 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
                m_shadowMapResolution, m_shadowMapResolution);
 }
 
-// ============================================================
-// CreateGBufferResources — top-level orchestrator
-// The depth image is created by CreateDepthResources() with SAMPLED_BIT
-// already set, so we can share it directly.
-// ============================================================
+/// Top-level orchestrator for deferred rendering: creates the GBuffer color
+/// images, then the render passes, descriptors, and pipelines that read
+/// them. Shares the depth image from CreateDepthResources() (already SAMPLED_BIT).
 bool VulkanRenderer::CreateGBufferResources() {
     if (m_gbufferResourcesCreated) return true;
 
