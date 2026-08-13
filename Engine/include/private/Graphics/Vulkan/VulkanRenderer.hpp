@@ -147,7 +147,6 @@ public:
 private:
     bool CreateSkyboxPipeline();
     bool CreateSkinnedPipeline();
-    void UpdateSkyboxDescriptorSets();
 
     // Deferred rendering
     bool CreateGBufferResources();
@@ -164,7 +163,6 @@ private:
     bool CreateDeferredCBResources();
     bool CreatePBRMaterialResources();
     bool CreateIBLResources();
-    bool TriggerIBLPrecompute(VkImageView envCubemapView, VkSampler envSampler);
     void CleanupGBufferResources();
     void CleanupIBLResources();
     void UpdateGBufferDescriptors();
@@ -489,12 +487,6 @@ private:
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_iblSets            = {};
     bool m_iblResourcesCreated = false;
     bool m_iblReady            = false;
-
-    // Deferred IBL precompute — set when TriggerIBLPrecompute is called while
-    // a frame is recording; executed at the top of the next BeginRender call.
-    bool        m_iblPrecomputePending      = false;
-    VkImageView m_pendingIBLCubemapView    = VK_NULL_HANDLE;
-    VkSampler   m_pendingIBLCubemapSampler = VK_NULL_HANDLE;
 
     // ---- SSAO resources ----
     // Half-resolution R8 occlusion buffer (raw SSAO + blurred).
