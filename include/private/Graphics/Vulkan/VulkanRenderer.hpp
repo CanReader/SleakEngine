@@ -63,6 +63,7 @@ public:
     inline void SetRender(bool value) { bRender = value; }
     inline bool GetRender() { return bRender; }
 
+    /// Initializes ImGui and its Vulkan backend against the active render pass.
     virtual bool CreateImGUI() override;
 
     virtual RenderContext* GetContext() override { return this; }
@@ -110,14 +111,23 @@ public:
 
     virtual void BindTexture(RefPtr<Sleak::Texture> texture, uint32_t slot = 0) override;
     virtual void BindTextureRaw(Sleak::Texture* texture, uint32_t slot = 0) override;
+    /// Binds the skybox pipeline and its descriptor set for the current frame.
     virtual void BeginSkyboxPass() override;
+    /// Restores the previous pipeline and descriptor set after the skybox draw.
     virtual void EndSkyboxPass() override;
+    /// Copies bone matrices into the current frame's UBO and binds its descriptor set.
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
+    /// Binds the skinned pipeline matching the currently active render pass.
     virtual void BeginSkinnedPass() override;
+    /// Restores the previous pipeline after skinned draws.
     virtual void EndSkinnedPass() override;
+    /// Binds the voxel pipeline matching the currently active render pass.
     virtual void BeginVoxelPass() override;
+    /// Restores the previous pipeline and descriptor set after voxel draws.
     virtual void EndVoxelPass() override;
+    /// Binds the debug line pipeline for the current frame.
     virtual void BeginDebugLinePass() override;
+    /// Restores the previous pipeline and descriptor set after debug line draws.
     virtual void EndDebugLinePass() override;
 
     // Shadow pass support
@@ -133,6 +143,7 @@ public:
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
     virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
     virtual void BindGBufferShader() override;
+    /// Writes a material's textures and params into its ring slot and binds it at set 0.
     virtual void BindPBRMaterial(Sleak::Material* material) override;
     virtual void ExecuteDeferredLightingPass() override;
     virtual void BeginForwardTransparentPass() override;
@@ -145,7 +156,9 @@ public:
     void ApplyShadowResolutionChange() override;
 
 private:
+    /// Compiles the skybox shaders and creates the skybox descriptor set and pipeline.
     bool CreateSkyboxPipeline();
+    /// Compiles the skinned shaders and creates the forward skinned pipeline.
     bool CreateSkinnedPipeline();
 
     // Deferred rendering
@@ -161,6 +174,7 @@ private:
     bool CreateForwardFramebuffers();
     bool CreateGBufferDescriptorSets();
     bool CreateDeferredCBResources();
+    /// Creates the PBR material descriptor layout, pool, ring of sets, and GBuffer geometry pipeline layout.
     bool CreatePBRMaterialResources();
     bool CreateIBLResources();
     void CleanupGBufferResources();
@@ -184,18 +198,26 @@ private:
     bool RecreateSwapChain();
     /// Creates an image view for each swapchain image.
     bool CreateImageViews();
+    /// Creates the main forward graphics pipeline and its pipeline layout.
     bool CreateGraphicsPipeline();
+    /// Creates the main forward render pass with optional MSAA color and resolve attachments.
     bool CreateRenderPass();
+    /// Creates one framebuffer per swapchain image for the main render pass.
     bool CreateFrameBuffer();
     bool CreateCommandPool();
     bool CreateCommandBuffer();
     bool CreateSyncObjects();
     /// Creates the depth image, memory, and image view.
     bool CreateDepthResources();
+    /// Creates the texture, bone UBO, light UBO, and shadow sampler descriptor set layouts.
     bool CreateDescriptorSetLayout();
+    /// Creates the descriptor pool backing the per-texture descriptor sets.
     bool CreateDescriptorPool();
+    /// Allocates one texture descriptor set per swapchain image.
     bool AllocateDescriptorSets();
+    /// Creates the fallback 1x1 white texture and writes it into the global descriptor sets.
     bool CreateDefaultTexture();
+    /// Allocates and writes a per-texture descriptor set for the given texture.
     void WriteTextureDescriptors(VulkanTexture* texture);
     /// Registers the debug messenger callback for validation output.
     bool SetupDebugMessenger();
@@ -329,6 +351,7 @@ private:
     // Debug line pipeline
     VkPipeline debugLinePipeline = VK_NULL_HANDLE;
     VulkanShader* debugLineShader = nullptr;
+    /// Compiles the debug line shaders and creates the line-list pipeline.
     bool CreateDebugLinePipeline();
 
     // Voxel pipeline (compact 48-byte vertex layout for chunk meshes)
@@ -336,12 +359,15 @@ private:
     VkPipeline m_voxelShadowPipeline = VK_NULL_HANDLE;
     VkPipeline m_gbufferVoxelPipeline = VK_NULL_HANDLE;
     bool m_inVoxelPass = false;
+    /// Compiles the flat_shader SPIR-V and creates the forward and GBuffer voxel pipelines.
     bool CreateVoxelPipeline();
+    /// Compiles the voxel shadow vertex shader and creates the voxel shadow-pass pipeline.
     bool CreateVoxelShadowPipeline();
 
     // Water pipeline (forward transparent, uses water_shader SPIR-V)
     VkPipeline m_waterPipeline = VK_NULL_HANDLE;
     VulkanShader* m_waterShader = nullptr;
+    /// Compiles the optional water shaders and creates the alpha-blended water pipeline.
     bool CreateWaterPipeline();
 
     // Bone UBO (for skeletal animation — set 1, binding 0)
@@ -352,7 +378,9 @@ private:
     std::array<void*, MAX_FRAMES_IN_FLIGHT> boneUBOMapped = {};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> boneDescriptorSets = {};
     bool m_boneUBOCreated = false;
+    /// Creates the per-frame bone UBO buffers and their descriptor sets.
     bool CreateBoneUBOResources();
+    /// Destroys the bone UBO buffers, memory, and descriptor pool.
     void CleanupBoneUBOResources();
 
     // ImGUI
