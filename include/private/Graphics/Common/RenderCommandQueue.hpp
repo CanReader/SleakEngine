@@ -8,8 +8,10 @@
 
 namespace Sleak {
     namespace RenderEngine {
+        /// Frame-scoped queue of recorded draw/state commands, replayed into a RenderContext at flush time.
         class RenderCommandQueue {
         public:
+        /// Queues an indexed draw with its vertex/index buffers and constant buffers.
         void SubmitDrawIndexed(
             RefPtr<BufferBase> vertexBuffer,
             RefPtr<BufferBase> indexBuffer,
@@ -20,6 +22,7 @@ namespace Sleak {
             bool castsShadow = true
         );
 
+        /// Queues a non-indexed draw with its vertex buffer and constant buffers.
         void SubmitDraw(
             RefPtr<BufferBase> vertexBuffer,
             List<RefPtr<BufferBase>> constantBuffers,
@@ -27,23 +30,27 @@ namespace Sleak {
             uint32_t startVertexLocation = 0
         );
 
+        /// Queues a constant buffer bind at the given slot.
         void SubmitBindConstantBuffer(
             RefPtr<BufferBase> buffer,
             uint8_t slot
         );
 
+        /// Queues a constant buffer write with data captured at submit time.
         void SubmitUpdateConstantBuffer(
             RefPtr<BufferBase> buffer,
             void* Data,
             uint16_t Size
         );
 
+        /// Queues a material bind, switching shader/texture state for subsequent draws.
         void SubmitBindMaterial(::Sleak::Material* material);
 
         void SubmitSetRenderMode(RenderMode mode);
 
         void SubmitSetRenderFace(RenderFace face);
 
+        /// Queues an arbitrary callback to run inline with other render commands.
         void SubmitCustomCommand(CustomCommand::ExecuteFunction function);
 
         // Execute all queued commands.
@@ -56,20 +63,24 @@ namespace Sleak {
 
         bool HasCachedShadowDraws() const { return cachedShadowDraws.GetSize() > 0; }
 
+        /// Drops queued commands for the current frame, keeping the cached shadow draw list.
         void Clear();
 
+        /// Drops queued commands and the cached shadow draw list.
         void ClearAll();
         static void Shutdown();
 
         void SortCommands();
         void OptimizeBatching();
         
+        /// Lazily creates and returns the process-wide singleton instance.
         inline static RenderCommandQueue* GetInstance() 
         {
             Instance = Instance ? Instance : new RenderCommandQueue();
             return Instance;
         }
 
+        /// A draw command paired with the transform/bone buffers it needs to replay in the shadow pass.
         struct ShadowDrawEntry {
             RefPtr<RenderCommandBase> command;
             RefPtr<BufferBase> transformBuffer;  // last-bound slot-0 buffer

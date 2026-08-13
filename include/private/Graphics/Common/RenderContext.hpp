@@ -11,6 +11,7 @@ namespace Sleak {
     class Material;
     namespace RenderEngine {
 
+        /// Rasterizer fill style for a draw.
         enum class RenderMode  {
     None,
     Fill,
@@ -19,12 +20,14 @@ namespace Sleak {
     Outline,
 };
 
+/// Which triangle winding gets culled.
 enum class RenderFace {
     None,
     Back,
     Front
 };
 
+/// Depth test comparison function.
 enum class DepthCompare {
     Less,
     LessEqual,
@@ -51,14 +54,19 @@ enum class DepthCompare {
         class RenderContext {
         public:
             // Rendering commands
+            /// Non-indexed draw from the currently bound vertex buffer.
             virtual void Draw(uint32_t vertexCount) = 0;
+            /// Indexed draw from the currently bound vertex/index buffers.
             virtual void DrawIndexed(uint32_t indexCount) = 0;
+            /// Non-indexed instanced draw.
             virtual void DrawInstance(uint32_t instanceCount, uint32_t vertexPerInstance) = 0;
+            /// Indexed instanced draw.
             virtual void DrawIndexedInstance(uint32_t instanceCount, uint32_t indexPerInstance) = 0;
 
             // State management
             virtual void SetRenderFace(RenderFace face) = 0;
             virtual void SetRenderMode(RenderMode mode) = 0;
+            /// Sets the active viewport rect and depth range in pixel/NDC units.
             virtual void SetViewport(float x, float y, float width, float height, float minDepth = 0.0f, float maxDepth = 1.0f) = 0;
             virtual void ClearRenderTarget(float r, float g, float b, float a) = 0;
             virtual void ClearDepthStencil(bool clearDepth, bool clearStencil, float depth, uint8_t stencil) = 0;
@@ -120,9 +128,13 @@ enum class DepthCompare {
             virtual void BindConstantBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;
 
             // Resource creation
+            /// Allocates a backend buffer, optionally seeded with initial data.
             virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size, void* data) = 0;            
+            /// Compiles a shader program from source or a source-file path.
             virtual Shader* CreateShader(const std::string& shaderSource) = 0;
+            /// Loads a texture from disk.
             virtual Texture* CreateTexture(const std::string& TexturePath) = 0;
+            /// Creates a texture from an in-memory pixel buffer.
             virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height, void* data) = 0;
 
         };

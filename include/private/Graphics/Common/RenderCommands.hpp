@@ -25,6 +25,7 @@ namespace Sleak {
 
     namespace RenderEngine {
 
+        /// Discriminator for RenderCommandBase subclasses, used for sorting and batching.
         enum class CommandType {
             Draw = 0,
             DrawIndexed = 1,
@@ -45,9 +46,11 @@ namespace Sleak {
             BindMaterial = 16
         };
 
+        /// One recorded draw plus the state it needs to replay into a command list.
         class RenderCommandBase {
         public:
             virtual ~RenderCommandBase() = default;
+            /// Replays this command into the main forward/deferred pass.
             virtual void Execute(RenderContext* context) = 0;
             virtual CommandType GetType() const = 0;
             virtual void ExecuteShadow(RenderContext* context) { /* no-op for non-draw commands */ }
@@ -66,6 +69,7 @@ namespace Sleak {
             bool m_castsShadow = true;
         };
 
+        /// Non-indexed draw command with its vertex and constant buffers.
         class DrawCommand : public RenderCommandBase {
             public:
                 DrawCommand(
@@ -86,6 +90,7 @@ namespace Sleak {
                 uint32_t m_startVertexLocation;
         };
 
+        /// Indexed draw command with its vertex, index, and constant buffers.
         class DrawIndexedCommand : public RenderCommandBase {
         public:
             DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
@@ -109,6 +114,7 @@ namespace Sleak {
             int32_t m_baseVertexLocation;
         };
 
+        /// Constant buffer write, captured by value into inline storage or a heap fallback for larger payloads.
         class UpdateConstantBufferCommand : public RenderCommandBase {
             public:
                 UpdateConstantBufferCommand(RefPtr<BufferBase> buffer, void* Data, uint16_t Size);
@@ -118,6 +124,7 @@ namespace Sleak {
 
                 RENDER_COMMAND(UpdateConstantBuffer)
 
+                /// Returns a pointer to the captured payload, inline or heap-backed.
                 void* GetData() const
                 {
                     return m_heapData ? m_heapData
@@ -134,6 +141,7 @@ namespace Sleak {
                 uint16_t Size;
         };
 
+        /// Binds a constant buffer to a pipeline slot.
         class BindConstantBufferCommand : public RenderCommandBase {
             public:
                 BindConstantBufferCommand(RefPtr<BufferBase> buffer, int slot);
@@ -148,6 +156,7 @@ namespace Sleak {
                 int slot;
         };
 
+        /// Binds a texture for subsequent draws.
         class BindTextureCommand : public RenderCommandBase {
             public:
             BindTextureCommand(RefPtr<Texture> texture);
@@ -158,6 +167,7 @@ namespace Sleak {
                 RefPtr<Texture> texture;
         };
 
+        /// Binds a shader program for subsequent draws.
         class BindShaderCommand : public RenderCommandBase {
             public:
             BindShaderCommand(RefPtr<Shader> shader);
@@ -168,6 +178,7 @@ namespace Sleak {
                 RefPtr<Shader> shader;
         };
 
+        /// Switches the rasterizer fill mode.
         class SetRenderModeCommand : public RenderCommandBase {
             public:
                 SetRenderModeCommand(RenderMode mode);
@@ -178,6 +189,7 @@ namespace Sleak {
                 RenderMode mode;
         };
 
+        /// Switches the cull-face mode.
         class SetRenderFaceCommand : public RenderCommandBase {
             public:
                 SetRenderFaceCommand(RenderFace face);
@@ -188,6 +200,7 @@ namespace Sleak {
                 RenderFace face;
         };
 
+        /// Binds a material's shader and textures for subsequent draws.
         class BindMaterialCommand : public RenderCommandBase {
             public:
                 BindMaterialCommand(::Sleak::Material* material);
@@ -201,6 +214,7 @@ namespace Sleak {
                 ::Sleak::Material* m_material;
         };
 
+        /// Wraps an arbitrary callback as a queueable render command.
         class CustomCommand : public RenderCommandBase {
             public:
                 using ExecuteFunction = std::function<void(RenderContext*)>;

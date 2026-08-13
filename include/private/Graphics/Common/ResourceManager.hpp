@@ -23,12 +23,15 @@
 namespace Sleak {
     namespace RenderEngine {
 
+        /// Coarse kind tag for a graphics resource.
         enum class ResourceType : uint8_t {
             Buffer = 0,
             Shader = 1,
             Texture = 2
         };
 
+        /// Backend-agnostic factory: routes buffer/shader/texture creation to whichever
+        /// backend registered its creation functions at startup.
         class ResourceManager {
         public:
             // Register a function for creating buffers
@@ -84,11 +87,17 @@ namespace Sleak {
                 };
             }
 
+            /// Creates a buffer via the currently registered backend factory.
             static BufferBase* CreateBuffer(BufferType Type, uint32_t Size, void* Data);
+            /// Compiles a shader via the currently registered backend factory.
             static Shader* CreateShader(const std::string& ShaderPath);
+            /// Loads a texture via the currently registered backend factory.
             static Sleak::Texture* CreateTexture(const std::string& TexturePath);
+            /// Creates a texture from raw pixel data via the currently registered backend factory.
             static Sleak::Texture* CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format, uint32_t maxMipLevels = 0);
+            /// Loads a cubemap from six face image paths via the currently registered backend factory.
             static Sleak::Texture* CreateCubemapTexture(const std::array<std::string, 6>& FacePaths);
+            /// Loads a cubemap from a single equirectangular panorama via the currently registered backend factory.
             static Sleak::Texture* CreateCubemapTextureFromPanorama(const std::string& PanoramaPath);
 
 

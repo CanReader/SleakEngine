@@ -15,18 +15,23 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D12 cubemap texture, loadable from six face images or a single equirectangular panorama.
 class ENGINE_API DirectX12CubemapTexture : public ::Sleak::Texture {
 public:
     DirectX12CubemapTexture(ID3D12Device* device,
                             ID3D12CommandQueue* commandQueue);
     ~DirectX12CubemapTexture() override;
 
+    /// Loads and uploads 6 face images: +X, -X, +Y, -Y, +Z, -Z.
     bool LoadCubemap(const std::array<std::string, 6>& facePaths);
+    /// Loads a single equirectangular panorama and resamples it into 6 cube faces.
     bool LoadEquirectangular(const std::string& path, uint32_t faceSize = 512);
 
     // Texture interface
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromFile(const std::string& filePath) override;
 
     void Bind(uint32_t slot = 0) const override;
@@ -42,6 +47,7 @@ public:
 
     ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
+    /// Binds this cubemap's SRV table at the given root parameter for a draw.
     void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
                            UINT rootParameterIndex) const;
 
@@ -51,8 +57,10 @@ public:
     void CreateSRVIntoHandle(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
 private:
+    /// Builds the cubemap texture array and shader resource view from decoded face pixels.
     bool CreateCubemapFromFaces(const std::vector<unsigned char*>& faceData,
                                 uint32_t faceSize);
+    /// Blocks until the upload-heap copy to the GPU-resident cubemap resource completes.
     void WaitForUpload();
 
     ID3D12Device* m_device = nullptr;

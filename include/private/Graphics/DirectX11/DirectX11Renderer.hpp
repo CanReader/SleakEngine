@@ -20,6 +20,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D11 backend: forward pipeline with shadow mapping, MSAA, and ACES tonemapping.
 class ENGINE_API DirectX11Renderer : public Renderer, public RenderContext {
 public:
     DirectX11Renderer(Window* window);
@@ -30,7 +31,9 @@ public:
     void EndRender() override;
     void Cleanup() override;
 
+    /// Allocates the depth/stencil texture and view sized to the swapchain.
     bool CreateDepthStencilBuffer(uint32_t width, uint32_t height);
+    /// Creates and binds a depth-stencil state matching the requested depth/stencil toggles.
     void SetDepthStencilState(bool enableDepth, bool enableStencil);
 
     virtual void Resize(uint32_t width, uint32_t height) override;
@@ -67,7 +70,9 @@ public:
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    /// Loads a cubemap from six face image paths.
     Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    /// Loads a cubemap by converting a single equirectangular panorama.
     Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
     // Skybox state management
@@ -92,15 +97,22 @@ public:
    private:
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
+    /// Creates the back-buffer render target view from the swapchain.
     bool CreateRenderTargetView();
+    /// Creates and binds the rasterizer state matching current fill/cull settings.
     bool SetRasterState();
 
+    /// Creates the alpha-blend state used for transparent draws.
     bool CreateBlendState();
     void SetBlendState(float r, float g, float b, float a, UINT Mask);
 
+    /// Queries the device for supported MSAA sample counts and their quality levels.
     void CheckMSAASupport();
+    /// Allocates the multisampled color render target at the current sample count.
     bool CreateMSAARenderTarget();
+    /// Allocates the multisampled depth-stencil buffer at the current sample count.
     bool CreateMSAADepthStencil();
+    /// Resolves the multisampled render target into the single-sample back buffer.
     void ResolveMSAA();
 
     
@@ -148,6 +160,7 @@ public:
     // Shadow mapping
     ID3D11Buffer* m_shadowCB = nullptr;
     bool m_shadowCBCreated = false;
+    /// Allocates the constant buffer backing PCSSShadowGPUData.
     bool CreateShadowConstantBuffer();
     void CleanupShadowResources();
 
@@ -164,7 +177,9 @@ public:
     ID3D11Buffer* m_shadowTransformCB = nullptr;  // Dedicated CB for shadow pass transforms
     bool m_inShadowPass = false;
     void SetLightVP(const float* mat) override;
+    /// Allocates the shadow-pass depth texture, DSV/SRV, and comparison sampler.
     bool CreateShadowMapResources();
+    /// Replays cached shadow-caster draws into the depth-only shadow map.
     void RenderShadowPass();
 
     // Post-process: Tonemapping
@@ -176,8 +191,10 @@ public:
     ID3D11VertexShader* m_tonemapVS = nullptr;
     ID3D11PixelShader* m_tonemapPS = nullptr;
     bool m_tonemapResourcesCreated = false;
+    /// Allocates the HDR offscreen target and tonemap shaders/sampler.
     bool CreateTonemapResources();
     void CleanupTonemapResources();
+    /// Runs the ACES tonemap full-screen pass from the HDR target to the back buffer.
     void ExecuteTonemapPass();
 };
 

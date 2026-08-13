@@ -13,17 +13,22 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D11 cubemap texture, loadable from six face images or a single equirectangular panorama.
 class DirectX11CubemapTexture : public ::Sleak::Texture {
 public:
     DirectX11CubemapTexture(ID3D11Device* device);
     ~DirectX11CubemapTexture() override;
 
+    /// Loads and uploads 6 face images: +X, -X, +Y, -Y, +Z, -Z.
     bool LoadCubemap(const std::array<std::string, 6>& facePaths);
+    /// Loads a single equirectangular panorama and resamples it into 6 cube faces.
     bool LoadEquirectangular(const std::string& path, uint32_t faceSize = 512);
 
     // Texture interface
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromFile(const std::string& filePath) override;
 
     void Bind(uint32_t slot = 0) const override;
@@ -38,6 +43,7 @@ public:
     TextureType GetType() const override { return TextureType::TextureCube; }
 
 private:
+    /// Builds the cubemap texture array and shader resource view from decoded face pixels.
     bool CreateCubemapFromFaces(const std::vector<unsigned char*>& faceData,
                                 uint32_t faceSize);
     void CreateSamplerState();

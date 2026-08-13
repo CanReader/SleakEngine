@@ -36,6 +36,7 @@ constexpr float kCubeVertices[] = {
 // 6 capture views (LH, Y-up). The "up" vectors are chosen so that the
 // resulting cubemap face orientation matches GL_TEXTURE_CUBE_MAP_*
 // when the captured cube is sampled with a unit direction vector.
+/// Builds the look-at view matrix for one of the 6 cubemap capture directions.
 Math::Matrix4 BuildCaptureView(int face) {
     using V3 = Math::Vector<float, 3>;
     const V3 origin{0.0f, 0.0f, 0.0f};

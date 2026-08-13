@@ -6,6 +6,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// Derives usage/bind/CPU-access flags from the buffer type via ConfigureFromBufferType.
 DirectX11Buffer::DirectX11Buffer(ID3D11Device* device, size_t size, BufferType type)
     : BufferBase()
 {
@@ -223,6 +224,7 @@ void DirectX11Buffer::Update(void* data, size_t size)
     }
 }
 
+/// Returns CPU-visible data directly for readable buffers, or round-trips GPU-only buffers through a staging copy.
 void* DirectX11Buffer::GetData() {
     if (!m_buffer || !m_deviceContext) {
         SLEAK_ERROR("Buffer or device context is null!");

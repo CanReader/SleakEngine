@@ -18,6 +18,7 @@ MeshHandle::MeshHandle(MeshHandle&&) noexcept = default;
 MeshHandle& MeshHandle::operator=(const MeshHandle&) = default;
 MeshHandle& MeshHandle::operator=(MeshHandle&&) noexcept = default;
 
+/// Uploads a vertex/index group as GPU buffers and returns a handle to them.
 MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
     MeshHandle h;
     if (vertices.GetSize() == 0 || indices.GetSize() == 0) return h;
@@ -36,6 +37,7 @@ MeshHandle MeshBatch::CreateMesh(VertexGroup& vertices, IndexGroup& indices) {
     return h;
 }
 
+/// Uploads compact voxel vertices/indices as GPU buffers, tagging the vertex buffer as voxel-format.
 MeshHandle MeshBatch::CreateVoxelMesh(VoxelVertexGroup& vertices,
                                        IndexGroup& indices) {
     MeshHandle h;
@@ -58,6 +60,7 @@ MeshHandle MeshBatch::CreateVoxelMesh(VoxelVertexGroup& vertices,
     return h;
 }
 
+/// Binds the batch material and (re)uploads the shared identity-world transform buffer once per batch.
 void MeshBatch::BeginBatch(Material* material) {
     auto* queue = RenderEngine::RenderCommandQueue::GetInstance();
 
@@ -83,6 +86,7 @@ void MeshBatch::BeginBatch(Material* material) {
     queue->SubmitBindConstantBuffer(s_batchTransformBuffer, 0);
 }
 
+/// Submits an indexed draw for a mesh already created via CreateMesh/CreateVoxelMesh.
 void MeshBatch::Draw(const MeshHandle& mesh, bool castsShadow) {
     if (!mesh.IsValid()) return;
     RenderEngine::RenderCommandQueue::GetInstance()->SubmitDrawIndexed(

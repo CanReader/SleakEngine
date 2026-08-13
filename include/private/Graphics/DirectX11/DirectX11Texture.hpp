@@ -8,6 +8,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D11 2D texture, loadable from disk or an in-memory pixel buffer.
 class DirectX11Texture : public Sleak::Texture {
 public:
     DirectX11Texture(ID3D11Device* device);
@@ -63,9 +64,13 @@ private:
     TextureWrapMode m_wrapMode;
     float m_lodBias = 0.0f;
 
+    /// (Re)creates the sampler state from the current filter/wrap/LOD-bias settings.
     void CreateSamplerState();
+    /// Maps the engine's TextureFormat to the matching DXGI_FORMAT.
     DXGI_FORMAT GetDXGIFormat(TextureFormat format) const;
+    /// Maps the engine's TextureFilter to the matching D3D11_FILTER.
     D3D11_FILTER GetD3D11Filter(TextureFilter filter) const;
+    /// Maps the engine's TextureWrapMode to the matching D3D11_TEXTURE_ADDRESS_MODE.
     D3D11_TEXTURE_ADDRESS_MODE GetD3D11WrapMode(TextureWrapMode wrapMode) const;
 };
 

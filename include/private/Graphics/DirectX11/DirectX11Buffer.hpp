@@ -10,6 +10,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D11 buffer wrapper covering vertex/index/constant usages and custom configurations.
 class DirectX11Buffer : public BufferBase {
 public:
     // Constructor for common buffer types
@@ -29,14 +30,18 @@ public:
     
     ~DirectX11Buffer() override;
 
+    /// Creates the D3D11 buffer resource and uploads initial data, if any.
     bool Initialize(void* Data) override;
     void Update() override;
     void Cleanup() override;
     
+    /// Maps the buffer for CPU writes (dynamic usage only).
     bool Map() override;
     void Unmap() override;
+    /// Overwrites buffer contents via UpdateSubresource/Map depending on usage.
     void Update(void* data, size_t size) override;
 
+    /// Creates the buffer sized and pre-populated from a raw payload.
     bool Initialize(const void* data, uint16_t size);
 
     void* GetData() override;

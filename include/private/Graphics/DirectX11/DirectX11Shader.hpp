@@ -15,21 +15,26 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D11 vertex+pixel shader pair, compiled from HLSL and paired with an input layout.
 class DirectX11Shader : public Shader {
    public:
     DirectX11Shader(ID3D11Device* device);
     ~DirectX11Shader() override;
 
+    /// Compiles the combined-path convention (vs_main/ps_main entry points) from a single HLSL file.
     bool compile(const std::string& shaderPath) override;
+    /// Compiles separate vertex and pixel shader HLSL files.
     bool compile(const std::string& vertPath,
                  const std::string& fragPath) override;
     void bind() override;
 
     ID3DBlob* getVertexShaderBlob() const;
+    /// Builds the input layout matching DefaultLayout or SkinnedLayout from the vertex shader bytecode.
     ID3D11InputLayout* createInputLayout();
     ID3D11InputLayout* getInputLayout() const { return Layout.Get(); }
 
    private:
+    /// Compiles one HLSL entry point/profile via D3DCompile into a shader object and bytecode blob.
     template <typename T>
     bool compileShader(const std::string& filePath,
                        const std::string& entryPoint,

@@ -9,6 +9,7 @@ namespace Sleak {
 
 namespace RenderEngine {
     
+/// Selects which graphics API a Renderer instance targets.
 enum class RendererType {
     Vulkan,
     OpenGL,
@@ -16,7 +17,7 @@ enum class RendererType {
     DirectX12
 };
 
-// Per-backend feature capability bits
+/// Per-backend feature capability bits, queried to gate optional pipeline stages.
 enum GraphicsCaps : uint32_t {
     CapDeferred      = 1 << 0,
     CapSSAO          = 1 << 1,
@@ -32,25 +33,34 @@ enum GraphicsCaps : uint32_t {
     CapProceduralSky = 1 << 11
 };
 
+/// Abstract render backend: swapchain, frame lifecycle, and post-effect toggles.
 class ENGINE_API Renderer {
 public:
     virtual ~Renderer() = 0; // Pure virtual destructor
 
+    /// Creates the device, swapchain, and backend resources.
     virtual bool Initialize() = 0;
+    /// Acquires the next frame and prepares it for command recording.
     virtual void BeginRender() = 0;
+    /// Submits recorded commands and presents the frame.
     virtual void EndRender() = 0;
     virtual void Cleanup() = 0;
+    /// Blocks until the GPU has finished all outstanding work.
     virtual void WaitIdle() {}
+    /// Flushes any buffered upload/staging transfers still in flight.
     virtual void FlushPendingTransfers() {}
 
     // GPU memory tracking (overridden by VulkanRenderer)
     virtual size_t GetGPUMemoryUsed() const { return 0; }
     virtual size_t GetGPUMemoryBudget() const { return 0; }
 
+    /// Recreates swapchain-dependent resources for a new surface size.
     virtual void Resize(uint32_t width, uint32_t height) = 0;
 
+    /// Initializes ImGui integration for this backend.
     virtual bool CreateImGUI() = 0;
 
+    /// Returns the backend's command-recording interface.
     virtual RenderContext* GetContext() = 0;
 
     inline RendererType GetType() const
@@ -69,7 +79,7 @@ public:
         }
     }
 
-    // Feature capability mask — backends override with the audited truth
+    /// Feature capability mask; backends override with the audited truth.
     virtual uint32_t GetFeatureCaps() const { return CapShadows; }
 
     inline RenderMode GetRenderMode() const {
@@ -180,6 +190,7 @@ public:
     // that it is queued until the backend recreates shadow resources, so the
     // getter always reflects the LIVE map size (LightManager texel math
     // depends on this).
+    /// Requests a new shadow map size, clamped to [256, 8192] and queued if resources already exist.
     void SetShadowMapResolution(uint32_t res) {
         if (res < 256 || res > 8192) return;
         if (res == m_shadowMapResolution) return;
@@ -198,6 +209,7 @@ public:
     bool GetDeferredEnabled() const { return m_deferredEnabled; }
 
     // Anti-aliasing (MSAA)
+    /// Requests a new MSAA sample count; rejects invalid values and samples above 1 while deferred shading is on.
     virtual void SetMSAASampleCount(uint32_t samples) {
         // Validate: must be 1, 2, 4, or 8
         if (samples != 1 && samples != 2 && samples != 4 && samples != 8)
@@ -220,9 +232,12 @@ public:
     virtual void ApplyMSAAChange() {}
 
     protected:
+    /// Applies the current RenderMode (fill/wireframe/points) to backend state.
     virtual void ConfigureRenderMode() = 0;
+    /// Applies the current RenderFace (cull mode) to backend state.
     virtual void ConfigureRenderFace() = 0;
 
+    /// Rolls up frame count into rate/time/triangle stats once per MetricUpdateInterval.
     void UpdateFrameMetrics() {
         if (!bEnabledPerformanceCounter) return;
         m_frameCount++;

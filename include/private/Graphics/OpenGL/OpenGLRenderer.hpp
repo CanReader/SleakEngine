@@ -15,6 +15,7 @@ namespace Sleak {
 
 namespace RenderEngine {
 
+/// OpenGL 3.3+ backend: deferred GBuffer pipeline, SSAO, shadow mapping, and baked IBL.
 class ENGINE_API OpenGLRenderer : public Renderer, public RenderContext {
 public:
     OpenGLRenderer(Window* window);
@@ -79,7 +80,9 @@ public:
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    /// Loads a cubemap from six face image paths.
     Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    /// Loads a cubemap by converting a single equirectangular panorama.
     Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
 private:
@@ -94,12 +97,14 @@ private:
     GLuint m_msaaFBO = 0;
     GLuint m_msaaColorRBO = 0;
     GLuint m_msaaDepthRBO = 0;
+    /// Allocates the multisampled color/depth renderbuffers sized to the current swapchain.
     void CreateMSAAFramebuffer();
     void CleanupMSAAFramebuffer();
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
 
+    /// Configures the shared VAO's vertex attribute layout for the standard mesh format.
     void SetupVertexLayout();
 
     // Shadow mapping
@@ -115,8 +120,11 @@ private:
     GLuint m_shadowTransformUBO = 0;
     void SetLightVP(const float* mat) override;
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
+    /// Allocates the UBO backing ShadowLightUBO.
     bool CreateShadowUBO();
+    /// Replays cached shadow-caster draws into the depth-only shadow FBO.
     void RenderShadowPass();
 
     // ---- Deferred rendering (GBuffer) ----
@@ -152,8 +160,10 @@ private:
     bool m_inGeometryPass          = false;
     bool m_inForwardTransparentPass = false;
 
+    /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
     bool CreateGBufferResources();
     void CleanupGBufferResources();
+    /// Tears down and reallocates the GBuffer at a new swapchain size.
     void RecreateGBufferOnResize(int width, int height);
 
     // ---- SSAO ----
@@ -169,15 +179,19 @@ private:
     class OpenGLShader* m_ssaoBlurShader = nullptr;
     bool   m_ssaoCreated = false;
 
+    /// Allocates the SSAO/blur FBOs, noise texture, and kernel/settings UBOs.
     bool CreateSSAOResources();
     void CleanupSSAOResources();
+    /// Tears down and reallocates SSAO targets at a new swapchain size.
     void RecreateSSAOOnResize(int width, int height);
+    /// Runs the SSAO sample pass followed by the blur pass into m_ssaoBlurTex.
     void ExecuteSSAOPass();
 
     // ---- IBL (Image-Based Lighting) ----
     class OpenGLIBL* m_ibl    = nullptr;
     GLuint m_iblSettingsUBO   = 0;   // binding 10 in lighting_pass_gl.frag
     GLuint m_iblBoundCubemap  = 0;   // last skybox cubemap we baked from
+    /// Lazily (re)bakes IBL data when the bound skybox cubemap changes.
     void EnsureIBL();
     void CleanupIBL();
 };

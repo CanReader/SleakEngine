@@ -8,13 +8,17 @@
 namespace Sleak {
     namespace RenderEngine {
 
+        /// GPU buffer usage kind, drives backend binding flags and layout.
         enum class BufferType { Vertex = 0, Index = 1, Constant = 2, ShaderResource = 3, DepthStencil = 4, RenderTarget = 5, UnorderedAccess = 6 };
         
+        /// Backend-agnostic GPU buffer: vertex, index, constant, or resource view target.
         class ENGINE_API BufferBase : public ResourceBase {
         public:
+            /// Maps the buffer for CPU writes; returns false if already mapped or unmappable.
             virtual bool Map() = 0;
             virtual void Unmap() = 0;
             virtual void Update() = 0;
+            /// Overwrites the buffer contents with new data of a given size.
             virtual void Update(void* data, size_t size) = 0;
             
             virtual void* GetData() = 0;
@@ -39,6 +43,7 @@ namespace Sleak {
             // CPU-side shadow copy for shadow pass (avoids GPU readback)
             const void* GetCPUShadowCopy() const { return m_cpuShadowCopy; }
             size_t GetCPUShadowCopySize() const { return m_cpuShadowCopySize; }
+            /// Copies up to 128 bytes into the inline shadow-copy storage, clamping oversized input.
             void StoreCPUShadowCopy(const void* data, size_t size) {
                 if (size > sizeof(m_cpuShadowStorage)) size = sizeof(m_cpuShadowStorage);
                 memcpy(m_cpuShadowStorage, data, size);

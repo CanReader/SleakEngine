@@ -8,6 +8,7 @@
 namespace Sleak {
     namespace RenderEngine {
 
+        /// Well-known constant buffer slot identifiers.
         enum class CBIds {
             Transformation = 0,
             Material = 1,
@@ -15,6 +16,7 @@ namespace Sleak {
         };
 
         // Per-light GPU entry (64 bytes = 4 x 16-byte rows)
+        /// One light's packed GPU representation, laid out for std140/cbuffer alignment.
         struct alignas(16) LightGPUEntry {
             // Row 0: Position.xyz + Type
             float PositionX, PositionY, PositionZ;
@@ -41,6 +43,7 @@ namespace Sleak {
         // Lights[]) still read a valid prefix. Don't reorder.
         static constexpr uint32_t MAX_LIGHTS = 16;
 
+        /// Full per-frame lighting UBO: camera, ambient, fog, and the packed light array.
         struct alignas(16) LightCBData {
             // Header Row 0: CameraPos.xyz + NumActiveLights
             float CameraPosX, CameraPosY, CameraPosZ;
@@ -68,6 +71,7 @@ namespace Sleak {
             float HeightFogEnabled;    // 0 = off, 1 = on
         };
 
+        /// Interface for a CPU-side payload that can be uploaded to a GPU constant buffer.
         struct ConstantBuffer {
         public:
             virtual void* GetData() const = 0;
@@ -75,14 +79,17 @@ namespace Sleak {
             virtual uint16_t GetSize() const = 0;
         };
 
+        /// Per-draw world-view-projection and world matrices.
         struct alignas(16) TransformBuffer : public ConstantBuffer {
 
+            /// Composes WVP from world/view/proj and keeps World separately for lighting.
             TransformBuffer(const Sleak::Math::Matrix4& world,
                             const Sleak::Math::Matrix4& view,
                             const Sleak::Math::Matrix4& proj)
                 : WVP(world * view * proj), World(world) {
             }
 
+            /// Takes a pre-composed WVP with an identity world matrix (e.g. skybox, UI).
             explicit TransformBuffer(const Sleak::Math::Matrix4& mvp)
                 : WVP(mvp), World(Sleak::Math::Matrix4::Identity()) {
             }
@@ -102,6 +109,7 @@ namespace Sleak {
 
         // GPU-aligned POD struct for material constant buffer data.
         // Total: 128 bytes (8 x 16-byte rows), matches all shader backends.
+        /// Packed PBR material parameters uploaded to the material constant buffer.
         struct alignas(16) MaterialGPUData {
             // Row 0: Texture presence flags (16 bytes)
             uint32_t HasDiffuseMap;
@@ -142,6 +150,7 @@ namespace Sleak {
             float _pad1, _pad2;
         };
 
+        /// ConstantBuffer wrapper around MaterialGPUData.
         struct alignas(16) MaterialBuffer : public ConstantBuffer {
 
             MaterialBuffer() : gpuData{} {}
@@ -164,6 +173,7 @@ namespace Sleak {
         // NOTE: trailing fog/sky fields are appended in fixed order — do not
         // reorder. Shader UBO declarations may stop short of the full struct
         // (size mismatch in that direction is fine for std140/cbuffer reads).
+        /// Shadow-pass UBO: light/shadow parameters, fog, and extra fill lights (set 2, binding 0).
         struct alignas(16) ShadowLightUBO {
             float LightDir[4];       // xyz + normalBias
             float LightColor[4];     // rgb + intensity
@@ -198,6 +208,7 @@ namespace Sleak {
 
         // GPU-aligned POD struct for post-process settings constant buffer.
         // Total: 16 bytes (1 x 16-byte row).
+        /// Tonemapping/exposure settings uploaded to the post-process pass.
         struct alignas(16) PostProcessGPUData {
             float Exposure;        // HDR exposure multiplier (default 1.0)
             float Gamma;           // Gamma correction exponent (default 2.2)
@@ -209,6 +220,7 @@ namespace Sleak {
         // Total: 64 bytes (4 x 16-byte rows).
         static constexpr uint32_t SSAO_KERNEL_SIZE = 64;
 
+        /// SSAO pass parameters: kernel size, radius/bias/power, and screen/near-far metrics.
         struct alignas(16) SSAOSettingsGPUData {
             // Row 0
             float Radius;          // Sample hemisphere radius (default 0.5)
@@ -233,6 +245,7 @@ namespace Sleak {
 
         // GPU-aligned POD struct for PCSS shadow settings (used in PBR shader, DX11/OpenGL).
         // Total: 96 bytes (6 x 16-byte rows).
+        /// PCSS soft-shadow parameters for the DX11/OpenGL PBR shader path.
         struct alignas(16) PCSSShadowGPUData {
             // Row 0-3: Light view-projection matrix (64 bytes)
             float LightVP[16];
@@ -254,6 +267,7 @@ namespace Sleak {
 
         // GPU-aligned POD struct for SSAO composite settings (used in PBR shader).
         // Total: 16 bytes (1 x 16-byte row).
+        /// Controls whether the forward PBR shader multiplies in the SSAO texture.
         struct alignas(16) SSAOCompositeGPUData {
             uint32_t SSAOCompositeEnabled; // 0 = disabled, 1 = multiply AO by SSAO texture
             float    ScreenWidth;
@@ -263,6 +277,7 @@ namespace Sleak {
 
         // GPU-aligned POD struct for IBL settings constant buffer.
         // Total: 16 bytes (1 x 16-byte row).
+        /// Image-based lighting toggle, intensity, and prefiltered-map LOD range.
         struct alignas(16) IBLSettingsGPUData {
             uint32_t IBLEnabled;       // 0 = disabled, 1 = enabled
             float    IBLIntensity;     // multiplier for IBL contribution (default 1.0)
@@ -270,6 +285,7 @@ namespace Sleak {
             uint32_t _iblPad0;
         };
 
+        /// ConstantBuffer wrapper around LightCBData.
         struct alignas(16) LightBuffer : public ConstantBuffer {
             LightBuffer() : gpuData{} {}
             LightBuffer(const LightCBData& data)
@@ -289,6 +305,7 @@ namespace Sleak {
         // Per-frame CB for the deferred lighting pass (bound at slot 3).
         // Provides inverse view-projection for world-position reconstruction from depth.
         // Total: 80 bytes (5 x 16-byte rows).
+        /// Per-frame deferred lighting pass CB: inverse view-projection plus screen/near-far metrics.
         struct alignas(16) DeferredCBData {
             // Rows 0-3: Inverse view-projection matrix (64 bytes)
             float InvViewProj[16];
@@ -300,6 +317,7 @@ namespace Sleak {
             float FarPlane;
         };
 
+        /// ConstantBuffer wrapper around DeferredCBData.
         struct alignas(16) DeferredBuffer : public ConstantBuffer {
             DeferredBuffer() : gpuData{} {}
             DeferredBuffer(const DeferredCBData& data) : gpuData(data) {}

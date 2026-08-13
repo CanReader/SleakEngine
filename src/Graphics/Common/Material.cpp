@@ -9,6 +9,7 @@ namespace Sleak {
 
     Material::~Material() = default;
 
+    /// Lazily allocates the material's constant buffer on first use.
     void Material::Initialize() {
         if (!m_materialBuffer) {
             m_materialBuffer = ObjectPtr<RenderEngine::BufferBase>(
@@ -20,6 +21,7 @@ namespace Sleak {
         }
     }
 
+    /// Binds shader, all set textures, and uploads the packed material CB for a forward draw.
     void Material::Bind() {
         if (m_shader) {
             m_shader->bind();
@@ -47,6 +49,7 @@ namespace Sleak {
         }
     }
 
+    /// Packs texture-presence flags and material scalars into the GPU constant buffer layout.
     RenderEngine::MaterialGPUData Material::BuildGPUData() const {
         RenderEngine::MaterialGPUData data = {};
 
@@ -95,11 +98,13 @@ namespace Sleak {
         return data;
     }
 
+    /// True when this material must skip the GBuffer and render in the forward transparent pass.
     bool Material::IsForwardRendered() const {
         return m_renderMode == MaterialRenderMode::Transparent
             || m_opacity < 1.0f;
     }
 
+    /// Binds textures and uploads the material CB for the deferred geometry pass, skipping the shader bind.
     void Material::BindTexturesAndCB() {
         // Same as Bind() but without shader->bind() — geometry pass overrides the shader.
         if (m_diffuseTexture)   m_diffuseTexture->Bind(TEXTURE_SLOT_DIFFUSE);

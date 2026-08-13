@@ -76,6 +76,7 @@ bool DirectX11CubemapTexture::LoadCubemap(
     return result;
 }
 
+/// Resamples an equirectangular panorama into 6 cube faces via per-pixel direction lookup.
 bool DirectX11CubemapTexture::LoadEquirectangular(const std::string& path,
                                                     uint32_t faceSize) {
     stbi_set_flip_vertically_on_load(false);

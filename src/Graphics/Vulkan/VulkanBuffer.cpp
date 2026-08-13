@@ -64,13 +64,16 @@ static constexpr uint32_t kIdleFramesBeforeTrim = 120;
 static uint32_t g_idleFrames = 0;
 
 // Recycling helpers
+/// Rounds a size up to the nearest pool bucket so similar-sized buffers can share slots.
 static VkDeviceSize BucketSize(VkDeviceSize s) {
     return ((s + kPoolBucket - 1) / kPoolBucket) * kPoolBucket;
 }
+/// True for vertex/index usages, the only kinds worth pooling for reuse.
 static bool UsageIsRecyclable(VkBufferUsageFlags usage) {
     return (usage & (VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) != 0;
 }
+/// True when a buffer is both device-local and a recyclable usage, the pool's eligibility gate.
 static bool IsRecyclable(VkBufferUsageFlags usage, VkMemoryPropertyFlags props) {
     return (props & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
            UsageIsRecyclable(usage);

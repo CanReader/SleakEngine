@@ -20,6 +20,7 @@
 namespace Sleak {
     namespace RenderEngine {
         
+/// Registers this backend's buffer/shader/texture factories with ResourceManager.
 DirectX11Renderer::DirectX11Renderer(Window* window) 
     : window(window),
       device(nullptr),

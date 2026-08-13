@@ -4,6 +4,7 @@
 
 namespace Sleak {
 
+/// Builds a config with every render feature toggle set for a named quality tier.
 GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
     GraphicsConfig cfg;
     switch (q) {
@@ -93,6 +94,7 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
     return cfg;
 }
 
+/// Pushes this config's shadow settings onto a directional light.
 void GraphicsConfig::ApplyShadows(Sleak::DirectionalLight& light) const {
     light.SetCastShadows(shadowEnabled);
     light.SetShadowFrustumSize(shadowFrustumSize);

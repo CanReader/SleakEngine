@@ -22,6 +22,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// Registers this backend's buffer/shader/texture factories with ResourceManager.
 OpenGLRenderer::OpenGLRenderer(Window* window)
     : m_Window(window) {
     this->Type = RendererType::OpenGL;

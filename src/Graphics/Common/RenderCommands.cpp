@@ -58,6 +58,7 @@ DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
       m_startIndexLocation(startIndexLocation),
       m_baseVertexLocation(baseVertexLocation) {}
 
+/// Binds buffers, routes bone data through the skinned pipeline when present, then draws.
 void DrawIndexedCommand::Execute(RenderContext* context) {
     context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
     context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
@@ -106,6 +107,7 @@ bool DrawIndexedCommand::IsSkinned() const {
     return false;
 }
 
+/// Copies the payload into inline storage, falling back to a heap allocation past INLINE_CAPACITY.
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
     void* Data,
     uint16_t Size) :
@@ -152,6 +154,7 @@ void SetRenderFaceCommand::Execute(RenderContext* context) {
 BindMaterialCommand::BindMaterialCommand(::Sleak::Material* material)
     : m_material(material) {}
 
+/// Binds the material either through the deferred PBR path or the plain forward path, per active pass.
 void BindMaterialCommand::Execute(RenderContext* context) {
     if (m_material) {
         if (context->IsInGeometryPass()) {

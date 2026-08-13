@@ -14,6 +14,7 @@ namespace RenderEngine {
 struct SSAOKernel {
     static constexpr uint32_t MAX_KERNEL_SIZE = 64;
 
+    /// One hemisphere sample offset (w unused, kept for GPU alignment).
     struct Sample {
         float x, y, z, _pad;
     };
@@ -24,6 +25,7 @@ struct SSAOKernel {
     static constexpr uint32_t NOISE_SIZE = 4;
     std::array<float, NOISE_SIZE * NOISE_SIZE * 4> noiseData{};
 
+    /// Fills samples[] and noiseData[] with a deterministic (seed 42) cosine-weighted kernel.
     void Generate(uint32_t kernelSize = MAX_KERNEL_SIZE) {
         std::mt19937 rng(42); // deterministic seed for reproducibility
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);

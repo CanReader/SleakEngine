@@ -9,6 +9,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// VMA-backed Vulkan buffer with staging uploads, batched copies, and a size-bucketed recycling pool.
 class ENGINE_API VulkanBuffer : public BufferBase {
 public:
     VulkanBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
@@ -16,11 +17,14 @@ public:
                  VkCommandPool commandPool, VkQueue graphicsQueue);
     ~VulkanBuffer() override;
 
+    /// Allocates the buffer (recycling a pooled one if a match exists) and uploads initial data, if any.
     bool Initialize(void* data) override;
     void Update() override;
+    /// Overwrites buffer contents, staging through a temporary buffer for device-local memory.
     void Update(void* data, size_t size) override;
     void Cleanup() override;
 
+    /// Maps host-visible memory for direct CPU writes.
     bool Map() override;
     void Unmap() override;
 
@@ -40,12 +44,14 @@ public:
 
     // Async flush: submit pending copies signaling the given semaphore.
     // No CPU wait — the caller must wait on the semaphore before using data.
+    /// A staging buffer awaiting release once its async copy has completed.
     struct PendingStagingCleanup {
         VkBuffer buffer;
         VmaAllocation memory;
         VkDeviceSize allocSize = 0;
         uint32_t memoryTypeIndex = 0;
     };
+    /// Result of an async batched flush: the recorded command buffer plus staging resources to free later.
     struct AsyncFlushResult {
         bool submitted = false;
         std::vector<PendingStagingCleanup> stagingBuffers;
@@ -60,15 +66,18 @@ public:
     static void SetBatchingEnabled(bool enabled) { s_batchingEnabled = enabled; }
 
 private:
+    /// Allocates a VMA-backed VkBuffer with the given usage/memory properties.
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
                       VkBuffer& buffer, VmaAllocation& memory,
                       VkDeviceSize* outAllocSize = nullptr,
                       uint32_t* outMemTypeIdx = nullptr);
 
+    /// Records a GPU-side copy between buffers, batched or submitted immediately per SetBatchingEnabled.
     void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
                     VkDeviceSize size);
 
+    /// Finds a physical device memory type matching the filter and required properties.
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
 
@@ -99,10 +108,12 @@ private:
     static VkQueue s_batchQueue;
     static std::vector<PendingStagingCleanup> s_pendingCleanup;
 
+    /// Opens the shared batch command buffer if one isn't already recording.
     static void EnsureBatchStarted(VkDevice device, VkCommandPool pool,
                                    VkQueue queue);
 
     // --- Deferred buffer deletion ---
+    /// A buffer queued for destruction once the GPU is guaranteed done referencing it.
     struct DeferredBufferDelete {
         VkBuffer buffer;
         VmaAllocation memory;
@@ -117,6 +128,7 @@ private:
     static uint64_t s_frameNumber;
 
     // --- Buffer recycling pool ---
+    /// An idle buffer available for reuse by a future same-size, same-usage allocation.
     struct PooledBuffer {
         VkBuffer buffer;
         VmaAllocation memory;
@@ -134,6 +146,7 @@ private:
     static constexpr VkDeviceSize MAX_POOL_BYTES = 64 * 1024 * 1024;
     static constexpr size_t MAX_POOL_SIZE = 128;  // hard cap on entry count too
 
+    /// Pulls a same-size, same-usage buffer out of the recycling pool if one is available.
     bool TryRecycleBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                           VkMemoryPropertyFlags properties,
                           VkBuffer& buffer, VmaAllocation& memory,
@@ -169,6 +182,7 @@ private:
     static VkDeviceSize s_perTypeBytes[VK_MAX_MEMORY_TYPES];
     static bool s_memTypeIsDeviceLocal[VK_MAX_MEMORY_TYPES];
     static uint32_t s_memTypeCount;
+    /// Evicts pooled buffers backed by a specific memory type (used when that heap is under pressure).
     static void EvictPoolForMemType(uint32_t memTypeIdx);
 };
 

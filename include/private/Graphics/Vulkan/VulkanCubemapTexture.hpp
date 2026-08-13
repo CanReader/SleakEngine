@@ -10,20 +10,24 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// Vulkan cubemap texture, loadable from six face images or a single equirectangular panorama.
 class ENGINE_API VulkanCubemapTexture : public ::Sleak::Texture {
 public:
     VulkanCubemapTexture(VkDevice device, VkPhysicalDevice physicalDevice,
                          VkCommandPool commandPool, VkQueue graphicsQueue);
     ~VulkanCubemapTexture() override;
 
+    /// Loads and uploads 6 face images: +X, -X, +Y, -Y, +Z, -Z.
     bool LoadCubemap(const std::array<std::string, 6>& facePaths);
 
     /// Load from a single equirectangular panorama and convert to cubemap
     bool LoadEquirectangular(const std::string& path, uint32_t faceSize = 512);
 
     // Texture interface
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Unused for cubemaps; load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromFile(const std::string& filePath) override;
 
     void Bind(uint32_t slot = 0) const override;
@@ -42,8 +46,10 @@ public:
 
 private:
     void Cleanup();
+    /// Finds a physical device memory type matching the filter and required properties.
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
+    /// Records a pipeline barrier moving all 6 cube faces between image layouts.
     void TransitionImageLayout(VkImage image, VkImageLayout oldLayout,
                                VkImageLayout newLayout,
                                uint32_t layerCount);

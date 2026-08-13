@@ -8,14 +8,17 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// Vulkan 2D texture: image + view + sampler, with per-swapchain-image descriptor sets.
 class ENGINE_API VulkanTexture : public Texture {
 public:
     VulkanTexture(VkDevice device, VkPhysicalDevice physicalDevice,
                   VkCommandPool commandPool, VkQueue graphicsQueue);
     ~VulkanTexture() override;
 
+    /// Uploads raw pixel data through a staging buffer and generates mips.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Decodes an image file and uploads it as a new Vulkan image.
     bool LoadFromFile(const std::string& filePath) override;
 
     void Bind(uint32_t slot = 0) const override;
@@ -47,16 +50,21 @@ public:
 
 private:
     void Cleanup();
+    /// Writes this texture's image view/sampler into each of its per-frame descriptor sets.
     void UpdateDescriptorSets();
 
+    /// Finds a physical device memory type matching the filter and required properties.
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
+    /// Allocates the VkImage and its backing device memory.
     bool CreateImage(uint32_t width, uint32_t height, VkFormat format,
                      VkImageUsageFlags usage, uint32_t mipLevels);
     bool CreateImageView(VkFormat format);
     bool CreateSampler();
+    /// Records a pipeline barrier transitioning the image between layouts.
     void TransitionImageLayout(VkImage image, VkImageLayout oldLayout,
                                VkImageLayout newLayout);
+    /// Blits progressively smaller mip levels from the base image.
     void GenerateMipmaps(VkCommandBuffer cmd, int32_t width, int32_t height);
 
     VkDevice m_device = VK_NULL_HANDLE;

@@ -115,6 +115,7 @@ ID3D11InputLayout* DirectX11Shader::createInputLayout() {
     return inputLayout;
 }
 
+/// Compiles a shader stage from an HLSL file and creates the matching D3D11 shader object.
 template <typename T>
 bool DirectX11Shader::compileShader(const std::string& filePath,
                                     const std::string& entryPoint,

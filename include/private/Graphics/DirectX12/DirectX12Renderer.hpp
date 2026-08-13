@@ -22,6 +22,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D12 backend: explicit command lists, per-frame allocators, and a shared SRV descriptor heap.
 class ENGINE_API DirectX12Renderer : public Renderer, public RenderContext {
 public:
     DirectX12Renderer(Window* window);
@@ -35,6 +36,7 @@ public:
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 
+    /// True if the current adapter/driver supports D3D12 feature level 11_0.
     static bool IsSupport();
 
     virtual bool CreateImGUI() override;
@@ -76,7 +78,9 @@ public:
     virtual Texture* CreateTextureFromData(uint32_t width, uint32_t height,
                                            void* data) override;
 
+    /// Loads a cubemap from six face image paths.
     Texture* CreateCubemapTexture(const std::array<std::string, 6>& facePaths);
+    /// Loads a cubemap by converting a single equirectangular panorama.
     Texture* CreateCubemapTextureFromPanorama(const std::string& panoramaPath);
 
     // Lighting/fog UBO (matches ShadowLightUBO from Vulkan path)
@@ -91,22 +95,30 @@ public:
     virtual void EndDebugLinePass() override;
 
 private:
+    /// Creates the DXGI factory, enumerates adapters, and creates the D3D12 device.
     bool CreateDevice();
     bool CreateCommandQueue();
+    /// Creates the swapchain and its per-frame buffers.
     bool CreateSwapChain();
+    /// Creates per-frame command allocators and the shared graphics command list.
     bool CreateCommandAllocatorAndList();
+    /// Creates the RTV heap and a render target view for each swapchain buffer.
     bool CreateRenderTargetViews();
     bool CreateDepthStencilView();
     bool CreateFence();
     bool CreateRootSignature();
+    /// Builds the default opaque-geometry pipeline state object.
     bool CreatePipelineState();
+    /// Builds a pipeline state object from precompiled vertex/pixel shader bytecode.
     bool CreatePipelineStateFromShader(ID3DBlob* vertexShaderBlob,
                                        ID3DBlob* pixelShaderBlob);
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
 
+    /// Signals the fence and blocks the CPU until the GPU catches up.
     void WaitForGPU();
+    /// Logs available DXGI adapters and picks the current one for device creation.
     void EnumerateDevices(Microsoft::WRL::ComPtr<IDXGIFactory4> factory);
 
     // Frame count (must be declared before arrays that use it)
@@ -157,16 +169,19 @@ private:
 
     // Skybox PSO (depth write off, LEQUAL, no cull)
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_skyboxPipelineState;
+    /// Builds the skybox PSO (depth write disabled, LEQUAL compare, no culling).
     bool CreateSkyboxPipelineState();
 
     // Debug line PSO (line topology)
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_debugLinePipelineState;
+    /// Builds the line-topology PSO used for debug line rendering.
     bool CreateDebugLinePipelineState();
 
     // Light/fog constant buffer (persistently-mapped upload heap)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lightUBO;
     void* m_lightUBOMapped = nullptr;
     bool m_lightUBOCreated = false;
+    /// Allocates the persistently-mapped upload-heap buffer backing the light/fog UBO.
     bool CreateLightUBO();
 
     // Shadow mapping
@@ -185,8 +200,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState>    m_shadowPassPSO;
     Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob; // saved for shadow PSO
     void SetLightVP(const float* mat) override;
+    /// Allocates the shadow-pass depth buffer, DSV, and shared-heap SRV slot.
     bool CreateShadowMapResources();
+    /// Builds the depth-only PSO (no pixel shader, no RTV, no culling) used for the shadow pass.
     bool CreateShadowPassPSO();
+    /// Replays cached shadow-caster draws into the depth-only shadow map.
     void RenderShadowPass();
 
     // ImGUI
@@ -198,6 +216,7 @@ private:
     UINT m_nextSrvSlot = 1; // slot 0 reserved for imgui/default
     static constexpr UINT MAX_SRV_DESCRIPTORS = 512;
 
+    /// Creates the shared, shader-visible SRV descriptor heap used by all textures/cubemaps.
     bool CreateSharedSrvHeap();
 public:
     // Allocate a slot in the shared SRV heap; returns the slot index

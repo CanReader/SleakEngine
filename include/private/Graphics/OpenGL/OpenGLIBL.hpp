@@ -33,6 +33,7 @@ public:
     OpenGLIBL() = default;
     ~OpenGLIBL();
 
+    /// Bakes the irradiance map, prefiltered specular map, and BRDF LUT from a source cubemap.
     bool Initialize(GLuint sourceCubemap);
     void Cleanup();
 
@@ -47,9 +48,13 @@ public:
     GLuint BRDFLUT()           const { return m_brdfLUT; }
 
 private:
+    /// Allocates a mipmapped cubemap render target of the given face size.
     bool CreateCubemapTarget(GLuint& tex, uint32_t size, uint32_t mipLevels);
+    /// Convolves the source cubemap into a diffuse irradiance map.
     bool BakeIrradiance(GLuint sourceCubemap);
+    /// Prefilters the source cubemap per roughness mip for specular IBL.
     bool BakePrefilter(GLuint sourceCubemap);
+    /// Renders the split-sum BRDF integration LUT.
     bool BakeBRDFLUT();
 
     GLuint m_irradianceCubemap = 0;

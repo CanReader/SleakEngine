@@ -12,6 +12,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// D3D12 2D texture: default-heap resource with an upload-heap staging path and shared-SRV-heap support.
 class ENGINE_API DirectX12Texture : public Texture {
 public:
     DirectX12Texture(ID3D12Device* device,
@@ -19,8 +20,10 @@ public:
                      ID3D12GraphicsCommandList* commandList = nullptr);
     ~DirectX12Texture() override;
 
+    /// Uploads raw pixel data as a new D3D12 texture resource.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Decodes an image file and uploads it as a new D3D12 texture resource.
     bool LoadFromFile(const std::string& filePath) override;
 
     void Bind(uint32_t slot = 0) const override;
@@ -39,6 +42,7 @@ public:
     ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
     // Bind SRV table to a command list for rendering (heap already set)
+    /// Binds this texture's SRV table at the given root parameter for a draw.
     void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
                            UINT rootParameterIndex) const;
 
@@ -49,12 +53,17 @@ public:
     bool CreateSRVIntoHandle(DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
 private:
+    /// Allocates the default-heap 2D texture resource at the given size/format.
     bool CreateTextureResource(uint32_t width, uint32_t height,
                                DXGI_FORMAT format);
+    /// Stages pixel data through the upload heap and copies it into the GPU resource.
     bool UploadTextureData(const void* data, uint32_t width,
                            uint32_t height);
+    /// Creates the shader resource view into either the shared heap or a per-texture fallback heap.
     bool CreateSRV(DXGI_FORMAT format);
+    /// Maps the engine's TextureFormat to the matching DXGI_FORMAT.
     DXGI_FORMAT GetDXGIFormat(TextureFormat format) const;
+    /// Blocks until the upload-heap copy to the GPU-resident texture completes.
     void WaitForUpload();
 
     ID3D12Device* m_device = nullptr;

@@ -7,6 +7,7 @@
 
 namespace Sleak {
 namespace RenderEngine {
+/// D3D12 buffer wrapper: default-heap resource plus an upload heap for CPU-to-GPU copies.
 class DirectX12Buffer : public BufferBase {
 public:
     // Constructor for common buffer types
@@ -25,13 +26,17 @@ public:
     DirectX12Buffer& operator=(DirectX12Buffer&&) noexcept;
    
     ~DirectX12Buffer() override;
+    /// Creates the default-heap resource and uploads initial data via a staging buffer, if any.
     bool Initialize(void* Data) override;
     void Update() override;
     void Cleanup() override;
    
+    /// Maps the buffer for CPU writes (upload-heap buffers only).
     bool Map() override;
     void Unmap() override;
+    /// Overwrites buffer contents via a fresh upload-heap copy.
     void Update(void* data, size_t size) override;
+    /// Creates the buffer sized and pre-populated from a raw payload.
     bool Initialize(const void* data, size_t size);
    
     void* GetData() override;

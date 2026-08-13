@@ -7,16 +7,21 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// OpenGL VBO/EBO/UBO wrapper; target is derived from BufferType at construction.
 class ENGINE_API OpenGLBuffer : public BufferBase {
 public:
     OpenGLBuffer(uint32_t size, BufferType type);
     ~OpenGLBuffer() override;
 
+    /// Creates the GL buffer object and uploads the initial payload, if any.
     bool Initialize(void* data) override;
+    /// Re-uploads the last-mapped/updated data via glBufferSubData.
     void Update() override;
+    /// Uploads new data, resizing the backing store if it grew.
     void Update(void* data, size_t size) override;
     void Cleanup() override;
 
+    /// Maps the buffer for direct CPU writes via glMapBuffer.
     bool Map() override;
     void Unmap() override;
 

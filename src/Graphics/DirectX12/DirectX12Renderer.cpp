@@ -18,6 +18,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// Registers this backend's buffer/shader/texture factories with ResourceManager.
 DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (fenceEvent == nullptr) {

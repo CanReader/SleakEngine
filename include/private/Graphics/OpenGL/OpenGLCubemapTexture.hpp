@@ -10,6 +10,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
+/// OpenGL cubemap texture, loadable from six face images, a panorama, or a procedural gradient.
 class ENGINE_API OpenGLCubemapTexture : public ::Sleak::Texture {
 public:
     OpenGLCubemapTexture();
@@ -28,10 +29,13 @@ public:
                       uint32_t resolution = 64);
 
     // Texture interface — LoadFromFile/LoadFromMemory not used for cubemaps
+    /// Unused for cubemaps; always returns false, load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Unused for cubemaps; always returns false, load via LoadCubemap/LoadEquirectangular instead.
     bool LoadFromFile(const std::string& filePath) override;
 
+    /// Binds the cubemap to a texture unit.
     void Bind(uint32_t slot = 0) const override;
     void Unbind() const override;
 
