@@ -724,7 +724,9 @@ void VulkanRenderer::UpdateSSAOUBO() {
     memcpy(m_ssaoUboMapped[currentFrame], &p, sizeof(p));
 }
 
-/// Clears the SSAO/SSR/bloom fallback images once so disabled effects sample defined black/white content.
+/// Primes the disabled-effect fallback images (ssaoBlur=white, ssr=black, bloom
+/// mip0=black) once after (re)creation, leaving them SHADER_READ_ONLY. Per-frame
+/// disabled paths then skip the redundant clear since the content is static.
 void VulkanRenderer::InitDisabledEffectFallbacks() {
     if (m_ssaoBlurImage == VK_NULL_HANDLE ||
         m_ssrImage == VK_NULL_HANDLE ||

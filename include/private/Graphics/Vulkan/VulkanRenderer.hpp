@@ -636,10 +636,9 @@ private:
 
     /// Creates all SSAO images, render pass, framebuffers, descriptors, and pipelines.
     bool CreateSSAOResources();
-    // One-time init of the disabled-effect fallback images (ssaoBlur=white,
-    // ssr=black, bloom mip0=black) to SHADER_READ_ONLY so the per-frame
-    // disabled paths can skip re-clearing them every frame.
-    /// Clears the SSAO/SSR/bloom fallback images once so disabled effects sample defined black/white content.
+    /// Primes the disabled-effect fallback images (ssaoBlur=white, ssr=black, bloom
+    /// mip0=black) once after (re)creation, leaving them SHADER_READ_ONLY. Per-frame
+    /// disabled paths then skip the redundant clear since the content is static.
     void InitDisabledEffectFallbacks();
     /// Destroys all SSAO pipelines, framebuffers, descriptors, images, and samplers.
     void CleanupSSAOResources();
