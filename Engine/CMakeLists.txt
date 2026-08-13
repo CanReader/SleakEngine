@@ -37,8 +37,6 @@ endif()
 # --- Build all vendor dependencies ---
 add_subdirectory(vendors/glm)
 add_subdirectory(vendors/freeglut)
-add_subdirectory(vendors/glad)
-add_subdirectory(vendors/fmt)
 add_subdirectory(vendors/SDL3)
 add_subdirectory(vendors/spdlog)
 add_subdirectory(vendors/json)
