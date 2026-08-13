@@ -14,9 +14,9 @@
 #include <Memory/ObjectPtr.h>
 
 #include <Runtime/InternalGeometry.hpp>
+#include <Runtime/MeshBatch.hpp>
 #include <Camera/Camera.hpp>
 
-namespace Sleak { class MeshBatch { public: static void Shutdown(); }; }
 #include <Core/GameObject.hpp>
 #include <Math/Quaternion.hpp>
 #include <Math/Random.hpp>
