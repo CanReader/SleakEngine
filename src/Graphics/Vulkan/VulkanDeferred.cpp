@@ -952,6 +952,7 @@ void VulkanRenderer::CleanupGBufferResources() {
         vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr);
         m_gbufferVoxelPipeline = VK_NULL_HANDLE;
     }
+    DestroyCustomFormatGBufferPipelines();
     if (m_skinnedGbufferPipeline) {
         vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr);
         m_skinnedGbufferPipeline = VK_NULL_HANDLE;
@@ -1124,6 +1125,7 @@ void VulkanRenderer::BindGBufferShader() {
     // skips switching to the voxel pipeline, and draws 48-byte VoxelVertex data with
     // a 96-byte stride → corruption.
     m_inVoxelPass = false;
+    m_activeCustomFormat = 0;
 }
 
 /// Runs the deferred lighting pass, reading the GBuffer and writing the HDR scene image.
@@ -1135,6 +1137,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     vkCmdEndRenderPass(command);
     m_inGeometryPass = false;
     m_inVoxelPass = false;  // geometry pass is over; pipeline state doesn't survive across render passes
+    m_activeCustomFormat = 0;
 
     // 2. Run SSAO (raw + bilateral blur) using GBuffer normal + depth.
     //    This writes to m_ssaoBlurImage which the lighting pass binding 7 reads.
@@ -1274,6 +1277,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
     m_inForwardTransparentPass = true;
     m_forwardPassOpen = true;
     m_inVoxelPass = false;  // new render pass; voxel pipeline state is stale
+    m_activeCustomFormat = 0;
 }
 
 /// Marks the forward transparent pass ended; EndRender closes the actual render pass.

@@ -3,7 +3,9 @@
 
 #include <Core/OSDef.hpp>
 #include <Runtime/MeshData.hpp>
+#include <Runtime/VertexLayout.hpp>
 #include <Memory/RefPtr.hpp>
+#include <cstddef>
 #include <cstdint>
 
 namespace Sleak {
@@ -22,6 +24,8 @@ namespace Sleak {
         RefPtr<RenderEngine::BufferBase> indexBuffer;
         uint32_t indexCount = 0;
         bool isVoxelFormat = false;
+        /// Registered custom vertex layout of this mesh; 0 means the engine default Vertex.
+        uint32_t vertexFormat = 0;
 
         /// Special members defined out-of-line in MeshBatch.cpp so
         /// RefPtr<BufferBase>::release() sees a complete BufferBase type;
@@ -47,6 +51,14 @@ namespace Sleak {
         /// Create GPU vertex+index buffers from compact voxel mesh data.
         static MeshHandle CreateVoxelMesh(VoxelVertexGroup& vertices,
                                           IndexGroup& indices);
+
+        /// Create GPU buffers from raw vertex bytes laid out per a registered
+        /// custom vertex format. The handle keys the pipeline the backend binds.
+        static MeshHandle CreateMesh(VertexFormatHandle format,
+                                     const void* vertexData,
+                                     size_t vertexBytes,
+                                     const uint32_t* indices,
+                                     size_t indexCount);
 
         /// Begin a batch: binds the material and an identity-transform
         /// constant buffer once.  All subsequent Draw() calls share them.

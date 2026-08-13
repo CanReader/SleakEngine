@@ -60,6 +60,32 @@ MeshHandle MeshBatch::CreateVoxelMesh(VoxelVertexGroup& vertices,
     return h;
 }
 
+/// Uploads raw custom-format vertices/indices as GPU buffers, tagging the vertex buffer with the format handle.
+MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
+                                 const void* vertexData,
+                                 size_t vertexBytes,
+                                 const uint32_t* indices,
+                                 size_t indexCount) {
+    MeshHandle h;
+    if (!vertexData || vertexBytes == 0 || !indices || indexCount == 0) return h;
+
+    auto* vb = RenderEngine::ResourceManager::CreateBuffer(
+        RenderEngine::BufferType::Vertex,
+        static_cast<uint32_t>(vertexBytes),
+        const_cast<void*>(vertexData));
+    if (vb) vb->SetVertexFormat(format);
+    h.vertexBuffer = RefPtr(vb);
+
+    h.indexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
+        RenderEngine::BufferType::Index,
+        static_cast<uint32_t>(indexCount * sizeof(uint32_t)),
+        const_cast<uint32_t*>(indices)));
+
+    h.indexCount = static_cast<uint32_t>(indexCount);
+    h.vertexFormat = format;
+    return h;
+}
+
 /// Binds the batch material and (re)uploads the shared identity-world transform buffer once per batch.
 void MeshBatch::BeginBatch(Material* material) {
     auto* queue = RenderEngine::RenderCommandQueue::GetInstance();

@@ -167,6 +167,7 @@ void VulkanRenderer::BeginRender() {
     m_inForwardTransparentPass = false;
     m_forwardPassOpen = false;
     m_inVoxelPass = false;
+    m_activeCustomFormat = 0;
     if (!bRender)
         return;
 
@@ -667,21 +668,29 @@ void VulkanRenderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
     // Handled by render pass clear values
 }
 
-/// Binds a vertex buffer slot, switching to/from the voxel pipeline based
-/// on its format.
+/// Binds a vertex buffer slot, switching to the custom-format or voxel
+/// pipeline that matches the buffer's vertex layout.
 void VulkanRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
                                        uint32_t slot) {
     if (!bFrameStarted) return;
     auto* vkBuf = static_cast<VulkanBuffer*>(buffer.get());
     if (!vkBuf) return;
 
-    // Switch to/from voxel pipeline based on vertex buffer format
-    bool wantVoxel = buffer->IsVoxelFormat();
-    if (wantVoxel != m_inVoxelPass) {
-        if (wantVoxel) {
-            BeginVoxelPass();
-        } else {
-            EndVoxelPass();
+    // Registered custom formats win over the legacy voxel flag
+    VertexFormatHandle wantFormat = buffer->GetVertexFormat();
+    if (wantFormat != 0) {
+        BeginCustomFormatPass(wantFormat);
+    } else {
+        if (m_activeCustomFormat != 0) EndCustomFormatPass();
+
+        // Switch to/from voxel pipeline based on vertex buffer format
+        bool wantVoxel = buffer->IsVoxelFormat();
+        if (wantVoxel != m_inVoxelPass) {
+            if (wantVoxel) {
+                BeginVoxelPass();
+            } else {
+                EndVoxelPass();
+            }
         }
     }
 
@@ -1100,6 +1109,9 @@ void VulkanRenderer::Cleanup() {
         vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr);
         m_voxelShadowPipeline = VK_NULL_HANDLE;
     }
+
+    // Destroy custom vertex format pipelines
+    DestroyCustomFormatPipelines();
 
     // Destroy MSAA color resources
     CleanupMSAAColorResources();
@@ -1808,6 +1820,7 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (m_gbufferVoxelPipeline) { vkDestroyPipeline(device, m_gbufferVoxelPipeline, nullptr); m_gbufferVoxelPipeline = VK_NULL_HANDLE; }
         if (m_skinnedGbufferPipeline) { vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr); m_skinnedGbufferPipeline = VK_NULL_HANDLE; }
         if (m_voxelShadowPipeline) { vkDestroyPipeline(device, m_voxelShadowPipeline, nullptr); m_voxelShadowPipeline = VK_NULL_HANDLE; }
+        DestroyCustomFormatPipelines();
         delete m_waterShader;
         m_waterShader = nullptr;
         // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)

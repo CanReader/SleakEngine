@@ -595,6 +595,7 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     // Switch to GBuffer pipeline (non-voxel) and reset voxel flag
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
     m_inVoxelPass = false;
+    m_activeCustomFormat = 0;
 
     // Claim this material's own ring slot (own set + own UBO region) so the
     // set is never rewritten while already bound by a prior draw this frame.

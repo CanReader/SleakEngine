@@ -5,6 +5,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
 #include <Runtime/MeshData.hpp>
+#include <Runtime/VertexLayout.hpp>
 #include "Graphics/Common/ResourceManager.hpp"
 #include "Graphics/Common/ConstantBuffer.hpp"
 #include "Graphics/Common/RenderCommandQueue.hpp"
@@ -17,6 +18,7 @@
 #include <Core/GameBase.hpp>
 #include <SDL3/SDL.h>
 #include <vector>
+#include <cstdint>
 #include <cstring>
 
 namespace Sleak {
@@ -343,7 +345,47 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
     glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLBuffer());
 
-    if (buffer->IsVoxelFormat()) {
+    // Registered custom layouts win over the legacy voxel flag
+    const uint32_t customFormat = buffer->GetVertexFormat();
+    const VertexLayoutDesc* customDesc =
+        customFormat != 0 ? VertexFormatRegistry::Get(customFormat) : nullptr;
+
+    if (customDesc) {
+        // One attribute pointer per registry entry, tracking which slots stay live
+        const GLsizei stride = static_cast<GLsizei>(customDesc->stride);
+        uint32_t enabledMask = 0;
+        for (const auto& attr : customDesc->attributes) {
+            const void* off = reinterpret_cast<const void*>(
+                static_cast<uintptr_t>(attr.offset));
+            glEnableVertexAttribArray(attr.location);
+            switch (attr.format) {
+                case VertexAttribFormat::Float1:
+                    glVertexAttribPointer(attr.location, 1, GL_FLOAT, GL_FALSE, stride, off);
+                    break;
+                case VertexAttribFormat::Float2:
+                    glVertexAttribPointer(attr.location, 2, GL_FLOAT, GL_FALSE, stride, off);
+                    break;
+                case VertexAttribFormat::Float3:
+                    glVertexAttribPointer(attr.location, 3, GL_FLOAT, GL_FALSE, stride, off);
+                    break;
+                case VertexAttribFormat::Float4:
+                    glVertexAttribPointer(attr.location, 4, GL_FLOAT, GL_FALSE, stride, off);
+                    break;
+                case VertexAttribFormat::UInt1:
+                    glVertexAttribIPointer(attr.location, 1, GL_UNSIGNED_INT, stride, off);
+                    break;
+                case VertexAttribFormat::Int1:
+                    glVertexAttribIPointer(attr.location, 1, GL_INT, stride, off);
+                    break;
+            }
+            if (attr.location < 32) enabledMask |= (1u << attr.location);
+        }
+        // Disable attribute slots left enabled by a previous bind
+        constexpr uint32_t TRACKED_ATTRIB_SLOTS = 8;
+        for (uint32_t loc = 0; loc < TRACKED_ATTRIB_SLOTS; ++loc) {
+            if (!(enabledMask & (1u << loc))) glDisableVertexAttribArray(loc);
+        }
+    } else if (buffer->IsVoxelFormat()) {
         // Compact VoxelVertex layout: 48-byte stride, 4 attributes
         // Position: float3 at offset 0
         glEnableVertexAttribArray(0);

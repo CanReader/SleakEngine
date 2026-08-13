@@ -13,6 +13,7 @@
 #include <vector>
 #include <set>
 #include <array>
+#include <unordered_map>
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -164,6 +165,10 @@ public:
     virtual void BeginVoxelPass() override;
     /// Restores the previous pipeline and descriptor set after voxel draws.
     virtual void EndVoxelPass() override;
+    /// Binds the custom-format pipeline matching the currently active render pass.
+    virtual void BeginCustomFormatPass(VertexFormatHandle format) override;
+    /// Restores the previous pipeline and descriptor set after custom-format draws.
+    virtual void EndCustomFormatPass() override;
     /// Binds the debug line pipeline for the current frame.
     virtual void BeginDebugLinePass() override;
     /// Restores the previous pipeline and descriptor set after debug line draws.
@@ -443,6 +448,28 @@ private:
     bool CreateVoxelPipeline();
     /// Compiles the voxel shadow vertex shader and creates the voxel shadow-pass pipeline.
     bool CreateVoxelShadowPipeline();
+
+    // Custom vertex format pipelines (built lazily per registered VertexFormatHandle)
+    /// The three pipeline variants a registered vertex layout can drive.
+    /// A failed flag marks a variant as permanently absent so draws skip it
+    /// instead of retrying compilation every frame.
+    struct CustomFormatPipelines {
+        VkPipeline main = VK_NULL_HANDLE;
+        VkPipeline shadow = VK_NULL_HANDLE;
+        VkPipeline gbuffer = VK_NULL_HANDLE;
+        bool mainFailed = false;
+        bool shadowFailed = false;
+        bool gbufferFailed = false;
+    };
+    std::unordered_map<VertexFormatHandle, CustomFormatPipelines>
+        m_customFormatPipelines;
+    VertexFormatHandle m_activeCustomFormat = 0;
+    /// Creates any missing pipeline variant for a registered format; returns false when the main variant is unusable.
+    bool CreateCustomFormatPipelines(VertexFormatHandle format);
+    /// Destroys every cached custom-format pipeline (all variants, all formats).
+    void DestroyCustomFormatPipelines();
+    /// Destroys only the GBuffer variants so they rebuild against a new GBuffer render pass.
+    void DestroyCustomFormatGBufferPipelines();
 
     // Water pipeline (forward transparent, uses water_shader SPIR-V)
     VkPipeline m_waterPipeline = VK_NULL_HANDLE;
