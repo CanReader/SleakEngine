@@ -1,34 +1,34 @@
 [submodule "Engine/vendors/spdlog"]
-	path = Engine/vendors/spdlog
+	path = vendors/spdlog
 	url = https://github.com/gabime/spdlog
 
 [submodule "Engine/vendors/imgui"]
-	path = Engine/vendors/imgui
+	path = vendors/imgui
 	url = https://github.com/ocornut/imgui
 
 [submodule "Engine/vendors/glm"]
-	path = Engine/vendors/glm
+	path = vendors/glm
 	url = https://github.com/g-truc/glm
 
 [submodule "Engine/vendors/SDL3"]
-	path = Engine/vendors/SDL3
+	path = vendors/SDL3
 	url = https://github.com/libsdl-org/SDL
 
 [submodule "Engine/vendors/fmt"]
-	path = Engine/vendors/fmt
+	path = vendors/fmt
 	url = https://github.com/fmtlib/fmt
 
 [submodule "Engine/vendors/freeglut"]
-	path = Engine/vendors/freeglut
+	path = vendors/freeglut
 	url = https://github.com/freeglut/freeglut
 
 [submodule "Engine/vendors/json"]
-	path = Engine/vendors/json
+	path = vendors/json
 	url = https://github.com/nlohmann/json
 
 [submodule "Engine/vendors/yaml-cpp"]
-	path = Engine/vendors/yaml-cpp
+	path = vendors/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp
 [submodule "Engine/vendors/assimp"]
-	path = Engine/vendors/assimp
+	path = vendors/assimp
 	url = https://github.com/assimp/assimp.git
