@@ -4,6 +4,8 @@
 #include <Core/OSDef.hpp>
 #include <string>
 
+namespace Sleak {
+
 class ENGINE_API ResourceBase {
     public:
         virtual ~ResourceBase() = default;
@@ -14,5 +16,7 @@ class ENGINE_API ResourceBase {
         std::string Name;
         bool bIsInitialized;
 };
+
+}
 
 #endif
