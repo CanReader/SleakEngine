@@ -22,7 +22,8 @@ namespace Sleak {
         /// Derives a bounding shape of the given type from the mesh's vertex positions.
         ColliderComponent(GameObject* owner, const MeshData& meshData, Physics::ColliderType preferred);
 
-        /// Builds an exact triangle-mesh collider from the mesh's vertices and indices.
+        /// Builds an exact triangle-mesh collider when asMesh is true;
+        /// otherwise falls back to an AABB computed from the mesh's vertices.
         ColliderComponent(GameObject* owner, const MeshData& meshData, bool asMesh);
 
         ~ColliderComponent() override = default;

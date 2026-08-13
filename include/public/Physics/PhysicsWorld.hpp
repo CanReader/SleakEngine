@@ -44,7 +44,9 @@ namespace Sleak {
             PhysicsWorld() = default;
             ~PhysicsWorld() = default;
 
-            /// Advances the simulation by dt: applies gravity, updates the broadphase, and resolves overlaps.
+            /// Advances the simulation by dt: integrates each dynamic rigidbody's
+            /// velocity, including its own gravity setting, into position, then
+            /// updates the broadphase and resolves collisions.
             void Step(float dt);
 
             void RegisterCollider(ColliderComponent* collider);

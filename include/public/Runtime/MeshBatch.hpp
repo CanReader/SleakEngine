@@ -15,20 +15,17 @@ namespace Sleak {
     }
 
     /// Lightweight handle for GPU mesh buffers created outside the
-    /// GameObject/Component system.  Allows bulk draw submission with
-    /// minimal per-object overhead (no TransformComponent recalcs, no
-    /// per-draw material binds).
+    /// GameObject/Component system, for bulk draw submission with
+    /// minimal per-object overhead (no per-draw component work).
     struct ENGINE_API MeshHandle {
         RefPtr<RenderEngine::BufferBase> vertexBuffer;
         RefPtr<RenderEngine::BufferBase> indexBuffer;
         uint32_t indexCount = 0;
         bool isVoxelFormat = false;
 
-        /// Special members defined out-of-line in MeshBatch.cpp so that
-        /// RefPtr<BufferBase>::release() is instantiated where BufferBase
-        /// is a complete type. With only a forward declaration, `delete`
-        /// inside release() skips ~BufferBase() entirely and leaks the
-        /// underlying VkBuffer/VkDeviceMemory forever.
+        /// Special members defined out-of-line in MeshBatch.cpp so
+        /// RefPtr<BufferBase>::release() sees a complete BufferBase type;
+        /// a forward declaration alone would skip ~BufferBase() and leak the GPU buffer.
         MeshHandle();
         ~MeshHandle();
         MeshHandle(const MeshHandle&);
