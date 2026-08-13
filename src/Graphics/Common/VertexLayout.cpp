@@ -1,11 +1,13 @@
 #include <Runtime/VertexLayout.hpp>
+#include <deque>
 #include <mutex>
 
 namespace Sleak {
 
 namespace {
-    std::vector<VertexLayoutDesc> s_layouts;
-    std::mutex                    s_mutex;
+    // deque: stable addresses across push_back
+    std::deque<VertexLayoutDesc> s_layouts;
+    std::mutex                   s_mutex;
 }
 
 VertexFormatHandle VertexFormatRegistry::Register(const VertexLayoutDesc& desc) {
