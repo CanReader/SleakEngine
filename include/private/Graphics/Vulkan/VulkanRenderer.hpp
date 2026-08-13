@@ -900,8 +900,6 @@ private:
     /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
     void RenderBloomCompositePass();
 
-    // Helper used by the upload path of the default renderer to pick a
-    // reasonable linear-clamp sampler for post-process work.
     /// Sets the dynamic viewport and scissor to fill the given extent. Defined in VulkanBloom.cpp (most call sites of the four post-effect TUs).
     static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
 };
