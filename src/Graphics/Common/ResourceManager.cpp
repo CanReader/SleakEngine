@@ -1,5 +1,5 @@
 #include "../../include/private/Graphics/Common/ResourceManager.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 
 namespace Sleak {
     namespace RenderEngine {

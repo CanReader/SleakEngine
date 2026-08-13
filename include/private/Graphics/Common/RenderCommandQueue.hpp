@@ -4,7 +4,7 @@
 #include <Graphics/Common/Renderer.hpp>
 #include "RenderCommands.hpp"
 #include <Utility/Container/Queue.hpp>
-#include <Memory/ObjectPtr.h>
+#include <Memory/ObjectPtr.hpp>
 
 namespace Sleak {
     namespace RenderEngine {

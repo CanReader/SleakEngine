@@ -3,7 +3,7 @@
 #include <string>
 #include <memory>
 #include <stdexcept>
-#include "Logger.hpp"
+#include "Core/Logger.hpp"
 
 namespace Sleak {
 namespace RenderEngine {

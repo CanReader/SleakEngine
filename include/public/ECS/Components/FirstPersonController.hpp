@@ -3,7 +3,7 @@
 
 #include <ECS/Components/CameraController.hpp>
 #include <Core/OSDef.hpp>
-#include <Events/KeyboardEvent.h>
+#include <Events/KeyboardEvent.hpp>
 #include <string>
 
 namespace Sleak {

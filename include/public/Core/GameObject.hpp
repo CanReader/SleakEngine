@@ -2,10 +2,10 @@
 #define _GAMEOBJECT_H_
 
 #include "Object.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <ECS/Component.hpp>
 #include <Utility/Container/List.hpp>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <type_traits>
 #include <string>
 

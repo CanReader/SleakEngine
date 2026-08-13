@@ -2,7 +2,7 @@
 #define _FREELOOKCOMPONENT_HPP_
 
 #include <ECS/Components/CameraController.hpp>
-#include <Events/KeyboardEvent.h>
+#include <Events/KeyboardEvent.hpp>
 #include <Core/OSDef.hpp>
 #include <string>
 

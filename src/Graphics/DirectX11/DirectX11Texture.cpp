@@ -1,6 +1,6 @@
 #include "../../include/private/Graphics/DirectX11/DirectX11Texture.hpp"
 #include <stdexcept>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <wincodec.h>
 
 namespace Sleak {

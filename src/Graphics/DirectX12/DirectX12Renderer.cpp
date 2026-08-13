@@ -6,7 +6,7 @@
 #include <Runtime/MeshData.hpp>
 #include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <stdexcept>
 #include <string>
 #include <locale>

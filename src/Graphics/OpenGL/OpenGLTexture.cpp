@@ -1,5 +1,5 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <stb_image.h>
 
 namespace Sleak {

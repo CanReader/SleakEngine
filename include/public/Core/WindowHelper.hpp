@@ -1,7 +1,7 @@
 #ifndef _WINDOWHELPER_HPP_
 #define _WINDOWHELPER_HPP_
 
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <SDL3/SDL.h>
 #include <iostream>
 

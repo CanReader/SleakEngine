@@ -1,5 +1,5 @@
 #include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
 #include <cmath>

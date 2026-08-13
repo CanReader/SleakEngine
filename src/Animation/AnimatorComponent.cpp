@@ -4,7 +4,7 @@
 #include <Graphics/Common/ResourceManager.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Runtime/AnimationStateMachine.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cmath>
 
 namespace Sleak {

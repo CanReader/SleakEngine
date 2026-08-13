@@ -3,7 +3,7 @@
 
 #include <Core/OSDef.hpp>
 #include <Runtime/MeshData.hpp>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <cstdint>
 
 namespace Sleak {

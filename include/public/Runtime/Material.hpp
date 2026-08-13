@@ -3,8 +3,8 @@
 
 #include <Core/Object.hpp>
 #include <Core/OSDef.hpp>
-#include <Memory/ObjectPtr.h>
-#include <Memory/RefPtr.h>
+#include <Memory/ObjectPtr.hpp>
+#include <Memory/RefPtr.hpp>
 #include <Runtime/Texture.hpp>
 #include <Math/Vector.hpp>
 #include <Math/Color.hpp>

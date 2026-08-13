@@ -1,7 +1,7 @@
 #ifndef _SCOPEDTIMER_HPP_
 #define _SCOPEDTIMER_HPP_
 
-#include "Logger.hpp"
+#include "Core/Logger.hpp"
 
 namespace Sleak {
     class ScopedTimer {

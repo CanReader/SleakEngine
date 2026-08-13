@@ -11,8 +11,8 @@
 #include <Runtime/AnimationClip.hpp>
 #include <Physics/ColliderComponent.hpp>
 #include <Physics/RigidbodyComponent.hpp>
-#include <Memory/RefPtr.h>
-#include <Logger.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Core/Logger.hpp>
 
 #include <Runtime/MeshData.hpp>
 #include "../../include/private/Graphics/Common/ResourceManager.hpp"

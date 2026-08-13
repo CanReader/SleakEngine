@@ -1,7 +1,7 @@
 #ifndef _INPUTEVENTLISTENER_HPP_
 #define _INPUTEVENTLISTENER_HPP_
 
-#include <InputEvent.h>
+#include <Input/InputEvent.hpp>
 
 namespace Sleak {
     namespace Input {

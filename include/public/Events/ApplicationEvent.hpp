@@ -1,7 +1,7 @@
 #ifndef _APPLICATIONEVENT_H_
 #define _APPLICATIONEVENT_H_
 
-#include <Events/Event.h>
+#include <Events/Event.hpp>
 #include <sstream>
 
 namespace Sleak {

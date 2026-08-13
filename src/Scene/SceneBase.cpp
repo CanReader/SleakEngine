@@ -1,6 +1,6 @@
 #include "../../include/public/Core/SceneBase.hpp"
 #include <Core/GameObject.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <Camera/Camera.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>

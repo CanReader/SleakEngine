@@ -2,7 +2,7 @@
 #include "../../include/public/Core/CommandLine.hpp"
 #include "../../include/private/Graphics/Common/RendererFactory.hpp" 
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp" 
-#include <WindowHelper.hpp>
+#include <Core/WindowHelper.hpp>
 #include <Graphics/Common/Renderer.hpp>
 #include <Core/Window.hpp>
 #include <algorithm>
@@ -10,8 +10,8 @@
 #include <exception>
 #include <stdexcept>
 #include "Graphics/Vulkan/VulkanRenderer.hpp"
-#include "Logger.hpp"
-#include <Memory/ObjectPtr.h>
+#include "Core/Logger.hpp"
+#include <Memory/ObjectPtr.hpp>
 
 #include <Assets/InternalGeometry.hpp>
 #include <Runtime/MeshBatch.hpp>
@@ -21,7 +21,7 @@
 #include <Math/Quaternion.hpp>
 #include <Math/Random.hpp>
 #include <Utility/Container/List.hpp>
-#include <Core/ScopedTimer.h>
+#include <Core/ScopedTimer.hpp>
 #include <Math/Matrix.hpp>
 #include <UI/UI.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>

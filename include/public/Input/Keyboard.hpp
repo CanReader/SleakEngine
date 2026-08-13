@@ -4,7 +4,7 @@
 #include <bitset>
 #include <functional>
 
-#include <KeyCodes.h>
+#include <Input/KeyCodes.hpp>
 
 namespace Sleak {
     namespace Input {

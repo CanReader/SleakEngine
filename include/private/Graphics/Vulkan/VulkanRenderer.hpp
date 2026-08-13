@@ -5,7 +5,7 @@
 #include "../Common/RenderContext.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
-#include "Logger.hpp"
+#include "Core/Logger.hpp"
 #include <vulkan/vulkan.h>
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
 #include <Runtime/Material.hpp>

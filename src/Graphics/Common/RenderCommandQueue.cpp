@@ -3,8 +3,8 @@
 #include "../../include/private/Graphics/Common/RenderContext.hpp"
 #include "../../include/private/Graphics/Common/RenderCommands.hpp"
 #include <Runtime/Material.hpp>
-#include <Memory/ObjectPtr.h>
-#include <Logger.hpp>
+#include <Memory/ObjectPtr.hpp>
+#include <Core/Logger.hpp>
 
 namespace Sleak {
     namespace RenderEngine {

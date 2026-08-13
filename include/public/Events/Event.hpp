@@ -6,7 +6,7 @@
 #include <functional>
 #include <unordered_map>
 #include <vector>
-#include <Events/Delegate.h>
+#include <Events/Delegate.hpp>
 
 
 #define BIND_LAMBDA(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }

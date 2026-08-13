@@ -1,5 +1,5 @@
 #include "../../include/public/Core/Scene.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 
 namespace Sleak {
 

@@ -1,6 +1,6 @@
 #include "../../include/private/Graphics/Vulkan/VulkanShader.hpp"
 #include "vulkan/vulkan_core.h"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cstdint>
 #include <vector>
 #include <fstream>

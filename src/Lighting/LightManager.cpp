@@ -12,7 +12,7 @@
 #include <Core/CommandLine.hpp>
 #include <Math/Matrix.hpp>
 #include <Core/Timer.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cstring>
 #include <cmath>
 

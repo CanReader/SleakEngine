@@ -2,7 +2,7 @@
 #define _RENDERCOMMANDS_H
 
 #include <mutex>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <Utility/Container/List.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
 #include "BufferBase.hpp"

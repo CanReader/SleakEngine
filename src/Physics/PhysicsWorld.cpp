@@ -4,7 +4,7 @@
 #include <Core/GameObject.hpp>
 #include <Camera/Camera.hpp>
 #include <ECS/Components/TransformComponent.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <algorithm>
 
 namespace Sleak {

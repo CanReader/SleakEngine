@@ -2,8 +2,8 @@
 #define _COMPONENT_H_
 
 #include <Core/Object.hpp>
-#include <Memory/RefPtr.h>
-#include <Logger.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Core/Logger.hpp>
 
 namespace Sleak {
     class GameObject;

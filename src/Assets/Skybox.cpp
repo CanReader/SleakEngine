@@ -6,7 +6,7 @@
 #include <Graphics/Common/ConstantBuffer.hpp>
 #include <Runtime/MeshData.hpp>
 #include <Camera/Camera.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 
 #include <vector>
 

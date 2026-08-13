@@ -3,10 +3,10 @@
 #include "../../include/private/Graphics/Common/RendererFactory.hpp"
 #include <cstdlib>
 #include <cstring>
-#include <Logger.hpp>
-#include <Events/ApplicationEvent.h>
-#include <Events/KeyboardEvent.h>
-#include <Events/MouseEvent.h>
+#include <Core/Logger.hpp>
+#include <Events/ApplicationEvent.hpp>
+#include <Events/KeyboardEvent.hpp>
+#include <Events/MouseEvent.hpp>
 
 
 namespace Sleak {

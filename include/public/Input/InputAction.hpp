@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <string>
-#include <InputManager.h>
+#include <Input/InputManager.hpp>
 
 namespace Sleak {
     namespace Input {

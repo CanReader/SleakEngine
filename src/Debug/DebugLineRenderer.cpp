@@ -4,7 +4,7 @@
 #include <Graphics/Common/RenderCommandQueue.hpp>
 #include <Graphics/Common/RenderContext.hpp>
 #include <Camera/Camera.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cmath>
 
 namespace Sleak {

@@ -3,7 +3,7 @@
 #include <Core/Application.hpp>
 #include <Core/Window.hpp>
 #include <SDL3/SDL.h>
-#include <Events/Event.h>
+#include <Events/Event.hpp>
 #include <Math/Math.hpp>
 #include <Math/Quaternion.hpp>
 #include <cmath>

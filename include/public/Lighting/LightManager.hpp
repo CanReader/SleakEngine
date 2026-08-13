@@ -4,7 +4,7 @@
 #include <Core/OSDef.hpp>
 #include <Utility/Container/List.hpp>
 #include <Math/Vector.hpp>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 
 namespace Sleak {
 

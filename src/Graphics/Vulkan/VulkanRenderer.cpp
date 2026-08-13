@@ -22,7 +22,7 @@
 #include <vector>
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
-#include "Logger.hpp"
+#include "Core/Logger.hpp"
 #include "Core/CommandLine.hpp"
 #include "Camera/Camera.hpp"
 #include "Math/Matrix.hpp"

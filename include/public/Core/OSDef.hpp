@@ -61,6 +61,6 @@
 
 #define RESOURCE(path) R"(assets/textures/" path ")"
 
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 
 #endif

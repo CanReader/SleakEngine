@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <string>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/Shader.hpp>
 #include <Runtime/Texture.hpp>

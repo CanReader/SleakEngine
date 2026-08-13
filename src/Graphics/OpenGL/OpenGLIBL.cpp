@@ -1,6 +1,6 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <Math/Matrix.hpp>
 #include <Math/Vector.hpp>
 #include <cstring>

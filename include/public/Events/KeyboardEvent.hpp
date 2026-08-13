@@ -1,8 +1,8 @@
 #ifndef _KEYBOARDEVENT_H_
 #define _KEYBOARDEVENT_H_
 
-#include <Events/Event.h>
-#include <Input/KeyCodes.h>
+#include <Events/Event.hpp>
+#include <Input/KeyCodes.hpp>
 #include <sstream>
 
 #define if_key_press(key) if (!e.IsRepeat() && e.GetKeyCode() == Sleak::Input::KEY_CODE::key)

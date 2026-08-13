@@ -4,7 +4,7 @@
 #include <ECS/Component.hpp>
 #include <Math/Vector.hpp>
 #include <Camera/Camera.hpp>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <Core/OSDef.hpp>
 
 namespace Sleak {

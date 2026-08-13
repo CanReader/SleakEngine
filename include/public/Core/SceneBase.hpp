@@ -2,7 +2,7 @@
 #define _SCENE_BASE_HPP_
 
 #include <string>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <Core/OSDef.hpp>
 #include <Utility/Container/List.hpp>
 

@@ -1,7 +1,7 @@
 #ifndef _WEAK_PTR_H_
 #define _WEAK_PTR_H_
 
-#include "RefPtr.h"
+#include "RefPtr.hpp"
 
 namespace Sleak {
 

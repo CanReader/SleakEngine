@@ -1,7 +1,7 @@
 #ifndef _OBJECT_PTR_H_
 #define _OBJECT_PTR_H_
 
-#include "SmartPointer.h"
+#include "SmartPointer.hpp"
 #include <utility> // For std::move and std::forward
 #include <type_traits> // For std::enable_if_t and std::is_base_of_v
 
@@ -76,7 +76,7 @@ namespace Sleak {
 /*
 #ifdef TEMP
 
-#include "SmartPointer.h"
+#include "SmartPointer.hpp"
 
 namespace Sleak {
 

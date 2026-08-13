@@ -1,7 +1,7 @@
 #include <Debug/DebugOverlay.hpp>
 #include <Debug/DebugLineRenderer.hpp>
 #include <Graphics/Common/Renderer.hpp>
-#include <GameBase.hpp>
+#include <Core/GameBase.hpp>
 #include <Camera/Camera.hpp>
 #include <Core/SceneBase.hpp>
 #include <ECS/Components/FreeLookCameraController.hpp>

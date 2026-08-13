@@ -1,6 +1,6 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 #include <backends/imgui_impl_vulkan.h>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
 #include <algorithm>

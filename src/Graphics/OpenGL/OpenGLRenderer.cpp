@@ -14,7 +14,7 @@
 #include <Core/SceneBase.hpp>
 #include <Runtime/Skybox.hpp>
 #include <Runtime/Material.hpp>
-#include <GameBase.hpp>
+#include <Core/GameBase.hpp>
 #include <SDL3/SDL.h>
 #include <vector>
 #include <cstring>

@@ -1,9 +1,9 @@
 #ifndef _MOUSEEVENT_H_
 #define _MOUSEEVENT_H_
 
-#include <Events/Event.h>
+#include <Events/Event.hpp>
 #include <sstream>
-#include <Input/KeyCodes.h>
+#include <Input/KeyCodes.hpp>
 
 namespace Sleak {
     namespace Events {

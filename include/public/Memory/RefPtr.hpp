@@ -3,7 +3,7 @@
 
 #include <atomic>
 #include <type_traits>
-#include "SmartPointer.h"
+#include "SmartPointer.hpp"
 
 namespace Sleak {
 

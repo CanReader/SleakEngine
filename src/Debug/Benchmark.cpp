@@ -1,7 +1,7 @@
 #include <Debug/Benchmark.hpp>
 #include <Graphics/Common/Renderer.hpp>
 #include <Debug/SystemMetrics.hpp>
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <chrono>
 #include <iomanip>
 #include <sstream>

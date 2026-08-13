@@ -5,7 +5,7 @@
 #include "Math/Vector.hpp"
 #include "Math/Quaternion.hpp"
 #include "Math/Matrix.hpp"
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 
 namespace Sleak {
 

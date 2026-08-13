@@ -4,8 +4,8 @@
 #include <ECS/Component.hpp>
 #include <Utility/Container/List.hpp>
 #include <Math/AABB.hpp>
-#include <Memory/ObjectPtr.h>
-#include <Memory/RefPtr.h>
+#include <Memory/ObjectPtr.hpp>
+#include <Memory/RefPtr.hpp>
 
 namespace Sleak {
     class MeshData;

@@ -1,4 +1,4 @@
-#include "../../include/public/Logger.hpp"
+#include "../../include/public/Core/Logger.hpp"
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>

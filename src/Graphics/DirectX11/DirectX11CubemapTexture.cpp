@@ -2,7 +2,7 @@
 
 #ifdef PLATFORM_WIN
 
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
 #include <cmath>

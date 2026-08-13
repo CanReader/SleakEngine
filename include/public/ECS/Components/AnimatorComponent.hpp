@@ -4,7 +4,7 @@
 #include <ECS/Component.hpp>
 #include <Runtime/Skeleton.hpp>
 #include <Runtime/AnimationClip.hpp>
-#include <Memory/RefPtr.h>
+#include <Memory/RefPtr.hpp>
 #include <Math/Matrix.hpp>
 #include <vector>
 #include <string>

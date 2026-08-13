@@ -2,11 +2,11 @@
 #define APPLICATION_HPP
 
 #include <Core/OSDef.hpp>
-#include <GameBase.hpp>
+#include <Core/GameBase.hpp>
 #include <map>
 #include <string>
-#include <Events/ApplicationEvent.h>
-#include <Events/InputEvent.h>
+#include <Events/ApplicationEvent.hpp>
+#include <Events/InputEvent.hpp>
 #include <Core/Timer.hpp>
 #include <Core/GraphicsConfig.hpp>
 #include <Debug/Benchmark.hpp>

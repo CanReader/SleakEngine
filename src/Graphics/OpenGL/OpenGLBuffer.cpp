@@ -1,5 +1,5 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cstring>
 
 namespace Sleak {

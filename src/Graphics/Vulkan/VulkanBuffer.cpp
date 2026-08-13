@@ -6,7 +6,7 @@
 #include <vma/vk_mem_alloc.h>
 
 #include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
-#include <Logger.hpp>
+#include <Core/Logger.hpp>
 #include <cstring>
 #include <stdexcept>
 
