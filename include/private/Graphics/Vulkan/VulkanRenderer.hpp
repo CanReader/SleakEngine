@@ -147,6 +147,7 @@ public:
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
     virtual bool IsInGeometryPass() const override { return m_inGeometryPass; }
     /// Binds the GBuffer pipeline and marks the geometry pass active.
+    /// Called by RenderCommandQueue when deferred is active.
     virtual void BindGBufferShader() override;
     /// Writes a material's textures and params into its ring slot and binds it at set 0.
     virtual void BindPBRMaterial(Sleak::Material* material) override;

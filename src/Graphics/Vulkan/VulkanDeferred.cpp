@@ -1115,6 +1115,7 @@ void VulkanRenderer::CleanupGBufferResources() {
 }
 
 /// Binds the GBuffer pipeline and marks the geometry pass active.
+/// Called by RenderCommandQueue when deferred is active.
 void VulkanRenderer::BindGBufferShader() {
     if (!bFrameStarted || !m_gbufferResourcesCreated) return;
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
