@@ -63,7 +63,6 @@ if(MSVC)
 endif()
 
 # --- Build all vendor dependencies ---
-add_subdirectory(vendors/glm)
 add_subdirectory(vendors/freeglut)
 add_subdirectory(vendors/SDL3)
 add_subdirectory(vendors/spdlog)
@@ -87,16 +86,150 @@ if (NOT EXISTS "${Vulkan_LIBRARIES}")
     message(FATAL_ERROR "Could not find Vulkan library at ${Vulkan_LIBRARIES}")
 endif()
 
-# --- Collect source files ---
-file(GLOB_RECURSE ENGINE_SOURCES
-    "src/*.c"
-    "src/*.cpp"
+# --- Engine module sources ---
+set(ANIMATION_SOURCES
+    src/Animation/AnimationStateMachine.cpp
+    src/Animation/AnimatorComponent.cpp
 )
 
-# --- Exclude DirectX sources on non-Windows platforms ---
-if(NOT WIN32 AND NOT USE_MINGW)
-    list(FILTER ENGINE_SOURCES EXCLUDE REGEX ".*DirectX.*\\.cpp$")
+set(ASSETS_SOURCES
+    src/Assets/ModelLoader.cpp
+    src/Assets/Skybox.cpp
+    src/Assets/stb_image_impl.cpp
+)
+
+set(CORE_SOURCES
+    src/Core/Application.cpp
+    src/Core/CommandLine.cpp
+    src/Core/File.cpp
+    src/Core/Logger.cpp
+    src/Core/ScopedTimer.cpp
+    src/Core/Serializable.cpp
+    src/Core/Timer.cpp
+    src/Core/Window.cpp
+)
+
+set(CULLING_SOURCES
+    src/Culling/CullingSystem.cpp
+)
+
+set(DEBUG_SOURCES
+    src/Debug/Benchmark.cpp
+    src/Debug/DebugLineRenderer.cpp
+    src/Debug/DebugOverlay.cpp
+    src/Debug/SystemMetrics.cpp
+)
+
+set(GRAPHICS_COMMON_SOURCES
+    src/Graphics/Common/GraphicsConfig.cpp
+    src/Graphics/Common/Material.cpp
+    src/Graphics/Common/MeshBatch.cpp
+    src/Graphics/Common/RenderCommandQueue.cpp
+    src/Graphics/Common/RenderCommands.cpp
+    src/Graphics/Common/RendererFactory.cpp
+    src/Graphics/Common/ResourceManager.cpp
+)
+
+set(GRAPHICS_OPENGL_SOURCES
+    src/Graphics/OpenGL/glad.c
+    src/Graphics/OpenGL/OpenGLBuffer.cpp
+    src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
+    src/Graphics/OpenGL/OpenGLIBL.cpp
+    src/Graphics/OpenGL/OpenGLRenderer.cpp
+    src/Graphics/OpenGL/OpenGLShader.cpp
+    src/Graphics/OpenGL/OpenGLTexture.cpp
+)
+
+set(GRAPHICS_VULKAN_SOURCES
+    src/Graphics/Vulkan/VulkanBuffer.cpp
+    src/Graphics/Vulkan/VulkanCubemapTexture.cpp
+    src/Graphics/Vulkan/VulkanRenderer.cpp
+    src/Graphics/Vulkan/VulkanShader.cpp
+    src/Graphics/Vulkan/VulkanTexture.cpp
+)
+
+set(GRAPHICS_DIRECTX11_SOURCES
+    src/Graphics/DirectX11/DirectX11Buffer.cpp
+    src/Graphics/DirectX11/DirectX11CubemapTexture.cpp
+    src/Graphics/DirectX11/DirectX11Renderer.cpp
+    src/Graphics/DirectX11/DirectX11Shader.cpp
+    src/Graphics/DirectX11/DirectX11Texture.cpp
+)
+
+set(GRAPHICS_DIRECTX12_SOURCES
+    src/Graphics/DirectX12/DirectX12Buffer.cpp
+    src/Graphics/DirectX12/DirectX12CubemapTexture.cpp
+    src/Graphics/DirectX12/DirectX12Renderer.cpp
+    src/Graphics/DirectX12/DirectX12Shader.cpp
+    src/Graphics/DirectX12/DirectX12Texture.cpp
+)
+
+set(LIGHTING_SOURCES
+    src/Lighting/AreaLight.cpp
+    src/Lighting/DirectionalLight.cpp
+    src/Lighting/Light.cpp
+    src/Lighting/LightManager.cpp
+    src/Lighting/PointLight.cpp
+    src/Lighting/SpotLight.cpp
+)
+
+set(MATH_SOURCES
+    src/Math/Color.cpp
+    src/Math/Math.cpp
+    src/Math/Quaternion.cpp
+)
+
+set(PHYSICS_SOURCES
+    src/Physics/ColliderComponent.cpp
+    src/Physics/CollisionDetection.cpp
+    src/Physics/DynamicAABBTree.cpp
+    src/Physics/PhysicsWorld.cpp
+    src/Physics/RigidbodyComponent.cpp
+)
+
+set(SCENE_SOURCES
+    src/Scene/Camera.cpp
+    src/Scene/FirstPersonController.cpp
+    src/Scene/FreeLookCameraControllerComponent.cpp
+    src/Scene/GameObject.cpp
+    src/Scene/MaterialComponent.cpp
+    src/Scene/MeshComponent.cpp
+    src/Scene/SceneBase.cpp
+    src/Scene/Scene.cpp
+    src/Scene/TransformComponent.cpp
+)
+
+set(UI_SOURCES
+    src/UI/UI.cpp
+)
+
+set(ENGINE_SOURCES
+    ${ANIMATION_SOURCES}
+    ${ASSETS_SOURCES}
+    ${CORE_SOURCES}
+    ${CULLING_SOURCES}
+    ${DEBUG_SOURCES}
+    ${GRAPHICS_COMMON_SOURCES}
+    ${GRAPHICS_OPENGL_SOURCES}
+    ${GRAPHICS_VULKAN_SOURCES}
+    ${LIGHTING_SOURCES}
+    ${MATH_SOURCES}
+    ${PHYSICS_SOURCES}
+    ${SCENE_SOURCES}
+    ${UI_SOURCES}
+)
+
+# --- DirectX module sources (Windows only) ---
+if(WIN32 OR USE_MINGW)
+    list(APPEND ENGINE_SOURCES
+        ${GRAPHICS_DIRECTX11_SOURCES}
+        ${GRAPHICS_DIRECTX12_SOURCES}
+    )
 endif()
+
+# --- Header files (for IDE source groups) ---
+file(GLOB_RECURSE ENGINE_PUBLIC_HEADERS "include/public/*.hpp")
+file(GLOB_RECURSE ENGINE_PRIVATE_HEADERS "include/private/*.hpp")
 
 file(GLOB_RECURSE IMGUI_SOURCES
     ${VENDOR_DIR}/imgui/imgui.cpp
@@ -117,8 +250,19 @@ if(WIN32 OR USE_MINGW)
     )
 endif()
 
+# --- Combined source list ---
+set(ENGINE_ALL_SOURCES_AND_HEADERS
+    ${ENGINE_SOURCES}
+    ${IMGUI_SOURCES}
+    ${ENGINE_PUBLIC_HEADERS}
+    ${ENGINE_PRIVATE_HEADERS}
+)
+
 # --- Create Engine shared library ---
-add_library(Engine SHARED ${ENGINE_SOURCES} ${IMGUI_SOURCES})
+add_library(Engine SHARED ${ENGINE_ALL_SOURCES_AND_HEADERS})
+
+# --- Source groups (mirror disk layout in IDEs) ---
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ENGINE_ALL_SOURCES_AND_HEADERS})
 
 target_compile_definitions(Engine PRIVATE SLEAK_ENGINE)
 
@@ -167,32 +311,14 @@ if(GLSLC)
     set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
     set(SHADER_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
 
+    # --- Vulkan-targeted shaders only; OpenGL "_gl" variants are not SPIR-V ---
     file(GLOB VULKAN_SHADERS
-        "${SHADER_SOURCE_DIR}/default_shader.vert"
-        "${SHADER_SOURCE_DIR}/default_shader.frag"
-        "${SHADER_SOURCE_DIR}/skinned_shader.vert"
-        "${SHADER_SOURCE_DIR}/skinned_shader.frag"
-        "${SHADER_SOURCE_DIR}/skybox.vert"
-        "${SHADER_SOURCE_DIR}/skybox.frag"
-        "${SHADER_SOURCE_DIR}/shadow_depth.vert"
-        "${SHADER_SOURCE_DIR}/lighting_pass.vert"
-        "${SHADER_SOURCE_DIR}/lighting_pass.frag"
-        "${SHADER_SOURCE_DIR}/gbuffer.vert"
-        "${SHADER_SOURCE_DIR}/gbuffer.frag"
-        "${SHADER_SOURCE_DIR}/ssao.vert"
-        "${SHADER_SOURCE_DIR}/ssao.frag"
-        "${SHADER_SOURCE_DIR}/ssao_blur.vert"
-        "${SHADER_SOURCE_DIR}/ssao_blur.frag"
-        "${SHADER_SOURCE_DIR}/ssr.vert"
-        "${SHADER_SOURCE_DIR}/ssr.frag"
-        "${SHADER_SOURCE_DIR}/bloom.vert"
-        "${SHADER_SOURCE_DIR}/bloom_threshold.frag"
-        "${SHADER_SOURCE_DIR}/bloom_downsample.frag"
-        "${SHADER_SOURCE_DIR}/bloom_upsample.frag"
-        "${SHADER_SOURCE_DIR}/bloom_composite.frag"
+        "${SHADER_SOURCE_DIR}/*.vert"
+        "${SHADER_SOURCE_DIR}/*.frag"
     )
+    list(FILTER VULKAN_SHADERS EXCLUDE REGEX "_gl\\.(vert|frag)$")
 
-    set(BIN_SHADER_DIR "${CMAKE_SOURCE_DIR}/bin/assets/shaders")
+    set(BIN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin/assets/shaders")
 
     foreach(SHADER ${VULKAN_SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
