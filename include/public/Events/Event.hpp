@@ -120,9 +120,7 @@ namespace Sleak {
 
             /// Drops every handler registered for type.
             static void UnregisterEvents(EventType type) {
-                for(auto it = eventHandlers[type].begin(); it != eventHandlers[type].end(); ++it) {
-                        eventHandlers[type].erase(it);
-                }
+                eventHandlers[type].clear();
             }
 
             /// Drops every handler for every event type.
