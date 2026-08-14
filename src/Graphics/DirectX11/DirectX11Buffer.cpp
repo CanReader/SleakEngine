@@ -2,6 +2,7 @@
 #include <Runtime/MeshData.hpp>
 #include <cassert>
 #include "Graphics/Common/ConstantBuffer.hpp"
+#include <Math/Matrix.hpp>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -199,7 +200,6 @@ void DirectX11Buffer::Unmap()
     }
 }
 
-#include <Math/Matrix.hpp>
 void DirectX11Buffer::Update(void* data, size_t size)
 {
     if (!m_buffer || !m_deviceContext || size > Size || !data)
