@@ -58,6 +58,11 @@ bool Window::InitializeWindow() {
     return false;
   }
 
+  if (SDL_Surface* icon = SDL_LoadBMP("assets/branding/icon.bmp")) {
+    SDL_SetWindowIcon(SDLWindow, icon);
+    SDL_DestroySurface(icon);
+  }
+
   if(!SDL_ShowWindow(SDLWindow)) {
     SLEAK_FATAL("Failed to show window! {0} ", SDL_GetError()); 
     return false;
