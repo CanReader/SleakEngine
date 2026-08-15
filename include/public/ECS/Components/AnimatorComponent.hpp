@@ -19,6 +19,7 @@ namespace Sleak {
 
     /// Samples a skeleton's bones from clips or a state machine and uploads
     /// the result to the sibling MeshComponent's bone buffer each frame.
+    /// @ingroup scene
     class ENGINE_API AnimatorComponent : public Component {
     public:
         AnimatorComponent(GameObject* owner, Skeleton* skeleton,

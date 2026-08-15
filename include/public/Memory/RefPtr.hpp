@@ -7,14 +7,57 @@
 
 namespace Sleak {
 
-// A non-templated control block shared by all RefPtr instances.
+/// Reference count shared by every RefPtr aimed at one object.
+///
+/// Allocated separately from the object, and non-templated so that a
+/// RefPtr<Base> converted from a RefPtr<Derived> shares the same count.
+/// The counter is atomic, so copying and destroying RefPtrs across threads
+/// is safe; the pointed-to object still needs its own synchronization.
+/// @see RefPtr
+/// @ingroup memory
 struct SharedControlBlock {
+    /// Number of RefPtr instances currently owning the object.
     std::atomic<size_t> refCount;
     SharedControlBlock() : refCount(1) {}
 };
 
 /// Atomic, intrusive-refcount smart pointer for engine resources. This is
 /// the standard owning pointer in the engine, used instead of shared_ptr.
+///
+/// Construct one from a raw pointer and it takes ownership, deleting the
+/// object when the last RefPtr to it goes away. Copies share the count;
+/// moves transfer it. Use this wherever the public API asks for an owning
+/// pointer, notably Material and the GPU buffer handles on MeshHandle.
+///
+/// The constructor is explicit, so ownership transfer is always visible at
+/// the call site. Converting RefPtr<Derived> to RefPtr<Base> is allowed
+/// and keeps the same control block. `use_count()` reports the current
+/// reference count.
+///
+/// The reference count is thread-safe. The object it guards is not: two
+/// threads calling into the same pointed-to object still need their own
+/// synchronization. Note also that `get()` on the SmartPointer base throws
+/// NullPointerException when the pointer is null, so test with
+/// `IsValid()` or the bool conversion before dereferencing an optional
+/// resource.
+///
+/// @code{.cpp}
+/// // Take ownership of a freshly created material
+/// auto* raw = new Sleak::Material();
+/// raw->SetRoughness(0.35f);
+/// Sleak::RefPtr<Sleak::Material> material(raw);
+///
+/// // Share it across several objects; each copy bumps the count
+/// crate->AddComponent<Sleak::MaterialComponent>(material);
+/// barrel->AddComponent<Sleak::MaterialComponent>(material);
+///
+/// if (material.IsValid()) {
+///     material->SetMetallic(0.0f);      // operator-> reaches the object
+/// }
+/// @endcode
+///
+/// @see SharedControlBlock, SmartPointer, ObjectPtr, WeakPtr
+/// @ingroup memory
 template <typename T>
 class RefPtr : public SmartPointer<T> {
     // Allow other RefPtr instantiations to access getControlBlock().

@@ -16,6 +16,7 @@ namespace Sleak {
     class ISerializationContext;
 
     /// File format a Serializable can be saved to or loaded from.
+    /// @ingroup filesystem
     enum class SerializationFormat {
         Binary,
         JSON,
@@ -27,6 +28,7 @@ namespace Sleak {
     /**
      * @interface ISerializationContext
      * @brief Interface for serialization contexts.
+     * @ingroup filesystem
      */
     class ISerializationContext {
     public:
@@ -44,6 +46,7 @@ namespace Sleak {
     /**
      * @class Serializable
      * @brief Base class for objects that can be serialized and deserialized.
+     * @ingroup filesystem
      */
     class Serializable {
     public:
@@ -77,6 +80,7 @@ namespace Sleak {
     /**
      * @class SerializationFactory
      * @brief Detects file format and creates the appropriate serialization context.
+     * @ingroup filesystem
      */
     class SerializationFactory {
     public:

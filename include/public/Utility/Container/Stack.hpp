@@ -24,6 +24,7 @@ namespace Sleak
 	 * - Uses an underlying List to store the stack elements.
 	 * - Provides methods for pushing (adding) and popping (removing) elements.
 	 * - Maintains the LIFO order of elements.
+	 * @ingroup utility
 	 */
 	template <typename T>
 	class Stack {

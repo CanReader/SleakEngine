@@ -21,6 +21,50 @@ namespace Sleak {
 ///   3. FinalizeOccluders()          sort by distance, rasterize budget
 ///   4. IsVisible(aabb)              frustum + occlusion query
 /// Steps 2-3 are optional; IsVisible degrades to frustum-only.
+///
+/// Everything here is static and lives for the process. The main camera
+/// calls BeginFrame() for you during its update, so a game that only wants
+/// frustum culling can call IsVisible() and stop reading here.
+///
+/// Occlusion culling is the part you opt into. Submit occluder volumes
+/// every frame, call FinalizeOccluders() once, then test your objects.
+/// Occluders must be fully solid volumes: a box submitted over a cave or
+/// an open doorway will hide geometry that should be visible. The bounds
+/// you test with should be tight around the real vertex extent, since
+/// bounds that overshoot into empty space pass the depth test and cull
+/// nothing while still costing you the test.
+///
+/// The occlusion pass adapts. When a rasterized frame culls nothing, it
+/// stops rasterizing and probes again every `probeInterval` frames, with
+/// queries falling back to frustum-only in between. GetStats() reports
+/// what the last pass actually did.
+///
+/// @code{.cpp}
+/// // Optional tuning, once at startup
+/// Sleak::CullingSystem::SetOcclusionCullingEnabled(true);
+/// Sleak::CullingSystem::SetOcclusionBufferSize(256, 144);
+/// Sleak::CullingSystem::SetMaxOccluders(192);
+/// Sleak::CullingSystem::SetAdaptiveOcclusion(true, 20);
+///
+/// // Every frame, after the camera has updated
+/// for (const auto& chunk : loadedChunks) {
+///     for (const auto& solid : chunk.solidVolumes) {
+///         Sleak::CullingSystem::SubmitOccluderBox(solid);
+///     }
+/// }
+/// Sleak::CullingSystem::FinalizeOccluders();
+///
+/// for (auto& chunk : loadedChunks) {
+///     chunk.visible = Sleak::CullingSystem::IsVisible(chunk.bounds);
+/// }
+///
+/// const auto& stats = Sleak::CullingSystem::GetStats();
+/// SLEAK_LOG("culled {} by frustum, {} by occlusion",
+///           stats.frustumCulled, stats.occlusionCulled);
+/// @endcode
+///
+/// @see ViewFrustum, Camera, Math::AABB
+/// @ingroup culling
 class ENGINE_API CullingSystem {
 public:
     /// Per-frame counters for the last completed culling pass.

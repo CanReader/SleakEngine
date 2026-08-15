@@ -6,6 +6,7 @@
 
 namespace Sleak {
 /// Pixel layout a Texture's data is stored/uploaded in.
+/// @ingroup rendering
 enum class TextureFormat {
     RGBA8,
     RGB8,
@@ -15,6 +16,7 @@ enum class TextureFormat {
 };
 
 /// Dimensionality/layout a Texture represents on the GPU.
+/// @ingroup rendering
 enum class TextureType {
     Texture2D,
     TextureCube,
@@ -22,6 +24,7 @@ enum class TextureType {
 };
 
 /// Sampling quality, from point sampling up through anisotropic filtering.
+/// @ingroup rendering
 enum class TextureFilter {
     Nearest,        // Point / no filtering
     Bilinear,       // Linear min/mag, nearest mip
@@ -36,6 +39,7 @@ enum class TextureFilter {
 };
 
 /// How UV coordinates outside [0,1] are resolved when sampling.
+/// @ingroup rendering
 enum class TextureWrapMode {
     Repeat,
     ClampToEdge,
@@ -45,6 +49,32 @@ enum class TextureWrapMode {
 };
 
 /// Backend-agnostic GPU texture interface; each renderer backend supplies its own implementation.
+///
+/// You rarely construct one directly. Materials create and own their
+/// textures when you call a `Set...Texture(path)` setter, ModelLoader
+/// creates them while importing, and Sleak::UI::CreateTextureFromPixels
+/// makes one from raw pixel data for UI use. The concrete type is whatever
+/// the active backend provides, which is why every method here is virtual.
+///
+/// Filtering and wrap mode are set per texture, not per material, so
+/// change them on the object a material hands back. Reach for
+/// TextureFilter::Nearest on pixel art and atlases where bleeding between
+/// neighboring tiles would show, and an anisotropic mode on ground planes
+/// viewed at glancing angles.
+///
+/// @code{.cpp}
+/// // Load through a material, then adjust sampling on the result
+/// material->SetDiffuseTexture("assets/textures/atlas.png");
+///
+/// if (Sleak::Texture* tex = material->GetDiffuseTexture()) {
+///     tex->SetFilter(Sleak::TextureFilter::Nearest);
+///     tex->SetWrapMode(Sleak::TextureWrapMode::ClampToEdge);
+///     SLEAK_INFO("Atlas is {}x{}", tex->GetWidth(), tex->GetHeight());
+/// }
+/// @endcode
+///
+/// @see Material, TextureFilter, TextureWrapMode, TextureFormat, ModelLoader
+/// @ingroup rendering
 class Texture {
 public:
     virtual ~Texture() = default;

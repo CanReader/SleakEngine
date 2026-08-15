@@ -8,6 +8,7 @@
 namespace Sleak {
 
     /// SDL message box icon/style, maps directly to SDL_MessageBoxFlags.
+    /// @ingroup core
     enum MessageBoxType : unsigned int {
         Info = 0x00000040u,
         Warning = 0x00000020u,
@@ -15,6 +16,7 @@ namespace Sleak {
     };
 
     /// Which button the user picked in ShowMessageBox().
+    /// @ingroup core
     enum MessageBoxReturn {
         Ok = 0,
         Yes = 1,
@@ -23,6 +25,7 @@ namespace Sleak {
     };
 
     /// RGB palette for a ShowMessageBox() dialog's background, text, and buttons.
+    /// @ingroup core
     struct MessageBoxColorScheme
     {
         Uint8 Background[3] = { 255,   0,   0 }; // Background

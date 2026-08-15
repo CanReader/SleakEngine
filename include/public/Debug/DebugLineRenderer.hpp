@@ -14,6 +14,7 @@ namespace RenderEngine { class BufferBase; class Shader; }
 class Camera;
 
 /// Immediate-mode wireframe line drawing for debug visualization; lines queue up and are flushed once per frame.
+/// @ingroup debug
 class ENGINE_API DebugLineRenderer {
 public:
     /// Allocates the shared vertex buffer, shader, and constant buffer.

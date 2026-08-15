@@ -19,6 +19,7 @@ namespace Sleak {
     /// Lightweight handle for GPU mesh buffers created outside the
     /// GameObject/Component system, for bulk draw submission with
     /// minimal per-object overhead (no per-draw component work).
+    /// @ingroup rendering
     struct ENGINE_API MeshHandle {
         RefPtr<RenderEngine::BufferBase> vertexBuffer;
         RefPtr<RenderEngine::BufferBase> indexBuffer;
@@ -42,6 +43,56 @@ namespace Sleak {
     };
 
     /// GPU mesh handle pool for bulk static geometry. Draw through BeginBatch/Draw/EndBatch.
+    ///
+    /// Use this when you have far more geometry than you want GameObjects
+    /// for: terrain chunks, voxel columns, instanced scatter, anything
+    /// where per-object component overhead would dominate. CreateMesh()
+    /// uploads vertex and index data and hands back a MeshHandle you store
+    /// yourself; MeshBatch does not track it for you.
+    ///
+    /// The two CreateMesh() overloads cover the two vertex paths. The
+    /// VertexGroup overload uses the engine's built-in vertex layout. The
+    /// raw-bytes overload takes a VertexFormatHandle from
+    /// VertexFormatRegistry::Register, and the backend binds the pipeline
+    /// that matches that handle.
+    ///
+    /// Drawing is a three-step batch: BeginBatch() binds the material and
+    /// an identity transform once, each Draw() issues one indexed draw
+    /// call, and EndBatch() closes the batch. Passing `castsShadow = false`
+    /// keeps distant geometry out of the shadow pass.
+    ///
+    /// Every entry point touches renderer state, so call them from the
+    /// thread that drives the frame, and call Shutdown() before the
+    /// renderer is torn down.
+    ///
+    /// @code{.cpp}
+    /// // Once at startup, describe and register the vertex layout
+    /// Sleak::VertexLayoutDesc desc;
+    /// desc.stride = sizeof(MyVertex);
+    /// desc.attributes = {
+    ///     {0, Sleak::VertexAttribFormat::Float3, offsetof(MyVertex, pos)},
+    ///     {1, Sleak::VertexAttribFormat::Float3, offsetof(MyVertex, normal)},
+    /// };
+    /// desc.shaderStem = "my_forward";
+    /// Sleak::VertexFormatHandle fmt =
+    ///     Sleak::VertexFormatRegistry::Register(desc);
+    ///
+    /// // Per chunk, build GPU buffers
+    /// Sleak::MeshHandle mesh = Sleak::MeshBatch::CreateMesh(
+    ///     fmt, vertices.data(), vertices.size() * sizeof(MyVertex),
+    ///     indices.data(), indices.size());
+    ///
+    /// // Every frame, submit the visible ones
+    /// Sleak::MeshBatch::BeginBatch(material);
+    /// for (const auto& chunk : visibleChunks) {
+    ///     if (chunk.mesh.IsValid()) Sleak::MeshBatch::Draw(chunk.mesh);
+    /// }
+    /// Sleak::MeshBatch::EndBatch();
+    /// @endcode
+    ///
+    /// @see MeshHandle, VertexLayoutDesc, VertexFormatRegistry, Material,
+    ///      MeshComponent
+    /// @ingroup rendering
     class ENGINE_API MeshBatch {
     public:
         /// Create GPU vertex+index buffers from CPU mesh data.

@@ -10,6 +10,50 @@ namespace Sleak {
     struct MeshData;
 
     /// Attaches a collision shape to a GameObject and registers it with PhysicsWorld's broadphase.
+    ///
+    /// Attach the shape that matches the object: Physics::AABB for boxes
+    /// and level geometry, Physics::BoundingSphere for projectiles and
+    /// simple characters, Physics::BoundingCapsule for upright figures.
+    /// Two more constructors derive a shape from MeshData, either a
+    /// bounding volume of a type you pick or an exact triangle mesh.
+    ///
+    /// Registration is automatic. Adding the owning GameObject to a scene
+    /// registers the collider (and any on child objects) with that scene's
+    /// Physics::PhysicsWorld, and removing the object unregisters it. The
+    /// shape you supply is in local space; GetWorldAABB() applies the
+    /// owner's current transform.
+    ///
+    /// Layer and mask filter both collision response and the world query
+    /// API, so put triggers, terrain, and characters on distinct layers and
+    /// a raycast can ignore the ones it does not care about. Marking a
+    /// collider as a trigger keeps it in the broadphase while skipping
+    /// physical response.
+    ///
+    /// @code{.cpp}
+    /// // Static level geometry
+    /// floor->AddComponent<Sleak::ColliderComponent>(
+    ///     Sleak::Physics::AABB(
+    ///         Sleak::Math::Vector3D(-0.5f, -0.5f, -0.5f),
+    ///         Sleak::Math::Vector3D( 0.5f,  0.5f,  0.5f)));
+    /// floor->AddComponent<Sleak::RigidbodyComponent>(
+    ///     Sleak::BodyType::Static);
+    /// AddObject(floor);      // registers with the scene's PhysicsWorld
+    ///
+    /// // An upright character, raised to sit on the ground
+    /// player->AddComponent<Sleak::ColliderComponent>(
+    ///     Sleak::Physics::BoundingCapsule(
+    ///         Sleak::Math::Vector3D(0, 0, 0), 0.35f, 0.9f));
+    ///
+    /// // A pickup volume that reports overlaps but never pushes
+    /// if (auto* c = pickup->GetComponent<Sleak::ColliderComponent>()) {
+    ///     c->SetTrigger(true);
+    ///     c->SetLayer(LAYER_PICKUP);
+    /// }
+    /// @endcode
+    ///
+    /// @see RigidbodyComponent, Physics::PhysicsWorld, Physics::AABB,
+    ///      Physics::BoundingSphere, Physics::BoundingCapsule
+    /// @ingroup physics
     class ENGINE_API ColliderComponent : public Component {
     public:
         /// Wraps a pre-built axis-aligned box shape.

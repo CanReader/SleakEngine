@@ -7,6 +7,7 @@ namespace Sleak {
 namespace Physics {
 
     /// Single point of contact between two colliding shapes.
+    /// @ingroup physics
     struct ContactPoint {
         Vector3D point;
         Vector3D normal;
@@ -14,6 +15,7 @@ namespace Physics {
     };
 
     /// Result of a narrow-phase test: whether a collision occurred and its contact data.
+    /// @ingroup physics
     struct CollisionManifold {
         bool hasCollision = false;
         ContactPoint contact;

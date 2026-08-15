@@ -6,6 +6,7 @@
 namespace Sleak {
     /// Wall-clock stopwatch built on std::chrono. Application keeps one for
     /// frame delta time.
+    /// @ingroup core
     class Timer {
         public:
             Timer();

@@ -7,6 +7,7 @@ namespace Sleak {
 namespace Math {
 
 /// Axis-aligned bounding box (world or local space).
+/// @ingroup math
 struct AABB {
     Vector3D min{0.0f, 0.0f, 0.0f};
     Vector3D max{0.0f, 0.0f, 0.0f};

@@ -13,6 +13,47 @@ namespace Sleak {
     namespace Math {class Vector3D;};
     /// Scene entity holding components and an optional parent/child transform
     /// hierarchy. Scene owns the instance; destroy via Scene::DestroyObject().
+    ///
+    /// A GameObject on its own does nothing. Behavior comes from the
+    /// components attached to it: a TransformComponent for placement, a
+    /// MeshComponent and MaterialComponent to be drawn, a ColliderComponent
+    /// and RigidbodyComponent to be simulated, and your own Component
+    /// subclasses for gameplay.
+    ///
+    /// AddComponent<T>() constructs the component in place, forwarding
+    /// extra arguments to its constructor after the owner pointer. Only one
+    /// component of a given type is allowed per object: a second
+    /// AddComponent<T>() logs a warning and does nothing. GetComponent<T>()
+    /// resolves through `dynamic_cast`, so it also matches subclasses.
+    ///
+    /// The scene that received the object through SceneBase::AddObject()
+    /// owns it. Never `delete` a GameObject. Use SceneBase::DestroyObject()
+    /// for deferred destruction, which is what you want while iterating, or
+    /// SceneBase::RemoveObject() for immediate destruction.
+    ///
+    /// Camera, Light, and its subclasses all derive from GameObject, so
+    /// they are added and found the same way as anything else.
+    ///
+    /// @code{.cpp}
+    /// auto* crate = Sleak::GameObject::CreateCube(
+    ///     Sleak::Math::Vector3D(0.0f, 1.0f, 0.0f));
+    /// crate->SetTag("Destructible");
+    ///
+    /// crate->AddComponent<Sleak::MaterialComponent>(
+    ///     Sleak::RefPtr<Sleak::Material>(new Sleak::Material()));
+    /// crate->AddComponent<Sleak::RigidbodyComponent>(
+    ///     Sleak::BodyType::Dynamic);
+    ///
+    /// if (auto* t = crate->GetComponent<Sleak::TransformComponent>()) {
+    ///     t->SetScale(Sleak::Math::Vector3D(2.0f, 2.0f, 2.0f));
+    /// }
+    ///
+    /// AddObject(crate);          // the scene now owns it
+    /// @endcode
+    ///
+    /// @see Component, SceneBase, TransformComponent, MeshComponent,
+    ///      MaterialComponent, Camera
+    /// @ingroup scene
     class ENGINE_API GameObject : public Object {
     public:
         GameObject(const std::string& name = "GameObject")

@@ -19,6 +19,7 @@ namespace Sleak {
 
     /// Common base for RefPtr/ObjectPtr/WeakPtr: holds the raw pointer and the
     /// dereference/validity operators shared by every ownership model.
+    /// @ingroup memory
     template <typename T>
     class SmartPointer {
     protected:

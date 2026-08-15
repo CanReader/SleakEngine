@@ -19,6 +19,7 @@
 
 namespace Sleak {
     /// Concrete kind of Event; each Event subclass reports one of these via GetEventType().
+    /// @ingroup events
     enum class EventType {
         Unknown = 0,
         WindowOpen, WindowClose, WindowResize, WindowFullscreen, WindowFocus, WindowLostFocus, WindowMoved,
@@ -28,6 +29,7 @@ namespace Sleak {
     };
 
     /// Bitmask groups an Event can belong to, queried via Event::IsInCategory().
+    /// @ingroup events
     enum class EventCategory {
         None = (1 << 0),
         Application = (1 << 1),
@@ -57,6 +59,7 @@ namespace Sleak {
 
     /// Base for all engine events; carries type/category identity and the
     /// Handled flag consumers can set to stop further propagation.
+    /// @ingroup events
     class ENGINE_API Event {
     public:
         Event() {}
@@ -78,6 +81,54 @@ namespace Sleak {
 
     /// Static registry mapping EventType to subscribed handlers; dispatches
     /// events synchronously to every handler registered for its type.
+    ///
+    /// Everything here is static, so there is no dispatcher instance to
+    /// pass around: subscribe from anywhere, and the window layer's
+    /// keyboard, mouse, and window events reach you. RegisterEventHandler()
+    /// binds a member function and is the form you will use most;
+    /// RegisterEventCallback() takes a std::function for lambdas and free
+    /// functions.
+    ///
+    /// Both return a string id. Keep it and pass it to UnregisterEvent()
+    /// when the subscriber goes away, typically in a scene's OnDeactivate()
+    /// or destructor. Handlers outlive the objects they were bound to
+    /// otherwise, and the next dispatch calls into freed memory.
+    ///
+    /// Dispatch is synchronous and runs in registration order on the
+    /// calling thread. The handler list is copied before iteration, so a
+    /// handler may register or unregister during dispatch safely.
+    ///
+    /// @code{.cpp}
+    /// class WorldScene : public Sleak::Scene {
+    /// public:
+    ///     void Begin() override {
+    ///         m_keyId = Sleak::EventDispatcher::RegisterEventHandler(
+    ///             this, &WorldScene::OnKeyPressed);
+    ///         Sleak::Scene::Begin();
+    ///     }
+    ///
+    ///     void OnDeactivate() override {
+    ///         if (!m_keyId.empty()) {
+    ///             Sleak::EventDispatcher::UnregisterEvent(
+    ///                 Sleak::EventType::KeyPressed, m_keyId);
+    ///             m_keyId.clear();
+    ///         }
+    ///         Sleak::Scene::OnDeactivate();
+    ///     }
+    ///
+    ///     void OnKeyPressed(
+    ///         const Sleak::Events::Input::KeyPressedEvent& e) {
+    ///         if_key_press(KEY__F) { ToggleFlashlight(); }
+    ///     }
+    ///
+    /// private:
+    ///     std::string m_keyId;
+    /// };
+    /// @endcode
+    ///
+    /// @see Event, EventType, Events::Input::KeyPressedEvent,
+    ///      Events::Input::MouseMovedEvent
+    /// @ingroup events
     class ENGINE_API EventDispatcher {
         public:
             // Register a handler for any event type

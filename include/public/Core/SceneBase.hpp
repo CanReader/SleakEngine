@@ -10,6 +10,7 @@
 namespace Sleak {
 
     /// Lifecycle state a SceneBase moves through via Load/Unload/Activate/Deactivate.
+    /// @ingroup core
     enum class SceneState {
         Unloaded,
         Loading,
@@ -29,6 +30,43 @@ namespace Sleak {
 
     /// Non-templated scene interface: object ownership, state machine, and
     /// per-frame update hooks. Game scenes derive from Scene, not this directly.
+    ///
+    /// SceneBase defines what every scene can do regardless of subclass:
+    /// hold objects, move through the SceneState machine, and answer
+    /// queries. GameBase stores scenes by `SceneBase*`, so this is the type
+    /// you see in the scene registry API.
+    ///
+    /// Ownership is strict. AddObject() transfers ownership to the scene.
+    /// RemoveObject() unregisters and deletes immediately, which is unsafe
+    /// from inside that object's own update. DestroyObject() queues the
+    /// object (and its children) for deletion at the end of the frame,
+    /// which is the safe choice while iterating.
+    ///
+    /// Objects added to the scene are registered with the LightManager if
+    /// they report IsLight(), and their colliders are registered with the
+    /// PhysicsWorld, hierarchy included.
+    ///
+    /// @code{.cpp}
+    /// // Destroy safely from inside an update
+    /// if (auto* target = FindObjectByName("Crate")) {
+    ///     DestroyObject(target);
+    /// }
+    ///
+    /// // Act on a group
+    /// Sleak::List<Sleak::GameObject*> enemies = FindObjectsByTag("Enemy");
+    /// for (size_t i = 0; i < enemies.GetSize(); ++i) {
+    ///     enemies[i]->SetActive(false);
+    /// }
+    ///
+    /// // Scene-wide services
+    /// if (auto* lm = GetLightManager()) lm->SetAmbientIntensity(0.6f);
+    /// if (auto* pw = GetPhysicsWorld()) {
+    ///     auto hit = pw->Raycast(origin, direction, 100.0f);
+    /// }
+    /// @endcode
+    ///
+    /// @see Scene, GameBase, GameObject, SceneState, Physics::PhysicsWorld
+    /// @ingroup core
     class ENGINE_API SceneBase {
     public:
         explicit SceneBase(const std::string& name)

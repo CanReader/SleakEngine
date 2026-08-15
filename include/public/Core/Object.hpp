@@ -8,6 +8,7 @@
 namespace Sleak {
     /// Base for anything needing a stable identity: a name and a
     /// process-unique, atomically assigned ID.
+    /// @ingroup core
     class Object {
     public:
         Object(const std::string& name = "Object")

@@ -10,8 +10,59 @@ namespace Sleak {
 
     class RigidbodyComponent;
 
-    // First person controller modeled after Unreal Engine's CharacterMovementComponent.
-    // Uses acceleration/braking model with very low air control.
+    /// Grounded first-person character controller with mouse look, jumping,
+    /// sprinting, and an optional flight mode.
+    ///
+    /// Attach it to a Camera to get a player you can walk around with.
+    /// Movement follows Unreal's CharacterMovementComponent model:
+    /// acceleration toward a target speed, braking deceleration and ground
+    /// friction when input stops, and deliberately low air control so a
+    /// jump commits to its arc. `W`, `A`, `S`, `D` translate, the mouse
+    /// looks, and pitch is clamped to plus or minus 89 degrees.
+    ///
+    /// It needs a sibling RigidbodyComponent, which Initialize() looks up:
+    /// the rigidbody owns vertical motion and gravity, the controller owns
+    /// horizontal velocity. Add a ColliderComponent too, or the character
+    /// falls through the world.
+    ///
+    /// SetEnabled(false) releases the mouse and stops all input handling,
+    /// which is what you want when a menu or console opens. Re-enabling
+    /// resets velocity and re-syncs yaw and pitch to the camera's current
+    /// facing, so the view does not snap. SetFlying(true) switches to
+    /// noclip-style free flight, driven by SetVerticalFlyInput() for
+    /// up and down.
+    ///
+    /// @code{.cpp}
+    /// auto* cam = new Sleak::Camera("PlayerCamera",
+    ///                               Sleak::Math::Vector3D(8, 70, 8),
+    ///                               60.0f, 0.1f, 1500.0f);
+    /// cam->AddComponent<Sleak::FirstPersonController>();
+    /// cam->AddComponent<Sleak::ColliderComponent>(
+    ///     Sleak::Physics::BoundingSphere(
+    ///         Sleak::Math::Vector3D(0, 0, 0), 0.3f));
+    /// cam->AddComponent<Sleak::RigidbodyComponent>(
+    ///     Sleak::BodyType::Dynamic);
+    ///
+    /// if (auto* rb = cam->GetComponent<Sleak::RigidbodyComponent>()) {
+    ///     rb->SetUseGravity(true);
+    ///     rb->SetGravity(Sleak::Math::Vector3D(0.0f, -32.0f, 0.0f));
+    /// }
+    ///
+    /// if (auto* fpc = cam->GetComponent<Sleak::FirstPersonController>()) {
+    ///     fpc->SetMaxWalkSpeed(4.5f);
+    ///     fpc->SetSprintSpeedMultiplier(1.8f);
+    ///     fpc->SetJumpZVelocity(6.0f);
+    ///     fpc->SetSensitivity(0.1f);
+    /// }
+    ///
+    /// AddObject(cam);
+    /// cam->Initialize();
+    /// SetActiveCamera(cam);
+    /// @endcode
+    ///
+    /// @see CameraController, FreeLookCameraController, Camera,
+    ///      RigidbodyComponent, ColliderComponent
+    /// @ingroup scene
     class ENGINE_API FirstPersonController : public CameraController {
     public:
         FirstPersonController(GameObject* object);

@@ -21,6 +21,7 @@ namespace Sleak {
      * within the game world. It provides functionalities for setting and
      * retrieving the transform properties, as well as calculating transformation
      * matrices for rendering and physics calculations.
+     * @ingroup scene
      */
     class ENGINE_API TransformComponent : public Component {
     public:

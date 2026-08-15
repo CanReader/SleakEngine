@@ -8,6 +8,7 @@
 namespace Sleak {
 
     /// How a rigidbody participates in collision response.
+    /// @ingroup physics
     enum class BodyType {
         Static,     // Never moves, infinite mass
         Kinematic,  // Moves but controlled by code, full pushback
@@ -15,6 +16,53 @@ namespace Sleak {
     };
 
     /// Tracks velocity, gravity, and collision state for a GameObject; PhysicsWorld drives its integration.
+    ///
+    /// Pair this with a ColliderComponent to make an object participate in
+    /// simulation. The collider supplies the shape, the rigidbody supplies
+    /// the motion state, and Physics::PhysicsWorld integrates and resolves
+    /// both. Without a collider, the rigidbody moves but never collides.
+    ///
+    /// BodyType decides the response. Static bodies never move. Kinematic
+    /// bodies move under your control and push others without being
+    /// pushed. Dynamic bodies respond by mass and fall under their own
+    /// gravity vector, which defaults to standard earth gravity but is
+    /// yours to change: platformers and voxel games routinely run heavier
+    /// gravity for a snappier feel.
+    ///
+    /// Gravity is off by default, so call SetUseGravity(true) on anything
+    /// that should fall. Collision flags are separated into ground and
+    /// wall contacts, which is what a character controller needs to tell
+    /// "landed" from "walked into something". Those flags are per-frame:
+    /// call ClearCollisionState() once you have consumed them.
+    ///
+    /// @code{.cpp}
+    /// player->AddComponent<Sleak::ColliderComponent>(
+    ///     Sleak::Physics::BoundingSphere(
+    ///         Sleak::Math::Vector3D(0, 0, 0), 0.3f));
+    /// player->AddComponent<Sleak::RigidbodyComponent>(
+    ///     Sleak::BodyType::Dynamic);
+    ///
+    /// auto* rb = player->GetComponent<Sleak::RigidbodyComponent>();
+    /// rb->SetUseGravity(true);
+    /// rb->SetGravity(Sleak::Math::Vector3D(0.0f, -32.0f, 0.0f));
+    /// rb->SetMass(80.0f);
+    /// rb->SetTerminalVelocity(60.0f);
+    ///
+    /// // Later, in an update
+    /// if (rb->IsGrounded() && jumpPressed) {
+    ///     Sleak::Math::Vector3D v = rb->GetVelocity();
+    ///     v.SetY(6.0f);
+    ///     rb->SetVelocity(v);
+    /// }
+    /// if (rb->HadWallCollision()) {
+    ///     SlideAlong(rb->GetWallNormal());
+    /// }
+    /// rb->ClearCollisionState();
+    /// @endcode
+    ///
+    /// @see ColliderComponent, Physics::PhysicsWorld, BodyType,
+    ///      FirstPersonController
+    /// @ingroup physics
     class ENGINE_API RigidbodyComponent : public Component {
     public:
         RigidbodyComponent(GameObject* owner, BodyType type = BodyType::Kinematic);

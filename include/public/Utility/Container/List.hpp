@@ -14,6 +14,7 @@ namespace Sleak {
  * The List class provides a flexible and efficient way to store and access
  * elements in a linear order. It is suitable for scenarios where you need to
  * dynamically resize the collection or access elements by index.
+ * @ingroup utility
  */
 template <typename T>
 class List {

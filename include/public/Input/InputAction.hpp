@@ -9,6 +9,7 @@ namespace Sleak {
     namespace Input {
         /// A named input binding across keys, mouse buttons, and gamepad
         /// buttons/axes, queried as a single logical action.
+        /// @ingroup input
         class InputAction {
             public:
                 std::string name;

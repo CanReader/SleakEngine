@@ -22,6 +22,7 @@ namespace Sleak
  * - Uses an array-based representation to store the heap elements.
  * - Provides methods for inserting elements and extracting the minimum or maximum element.
  * - Maintains the heap property after each operation.
+ * @ingroup utility
  */
     template <typename T, bool isMinHeap = true>
     class Heap

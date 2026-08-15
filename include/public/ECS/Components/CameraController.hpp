@@ -10,6 +10,7 @@
 namespace Sleak {
     /// Base for components that drive a Camera GameObject from input.
     /// Concrete controllers (first-person, free-look) implement UpdateInput/UpdateCamera.
+    /// @ingroup scene
     class ENGINE_API CameraController : public Component {
     public:
         CameraController(GameObject* object) : Component(object) {}

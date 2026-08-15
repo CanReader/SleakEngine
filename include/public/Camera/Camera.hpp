@@ -9,10 +9,53 @@
 
 namespace Sleak {
     /// Perspective or orthographic projection mode for a Camera.
+    /// @ingroup camera
     enum class ProjectionType {Perspective, Orthographic};
 
     /// GameObject that owns the engine's single active view/projection
     /// matrices and view frustum. Position/orientation come from CameraController subclasses.
+    ///
+    /// Create one, add it to the scene, and call
+    /// SceneBase::SetActiveCamera() so the renderer knows which view to
+    /// draw from. Because Camera is a GameObject, it also carries
+    /// components: attach a FreeLookCameraController for a debug or
+    /// spectator view, or a FirstPersonController plus a
+    /// ColliderComponent and RigidbodyComponent for a player character
+    /// that collides with the world.
+    ///
+    /// The view and projection matrices are static, shared state. The
+    /// active camera rewrites them each Update() through
+    /// GetMainViewMatrix(), GetMainProjectionMatrix(),
+    /// GetMainCameraPosition(), and GetMainViewFrustum(), which is how the
+    /// renderer and CullingSystem read the current view. Only one camera
+    /// should be active at a time.
+    ///
+    /// Orientation is expressed as a look target rather than a rotation.
+    /// SetLookTarget() aims at a world point and SetDirection() aims along
+    /// a vector; GetDirection() returns the normalized facing.
+    ///
+    /// @code{.cpp}
+    /// auto* cam = new Sleak::Camera(
+    ///     "MainCamera",
+    ///     Sleak::Math::Vector3D(-5.0f, 3.0f, -5.0f),
+    ///     /*fov=*/60.0f, /*near=*/0.01f, /*far=*/200.0f);
+    ///
+    /// cam->SetLookTarget(Sleak::Math::Vector3D(0.0f, 0.0f, 0.0f));
+    /// cam->AddComponent<Sleak::FreeLookCameraController>();
+    /// cam->Initialize();
+    ///
+    /// if (auto* ctrl =
+    ///         cam->GetComponent<Sleak::FreeLookCameraController>()) {
+    ///     ctrl->SetEnabled(true);
+    /// }
+    ///
+    /// AddObject(cam);
+    /// SetActiveCamera(cam);
+    /// @endcode
+    ///
+    /// @see CameraController, FreeLookCameraController,
+    ///      FirstPersonController, ViewFrustum, CullingSystem
+    /// @ingroup camera
     class ENGINE_API Camera : public GameObject {
     public:
         Camera(std::string name = "Camera",

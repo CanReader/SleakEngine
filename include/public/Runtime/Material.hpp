@@ -29,6 +29,7 @@ namespace Sleak {
     }
 
     /// Controls how a material handles transparency.
+    /// @ingroup rendering
     enum class MaterialRenderMode : uint8_t {
         Opaque = 0,      // Fully opaque, no alpha blending
         Cutout = 1,      // Binary alpha test (clip below AlphaCutoff)
@@ -36,6 +37,53 @@ namespace Sleak {
     };
 
     /// PBR-ish surface properties, textures, and GPU buffer for a drawable; shared across any mesh that references it.
+    ///
+    /// A Material describes how a surface responds to light: a base color,
+    /// metallic, roughness, ambient occlusion, emissive, and opacity, plus
+    /// up to seven texture maps that override those scalars per texel. It
+    /// owns its own GPU constant buffer and rebuilds it when properties
+    /// change.
+    ///
+    /// Materials are meant to be shared. Wrap one in a RefPtr and hand the
+    /// same RefPtr to every MaterialComponent that should use it; changing
+    /// a property updates every object drawn with it. Each texture setter
+    /// comes in two forms, one taking an owned `Texture*` and one taking a
+    /// file path the material loads for you.
+    ///
+    /// SetRenderMode() decides how transparency is handled:
+    /// MaterialRenderMode::Opaque and ::Cutout render in the normal
+    /// (deferred, where the backend supports it) path, while ::Transparent
+    /// forces the material into a forward pass. IsForwardRendered()
+    /// reports which side a material falls on.
+    ///
+    /// @code{.cpp}
+    /// auto* mat = new Sleak::Material();
+    /// mat->SetShader("assets/shaders/default_shader.hlsl");
+    /// mat->SetDiffuseColor((uint8_t)230, (uint8_t)230, (uint8_t)230);
+    /// mat->SetMetallic(0.0f);
+    /// mat->SetRoughness(0.35f);
+    /// mat->SetAO(1.0f);
+    ///
+    /// // Texture maps, loaded by path
+    /// mat->SetDiffuseTexture("assets/textures/crate_albedo.png");
+    /// mat->SetNormalTexture("assets/textures/crate_normal.png");
+    /// mat->SetTiling(2.0f, 2.0f);
+    ///
+    /// // Share one material across many objects
+    /// Sleak::RefPtr<Sleak::Material> shared(mat);
+    /// crate->AddComponent<Sleak::MaterialComponent>(shared);
+    /// barrel->AddComponent<Sleak::MaterialComponent>(shared);
+    ///
+    /// // Alpha-blended glass
+    /// auto* glass = new Sleak::Material();
+    /// glass->SetRenderMode(Sleak::MaterialRenderMode::Transparent);
+    /// glass->SetOpacity(0.35f);
+    /// glass->SetTwoSided(true);
+    /// @endcode
+    ///
+    /// @see MaterialComponent, Texture, MaterialRenderMode, MeshBatch,
+    ///      RefPtr
+    /// @ingroup rendering
     class ENGINE_API Material : public Object {
     public:
         Material();

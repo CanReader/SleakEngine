@@ -24,6 +24,7 @@ namespace Sleak {
      * - Provides a wide range of methods for string manipulation,
      * including concatenation, comparison, searching, and substring extraction.
      * - Automatically manages memory allocation and resizing.
+     * @ingroup utility
      */
     class String {
     public:

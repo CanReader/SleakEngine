@@ -9,6 +9,7 @@
 namespace Sleak {
     namespace Input {
 /// Static keyboard state queried by key code; Window feeds it raw key events.
+/// @ingroup input
 class Keyboard {
     friend class Window;
     public:

@@ -13,6 +13,7 @@ namespace Sleak {
     static constexpr int MAX_BONE_INFLUENCE = 4;
 
     /// One skinning joint: its offset matrix and parent link within the skeleton.
+    /// @ingroup animation
     struct Bone {
         std::string name;
         int id;
@@ -21,6 +22,7 @@ namespace Sleak {
     };
 
     /// Full scene node (bones + non-bone nodes).
+    /// @ingroup animation
     struct NodeData {
         std::string name;
         Math::Matrix4 defaultTransform; // node's local transform from scene graph
@@ -30,6 +32,7 @@ namespace Sleak {
 
     /// Bone hierarchy plus the full imported scene node tree, used to drive
     /// skinned mesh animation.
+    /// @ingroup animation
     class ENGINE_API Skeleton {
     public:
         Skeleton() : m_globalInverseTransform(Math::Matrix4::Identity()) {}

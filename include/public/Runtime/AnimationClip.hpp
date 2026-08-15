@@ -11,6 +11,7 @@
 namespace Sleak {
 
     /// A single timed sample of a value, used as a control point for interpolation.
+    /// @ingroup animation
     template<typename T>
     struct Keyframe {
         float time;
@@ -18,6 +19,7 @@ namespace Sleak {
     };
 
     /// Position/rotation/scale keyframe tracks for one bone or scene node.
+    /// @ingroup animation
     struct AnimationChannel {
         std::string boneName;
         int boneId = -1;
@@ -27,6 +29,7 @@ namespace Sleak {
     };
 
     /// A named set of per-bone keyframe channels sampled by AnimatorComponent.
+    /// @ingroup animation
     class ENGINE_API AnimationClip {
     public:
         std::string name;

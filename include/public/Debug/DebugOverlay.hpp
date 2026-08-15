@@ -9,6 +9,7 @@ class GameBase;
 namespace RenderEngine { class Renderer; }
 
 /// Which panels DebugOverlay draws and how often it refreshes its metrics.
+/// @ingroup debug
 struct DebugOverlayConfig {
     bool ShowCameraPanel = true;
     bool ShowPerformancePanel = true;
@@ -17,6 +18,7 @@ struct DebugOverlayConfig {
 };
 
 /// In-game ImGui panels showing camera state and performance metrics, built on UI.hpp.
+/// @ingroup debug
 class ENGINE_API DebugOverlay {
 public:
     DebugOverlay() = default;

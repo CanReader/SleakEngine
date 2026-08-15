@@ -26,6 +26,7 @@ namespace Sleak
 	 * - Uses an underlying List to store the queue elements.
 	 * - Provides methods for enqueueing (adding) and dequeueing (removing) elements.
 	 * - Maintains the FIFO order of elements.
+	 * @ingroup utility
 	 */
 	template <typename T>
 	class Queue {

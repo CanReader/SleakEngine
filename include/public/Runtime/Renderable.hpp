@@ -6,6 +6,7 @@
 namespace Sleak {
 
     /// Interface for anything the renderer can submit a draw for, ordered by Priority.
+    /// @ingroup rendering
     class ENGINE_API Renderable {
         public:
             virtual ~Renderable() = default;

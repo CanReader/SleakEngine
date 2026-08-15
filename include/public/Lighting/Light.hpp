@@ -13,6 +13,7 @@ namespace Sleak {
     }
 
     /// Base class for every light type; owns the color/intensity/shadow parameters LightManager uploads to the GPU.
+    /// @ingroup lighting
     class ENGINE_API Light : public GameObject {
     public:
         explicit Light(const std::string& name = "Light");

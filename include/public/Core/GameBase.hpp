@@ -9,6 +9,45 @@ namespace Sleak {
 
   /// Base class the game's top-level object derives from. Owns the scene
   /// list and the currently active scene; Application drives it each frame.
+  ///
+  /// This is the root of your game. Subclass it, register your scenes in
+  /// Initialize(), and hand an instance to Application::Run(). Three
+  /// methods are pure virtual and must be implemented: Initialize() for
+  /// one-time setup (return false to abort the run), Begin() for work that
+  /// needs the first scene already active, and Loop() for per-frame logic
+  /// that is not tied to any single scene.
+  ///
+  /// GameBase owns every scene passed to AddScene() and unloads and
+  /// deletes all of them in its destructor. Never delete a registered
+  /// scene yourself; call RemoveScene() instead. When swapping scenes at
+  /// runtime, call Application::WaitGPUIdle() first so the GPU is not
+  /// still reading resources you are about to free.
+  ///
+  /// @code{.cpp}
+  /// class SLEAK_API Game : public Sleak::GameBase {
+  /// public:
+  ///     bool Initialize() override {
+  ///         Sleak::Application::GetInstance()->SetVSync(true);
+  ///
+  ///         auto* menu  = new MenuScene();
+  ///         auto* world = new WorldScene();
+  ///         AddScene(menu);
+  ///         AddScene(world);
+  ///         SetActiveScene(menu);
+  ///         return true;
+  ///     }
+  ///
+  ///     void Begin() override {}
+  ///     void Loop(float deltaTime) override {}
+  ///     bool GetIsGameRunning() override { return bIsGameRunning; }
+  ///
+  /// private:
+  ///     bool bIsGameRunning = true;
+  /// };
+  /// @endcode
+  ///
+  /// @see Application, Scene, SceneBase
+  /// @ingroup core
   class ENGINE_API GameBase {
   public:
     virtual ~GameBase() {

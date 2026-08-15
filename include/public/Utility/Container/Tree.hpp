@@ -23,6 +23,7 @@ namespace Sleak
  * - Uses a tree node structure with pointers to left and right children.
  * - Provides methods for inserting, searching, and traversing nodes.
  * - Supports various tree traversal algorithms (e.g., in-order, pre-order, post-order).
+ * @ingroup utility
  */
     template <typename T>
     class Tree

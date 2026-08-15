@@ -15,6 +15,7 @@ namespace Sleak {
 namespace Math {
 /// Row-major fixed-size matrix with the usual algebra plus 4x4 view/projection
 /// factory methods. Rows==Cols gives an identity default.
+/// @ingroup math
 template <typename T, size_t Rows, size_t Cols>
 class Matrix {
    public:

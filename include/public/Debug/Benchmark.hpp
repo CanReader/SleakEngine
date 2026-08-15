@@ -12,12 +12,14 @@ namespace Sleak {
 namespace RenderEngine { class Renderer; }
 
 /// A custom metric that the game module (or anyone) can register.
+/// @ingroup debug
 struct BenchmarkMetric {
     std::string Name;
     std::function<float()> Getter;
 };
 
 /// Records per-frame performance data to a CSV session file while recording is active.
+/// @ingroup debug
 class ENGINE_API Benchmark {
 public:
     Benchmark() = default;

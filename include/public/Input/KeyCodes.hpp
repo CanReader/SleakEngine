@@ -7,6 +7,7 @@
     namespace Input {
 
     /// Mouse button identifiers, numbered to match SDL's button indices.
+    /// @ingroup input
     enum class MOUSE_CODE {
         Button0 = 0,
         Button1 = 1,
@@ -23,6 +24,7 @@
     };
 
      /// Physical key identifiers, numbered to match SDL scancode values.
+     /// @ingroup input
      enum class KEY_CODE
      {
      KEY__UNKNOWN = 0,

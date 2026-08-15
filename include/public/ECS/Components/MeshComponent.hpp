@@ -22,6 +22,7 @@ namespace Sleak {
 
     /// Holds the GPU vertex/index/constant buffers for a renderable mesh and
     /// submits a draw call each Update, subject to frustum culling.
+    /// @ingroup scene
     class ENGINE_API MeshComponent : public Component {
     public:
         MeshComponent(GameObject* object) : Component(object) {}

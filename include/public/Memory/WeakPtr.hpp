@@ -7,6 +7,7 @@ namespace Sleak {
 
     /// Non-owning observer of a RefPtr-managed object; lock() to get a strong
     /// reference back, or check expired() before touching the raw pointer.
+    /// @ingroup memory
     template <typename T>
     class WeakPtr {
     private:

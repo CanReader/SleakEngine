@@ -16,6 +16,7 @@ namespace Physics {
     using Math::Vector3D;
 
     /// Axis-aligned bounding box; the workhorse broadphase and collision shape.
+    /// @ingroup physics
     struct AABB {
         Vector3D min;
         Vector3D max;
@@ -94,6 +95,7 @@ namespace Physics {
     };
 
     /// Sphere collider, cheapest shape to test against.
+    /// @ingroup physics
     struct BoundingSphere {
         Vector3D center;
         float radius;
@@ -127,6 +129,7 @@ namespace Physics {
     };
 
     /// Cylinder-plus-hemispherical-caps shape, commonly used for character controllers.
+    /// @ingroup physics
     struct BoundingCapsule {
         Vector3D center;
         float radius;
@@ -197,6 +200,7 @@ namespace Physics {
     };
 
     /// Exact triangle-soup collision shape; heavier than the primitive shapes, used for static geometry.
+    /// @ingroup physics
     struct TriangleMesh {
         std::vector<Vector3D> vertices;
         std::vector<uint32_t> indices;
@@ -217,6 +221,7 @@ namespace Physics {
     };
 
     /// Discriminates which alternative of ColliderShape a collider currently holds.
+    /// @ingroup physics
     enum class ColliderType {
         AABB,
         Sphere,

@@ -12,6 +12,7 @@ namespace Physics {
     static constexpr float FAT_AABB_MARGIN = 0.1f;
 
     /// One node of the DynamicAABBTree, either an internal node or a leaf holding a proxy's fattened AABB.
+    /// @ingroup physics
     struct TreeNode {
         AABB fatAABB;
         void* userData = nullptr;
@@ -24,6 +25,7 @@ namespace Physics {
     };
 
     /// Broadphase AABB tree; PhysicsWorld inserts colliders as proxies and queries overlaps against it.
+    /// @ingroup physics
     class DynamicAABBTree {
     public:
         DynamicAABBTree();

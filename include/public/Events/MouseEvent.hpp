@@ -9,6 +9,7 @@ namespace Sleak {
     namespace Events {
         namespace Input {
             /// Fired when the cursor moves, carrying its new position.
+            /// @ingroup events
             class ENGINE_API MouseMovedEvent : public Event {
                 public:
                 MouseMovedEvent(const int x, const int y) : mouseX(x), mouseY(y) {}
@@ -31,6 +32,7 @@ namespace Sleak {
             };
             
             /// Fired on scroll wheel input, carrying the horizontal/vertical scroll offsets.
+            /// @ingroup events
             class MouseScrolledEvent : public Event
             {
                 public:
@@ -54,6 +56,7 @@ namespace Sleak {
             };
             
             /// Common base for button events; carries the button and cursor position at the time.
+            /// @ingroup events
             class MouseButtonEvent : public Event
             {
                 public:
@@ -78,6 +81,7 @@ namespace Sleak {
             };
             
             /// Fired on mouse button down.
+            /// @ingroup events
             class MouseButtonPressedEvent : public MouseButtonEvent
             {
                 public:
@@ -88,6 +92,7 @@ namespace Sleak {
             };
             
             /// Fired on mouse button up.
+            /// @ingroup events
             class MouseButtonReleasedEvent : public MouseButtonEvent
             {
                 public:

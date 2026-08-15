@@ -7,6 +7,7 @@
 namespace Sleak {
     namespace Events {
         /// Fired when the window's client area changes size.
+        /// @ingroup events
         class ENGINE_API WindowResizeEvent : public Event {
             public:
                 WindowResizeEvent(uint16_t Width, uint16_t Height) : width(Width), height(Height) {}
@@ -28,6 +29,7 @@ namespace Sleak {
         };
 
         /// Fired once the window has been created and is ready for use.
+        /// @ingroup events
         class ENGINE_API WindowOpenEvent : public Event {
             public:
                 WindowOpenEvent() = default;
@@ -37,6 +39,7 @@ namespace Sleak {
         };
 
         /// Fired when the window enters or leaves fullscreen mode.
+        /// @ingroup events
         class ENGINE_API WindowFullScreen : public Event {
             public:
                 WindowFullScreen(bool bIsFullScreen) : bIsFullScreen(bIsFullScreen) {};
@@ -51,6 +54,7 @@ namespace Sleak {
         };
 
         /// Fired when the window is about to close.
+        /// @ingroup events
         class ENGINE_API WindowCloseEvent : public Event {
             public:
                 WindowCloseEvent() = default;
@@ -61,6 +65,7 @@ namespace Sleak {
 
 
         /// Fired once per frame at the start of the application loop.
+        /// @ingroup events
         class ENGINE_API TickEvent : public Event {
             public:
                 TickEvent() = default;
@@ -70,6 +75,7 @@ namespace Sleak {
         };
 
         /// Fired once per frame during the update phase.
+        /// @ingroup events
         class ENGINE_API UpdateEvent : public Event {
             public:
                 UpdateEvent() = default;
@@ -79,6 +85,7 @@ namespace Sleak {
         };
 
         /// Fired once per frame during the render phase.
+        /// @ingroup events
         class ENGINE_API RenderEvent : public Event {
             public:
                 RenderEvent() = default;

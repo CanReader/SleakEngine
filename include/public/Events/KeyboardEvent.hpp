@@ -12,6 +12,7 @@ namespace Sleak {
     namespace Events {
         namespace Input {
             /// Common base for keyboard events; carries the key code involved.
+            /// @ingroup events
             class ENGINE_API KeyEvent : public Event
             {
             public:
@@ -27,6 +28,7 @@ namespace Sleak {
             };
 
             /// Fired on key-down; IsRepeat() distinguishes the initial press from OS auto-repeat.
+            /// @ingroup events
             class ENGINE_API KeyPressedEvent : public KeyEvent
             {
             public:
@@ -49,6 +51,7 @@ namespace Sleak {
             };
         
             /// Fired on key-up.
+            /// @ingroup events
             class ENGINE_API KeyReleasedEvent : public KeyEvent
             {
             public:
@@ -66,6 +69,7 @@ namespace Sleak {
             };
         
             /// Fired for text input, after IME/layout composition rather than raw key-down.
+            /// @ingroup events
             class ENGINE_API KeyTypedEvent : public KeyEvent
             {
             public:

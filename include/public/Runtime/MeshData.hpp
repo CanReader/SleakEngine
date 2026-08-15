@@ -12,6 +12,7 @@ namespace Sleak {
     using IndexGroup = List<IndexType>;
 
     /// Standard 96-byte vertex format: position, normal, tangent, color, UV, and up to 4 skinning bone influences.
+    /// @ingroup rendering
     struct Vertex {
         float px, py, pz;
         float nx, ny, nz;
@@ -71,6 +72,7 @@ namespace Sleak {
     };
 
     /// Growable CPU-side buffer of Vertex, ready to hand to MeshBatch::CreateMesh.
+    /// @ingroup rendering
     class VertexGroup {
     public:
         VertexGroup() = default;
@@ -97,6 +99,7 @@ namespace Sleak {
     };
 
     /// CPU-side vertex and index buffers for one mesh, ready for upload.
+    /// @ingroup rendering
     struct MeshData {
         VertexGroup vertices;
         IndexGroup indices;

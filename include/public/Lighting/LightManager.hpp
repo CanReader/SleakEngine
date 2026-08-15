@@ -16,6 +16,44 @@ namespace Sleak {
     }
 
     /// Owns the registered light list and the GPU-side light/fog constant buffers; one instance per scene.
+    ///
+    /// Each Scene owns one, reachable through
+    /// SceneBase::GetLightManager(). Lights register themselves when their
+    /// GameObject is added to the scene, so you almost never call
+    /// RegisterLight() directly. What you do use it for is the scene-wide
+    /// atmosphere that is not attached to any single light: ambient color
+    /// and intensity, distance fog, and height fog.
+    ///
+    /// Ambient light is the floor value that keeps shadow-side surfaces
+    /// from going flat black. Tinting it toward the sky color, then keeping
+    /// the intensity low, reads as sky bounce without washing out the
+    /// directional lights doing the real work.
+    ///
+    /// Fog has two layers that stack. Distance fog blends between a horizon
+    /// color and a zenith color as the view tilts upward, fading in between
+    /// the start and end distances. Height fog adds exponential density
+    /// below a world height, which is what grounds figures on a floor plane
+    /// and pools haze in valleys.
+    ///
+    /// @code{.cpp}
+    /// if (auto* lm = GetLightManager()) {
+    ///     lm->SetAmbientColor(0.30f, 0.34f, 0.40f);
+    ///     lm->SetAmbientIntensity(0.75f);
+    ///
+    ///     lm->SetFogColor(0.62f, 0.70f, 0.82f);        // horizon
+    ///     lm->SetFogZenithColor(0.42f, 0.55f, 0.80f);  // straight up
+    ///     lm->SetFogDistances(60.0f, 220.0f);
+    ///     lm->SetFogEnabled(true);
+    ///
+    ///     lm->SetHeightFogEnabled(true);
+    ///     lm->SetHeightFogTop(4.0f);
+    ///     lm->SetHeightFogDensity(0.15f);
+    ///     lm->SetHeightFogFalloff(0.25f);
+    /// }
+    /// @endcode
+    ///
+    /// @see Light, DirectionalLight, PointLight, SpotLight, SceneBase
+    /// @ingroup lighting
     class ENGINE_API LightManager {
     public:
         LightManager();

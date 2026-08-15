@@ -12,6 +12,7 @@ namespace Sleak {
     class AnimationClip;
 
     /// What the state machine returns each frame for the animator to sample.
+    /// @ingroup animation
     struct SampleRequest {
         AnimationClip* clipA = nullptr;
         float timeA = 0.0f;
@@ -21,6 +22,7 @@ namespace Sleak {
     };
 
     /// One named clip binding within the graph, with its own loop/speed settings.
+    /// @ingroup animation
     struct AnimationState {
         std::string name;
         AnimationClip* clip = nullptr;
@@ -29,6 +31,7 @@ namespace Sleak {
     };
 
     /// Comparison used to evaluate a TransitionCondition against a live parameter.
+    /// @ingroup animation
     enum class CompareOp {
         Equal,
         NotEqual,
@@ -41,6 +44,7 @@ namespace Sleak {
     using ParamValue = std::variant<bool, float, int>;
 
     /// One guard on a transition: param op threshold must hold for the transition to fire.
+    /// @ingroup animation
     struct TransitionCondition {
         std::string paramName;
         CompareOp op;
@@ -48,6 +52,7 @@ namespace Sleak {
     };
 
     /// An edge in the state graph, with its blend timing and guard conditions.
+    /// @ingroup animation
     struct AnimationTransition {
         int fromState = -1;
         int toState = -1;
@@ -58,6 +63,7 @@ namespace Sleak {
 
     /// Graph of animation states and blended transitions, driven by named
     /// bool/float/int parameters set from gameplay code.
+    /// @ingroup animation
     class ENGINE_API AnimationStateMachine {
     public:
         AnimationStateMachine() = default;

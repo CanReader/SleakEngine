@@ -8,6 +8,7 @@
 namespace Sleak {
 
 /// A plane in ax + by + cz + d = 0 form, used as one face of a ViewFrustum.
+/// @ingroup camera
 struct Plane {
     float a, b, c, d;
 
@@ -30,6 +31,7 @@ struct Plane {
 
 /// Six-plane view frustum, extracted from a view-projection matrix and used
 /// for CPU-side AABB visibility tests.
+/// @ingroup camera
 class ViewFrustum {
 public:
     /// Index of each plane within ViewFrustum::planes.

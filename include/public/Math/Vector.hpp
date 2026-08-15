@@ -25,6 +25,7 @@ namespace Sleak
     {
         /// Fixed-size numeric vector with the standard component-wise algebra.
         /// Vector2D/3D/4D wrap this for the common dimensions used engine-wide.
+        /// @ingroup math
         template <typename T, size_t N>
         class Vector {
         public:
@@ -188,7 +189,23 @@ namespace Sleak
             std::array<T, N> data; 
         };
     
-        // Vector2D encapsulates Vector<float, 2>
+        /// Two-component float vector, used for UVs, screen positions, and
+        /// min/max ranges such as a camera controller's pitch limits.
+        ///
+        /// Wraps Vector<float, 2> with named accessors and the usual
+        /// operators. Components are read with GetX()/GetY(), written with
+        /// SetX()/SetY() or Set(), and accumulated with AddX()/AddY().
+        ///
+        /// @code{.cpp}
+        /// Sleak::Math::Vector2D tiling(2.0f, 2.0f);
+        /// material->SetTiling(tiling);
+        ///
+        /// // Pitch clamp expressed as a min/max pair
+        /// controller->SetPitchRange(Sleak::Math::Vector2D(-89.0f, 89.0f));
+        /// @endcode
+        ///
+        /// @see Vector3D, Vector4D, Vector
+        /// @ingroup math
         class Vector2D {
         public:
             // Constructors
@@ -300,7 +317,39 @@ namespace Sleak
             Vector<float, 2> vec;
         };
     
-        // Vector3D encapsulates Vector<float, 3>
+        /// Three-component float vector: the workhorse type for positions,
+        /// directions, scales, normals, and velocities across the engine.
+        ///
+        /// Wraps Vector<float, 3> with named accessors, full arithmetic,
+        /// and the geometric operations you need day to day: Dot(),
+        /// Cross(), Magnitude(), Normalize() (in place) and Normalized()
+        /// (returns a copy). Note that `operator*` with another Vector3D is
+        /// componentwise, not a dot or cross product.
+        ///
+        /// Named constants cover the axis directions: Zero(), Identity(),
+        /// Up(), Down(), Left(), Right(), Forward(), and Backward().
+        ///
+        /// @code{.cpp}
+        /// using Sleak::Math::Vector3D;
+        ///
+        /// Vector3D camPos(-5.0f, 3.0f, -5.0f);
+        /// Vector3D target(0.0f, 0.0f, 0.0f);
+        ///
+        /// Vector3D forward = (target - camPos).Normalized();
+        /// float distance   = (target - camPos).Magnitude();
+        ///
+        /// // Build a right vector from forward and world up
+        /// Vector3D right = forward.Cross(Vector3D::Up()).Normalized();
+        ///
+        /// // Facing test: positive means the target is in front
+        /// bool inFront = forward.Dot(target - camPos) > 0.0f;
+        ///
+        /// // Move along a direction
+        /// camPos += forward * (speed * deltaTime);
+        /// @endcode
+        ///
+        /// @see Vector2D, Vector4D, Vector, Quaternion
+        /// @ingroup math
         class Vector3D {
         public:
             // Constructors
@@ -456,7 +505,27 @@ namespace Sleak
             Vector<float, 3> vec;
         };
     
-        // Vector4D encapsulates Vector<float, 4>
+        /// Four-component float vector for homogeneous coordinates, RGBA
+        /// values, and shader constant payloads.
+        ///
+        /// Wraps Vector<float, 4> with the same accessor pattern as
+        /// Vector2D and Vector3D, adding a W component. Reach for it when a
+        /// value has to survive a Matrix4 transform with its translation
+        /// intact (`w = 1` for points, `w = 0` for directions), or when you
+        /// are packing four floats for the GPU.
+        ///
+        /// @code{.cpp}
+        /// using Sleak::Math::Vector4D;
+        ///
+        /// Vector4D point(1.0f, 2.0f, 3.0f, 1.0f);      // a position
+        /// Vector4D direction(0.0f, 1.0f, 0.0f, 0.0f);  // a direction
+        /// Vector4D tint(1.0f, 0.95f, 0.85f, 1.0f);     // RGBA
+        ///
+        /// float alpha = tint.GetW();
+        /// @endcode
+        ///
+        /// @see Vector2D, Vector3D, Vector, Matrix4, Color
+        /// @ingroup math
         class Vector4D {
         public:
             // Constructors

@@ -6,9 +6,11 @@
 namespace Sleak { class Texture; }
 
 /// Thin Dear ImGui wrapper; the only UI surface Game is allowed to call (ImGui itself is a private Engine dependency).
+/// @ingroup ui
 namespace Sleak::UI {
 
 /// Bit flags controlling BeginPanel's window chrome and interactivity.
+/// @ingroup ui
 enum PanelFlags : int {
     PanelFlags_None            = 0,
     PanelFlags_NoTitleBar      = 1 << 0,
@@ -97,6 +99,7 @@ ENGINE_API unsigned char* LoadImagePixels(const char* path, int* w, int* h);
 ENGINE_API void FreeImagePixels(unsigned char* pixels);
 
 /// Style color indices (mirrors ImGuiCol_).
+/// @ingroup ui
 enum StyleColor : int {
     StyleColor_Text = 0,
     StyleColor_WindowBg = 2,
@@ -112,6 +115,7 @@ enum StyleColor : int {
 };
 
 /// Style var indices (must match ImGuiStyleVar_).
+/// @ingroup ui
 enum StyleVar : int {
     StyleVar_WindowPadding = 2,    // ImVec2
     StyleVar_WindowRounding = 3,   // float

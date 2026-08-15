@@ -7,6 +7,7 @@
 namespace Sleak {
     namespace Input {
         /// Static registry of InputEventListeners that raw input gets fanned out to.
+        /// @ingroup input
         class InputManager {
             public:
 

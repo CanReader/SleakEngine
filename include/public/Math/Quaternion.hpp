@@ -16,6 +16,7 @@ namespace Sleak {
          *
          * This class provides functionalities for creating, manipulating, and
          * using quaternions for various 3D rotation operations.
+         * @ingroup math
          */
         
          //Forward Declare

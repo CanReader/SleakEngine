@@ -24,6 +24,7 @@ namespace Sleak {
      * - Provides access to the values through `first` and `second` members.
      * - Implements comparison operators for lexicographical ordering.
      * - Offers a `makePair` function for convenient creation of `Pair` objects.
+     * @ingroup utility
      */
     template <typename T1, typename T2>
     class Pair {

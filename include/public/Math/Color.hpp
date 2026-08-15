@@ -12,6 +12,7 @@
 namespace Sleak {
 namespace Math {
 /// 8-bit RGBA color. Value type, cheap to pass and store on vertices/UI.
+/// @ingroup math
 class Color {
    public:
     static const Color Red;

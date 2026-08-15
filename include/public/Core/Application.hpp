@@ -15,6 +15,7 @@ namespace Sleak {
 
 /// Parses raw argv into an index-and-flag lookup. Kept around on
 /// ApplicationDefaults for the lifetime of the Application.
+/// @ingroup core
 struct ENGINE_API Arguments {
     Arguments(int argc, char** argv) : Size(argc), Args(argv) {
         for (int i = 1; i < Size; i++) {
@@ -48,6 +49,7 @@ struct ENGINE_API Arguments {
 };
 
 /// Construction settings for Application: project name plus parsed CLI args.
+/// @ingroup core
 struct ENGINE_API ApplicationDefaults {
     std::string Name = "";
     Arguments CommandLineArgs;
@@ -59,6 +61,51 @@ namespace RenderEngine { class Renderer; }
 
 /// Owns the window, renderer, and game loop. One instance per process,
 /// reachable globally through GetInstance().
+///
+/// Construct one in `main()`, hand it your GameBase, and call Run(). It
+/// creates the window, selects a graphics backend, and then drives the
+/// frame loop until the window closes: poll events, update the active
+/// scene, call GameBase::Loop, render, present.
+///
+/// The backend comes from the `-r` command line flag when
+/// Sleak::CommandLine::Parse has run, otherwise from the platform default
+/// (DirectX 11 on Windows, Vulkan elsewhere). Window size and title honor
+/// `-w`, `-h`, and `-t` the same way.
+///
+/// Everything on this class is main-thread only. Constructing a second
+/// Application throws.
+///
+/// Rendering quality settings (MSAA, VSync, SSAO, SSR, TAA, bloom, IBL)
+/// can be changed at any point after Run() starts. Settings that belong to
+/// the deferred path are ignored by backends that do not implement it, so
+/// check GetGraphicsCaps() before exposing them in a settings UI.
+///
+/// @code{.cpp}
+/// int main(int argc, char** argv) {
+///     Sleak::CommandLine::Parse(argc, argv);
+///     Sleak::Logger::Init("MyGame");
+///
+///     Sleak::ApplicationDefaults defaults{
+///         .Name = "MyGame",
+///         .CommandLineArgs = Sleak::Arguments(argc, argv)};
+///
+///     Game* game = new Game();
+///     Sleak::Application app(defaults);
+///     return app.Run(game);
+/// }
+///
+/// // Anywhere later, from game code:
+/// auto* app = Sleak::Application::GetInstance();
+/// app->SetMSAASampleCount(8);
+/// app->SetVSync(true);
+/// SLEAK_INFO("{} at {} FPS", app->GetRendererTypeStr(), app->GetFPS());
+///
+/// // Before tearing down scene resources:
+/// app->WaitGPUIdle();
+/// @endcode
+///
+/// @see GameBase, Scene, CommandLine, Logger, GraphicsConfig
+/// @ingroup core
 class ENGINE_API Application {
    public:
     Application(const char* ProjectName);

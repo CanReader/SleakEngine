@@ -9,6 +9,7 @@
 namespace Sleak {
     /// Editor/spectator-style camera controller: mouse-look plus accelerated
     /// free translation, independent of gravity or collision.
+    /// @ingroup scene
     class ENGINE_API FreeLookCameraController : public CameraController {
     public:
         FreeLookCameraController(GameObject* object);

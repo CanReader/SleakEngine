@@ -26,6 +26,7 @@ namespace Sleak {
     template <typename T> class RefPtr;
 
     /// Import-time adjustments applied while loading a model file.
+    /// @ingroup rendering
     struct ModelLoadOptions {
         float scaleFactor = 1.0f;
         bool flipUVs = true;
@@ -39,6 +40,57 @@ namespace Sleak {
     using TextureCache = std::unordered_map<std::string, ::Sleak::Texture*>;
 
     /// Assimp-backed importer that builds a GameObject hierarchy (meshes, materials, optionally a skeleton) from a model file.
+    ///
+    /// Load() reads any format Assimp supports (FBX, glTF, OBJ, and the
+    /// rest) and returns the root of a ready-to-use GameObject tree with
+    /// meshes, materials, and textures attached. Rigged files also get a
+    /// Skeleton and an AnimatorComponent. The caller owns the returned
+    /// root: hand it to SceneBase::AddObject() and the scene takes over.
+    /// Load() returns nullptr on failure, so always check.
+    ///
+    /// ModelLoadOptions covers the adjustments every import pipeline
+    /// eventually needs. `scaleFactor` converts source units to meters
+    /// (0.01 for a centimeter-based rig). `flipUVs` defaults to true
+    /// because most exporters disagree with the engine's texture origin.
+    /// `flipNormals` and `flipWinding` fix models that import inside out or
+    /// with black faces, which is nearly always an exporter handedness
+    /// mismatch rather than a shading problem.
+    ///
+    /// When your mesh and your animations ship as separate files, load the
+    /// mesh once and pull the clips in with LoadAnimationsOnly(), passing
+    /// the skeleton the mesh import produced. Textures are cached for the
+    /// duration of a single Load(), so a model reusing one texture across
+    /// many materials reads it from disk once.
+    ///
+    /// @code{.cpp}
+    /// Sleak::ModelLoadOptions opts;
+    /// opts.scaleFactor = 0.01f;    // source is in centimeters
+    /// opts.flipUVs     = true;
+    /// opts.position    = Sleak::Math::Vector3D(0.0f, 0.0f, 0.0f);
+    ///
+    /// Sleak::GameObject* model =
+    ///     Sleak::ModelLoader::Load("assets/models/Mannequin.fbx", opts);
+    /// if (!model) {
+    ///     SLEAK_ERROR("Failed to load mannequin");
+    ///     return;
+    /// }
+    /// AddObject(model);
+    ///
+    /// // Attach clips from separate files to the imported skeleton
+    /// if (auto* anim = model->GetComponent<Sleak::AnimatorComponent>()) {
+    ///     for (auto* clip : Sleak::ModelLoader::LoadAnimationsOnly(
+    ///              "assets/animations/Walking.fbx", anim->GetSkeleton())) {
+    ///         if (!clip) continue;
+    ///         clip->name = "Walking";
+    ///         anim->AddClip(clip);
+    ///     }
+    ///     anim->Play("Walking", true);
+    /// }
+    /// @endcode
+    ///
+    /// @see ModelLoadOptions, GameObject, AnimatorComponent, Skeleton,
+    ///      AnimationClip, Material
+    /// @ingroup rendering
     class ENGINE_API ModelLoader {
     public:
         /// Imports a model file and returns the root of the resulting GameObject hierarchy.

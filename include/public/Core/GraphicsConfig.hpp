@@ -9,10 +9,12 @@ namespace Sleak {
 class DirectionalLight;
 
 /// Named quality tiers a GraphicsConfig preset can be built from.
+/// @ingroup core
 enum class GraphicsQuality { Off, Low, Medium, High, Ultra };
 
 /// Data-driven render settings applied to a renderer in one shot via
 /// Application::ApplyGraphicsConfig(). Game owns and persists this.
+/// @ingroup core
 struct ENGINE_API GraphicsConfig {
     // Post-FX (deferred path)
     bool  ssaoEnabled = false;

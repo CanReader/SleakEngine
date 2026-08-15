@@ -13,6 +13,7 @@
 
 namespace Sleak {
     /// Type-erased callable interface storable in a homogeneous handler list.
+    /// @ingroup events
     class IDelegate {
         public:
             virtual ~IDelegate() = default;
@@ -22,6 +23,7 @@ namespace Sleak {
 
         // Standard delegate for non-event parameters
         /// Callable wrapper that stashes its arguments via SetArgs and invokes them later via Execute.
+        /// @ingroup events
         template<typename... Args>
         class Delegate : public IDelegate {
         public:
@@ -49,6 +51,7 @@ namespace Sleak {
 
         // Specialized delegate for Event types
         /// Common base for EventDelegate<T> instantiations, so they can share a handler list.
+        /// @ingroup events
         class EventDelegateBase : public IDelegate {
         public:
             virtual ~EventDelegateBase() = default;
@@ -57,6 +60,7 @@ namespace Sleak {
 
         /// Delegate bound to a single EventT callback; holds a non-owning pointer
         /// to the event set just before Execute() runs.
+        /// @ingroup events
         template<typename EventT>
         class EventDelegate : public EventDelegateBase {
         public:
@@ -102,6 +106,7 @@ namespace Sleak {
         };
         
         /// Fan-out list of Delegate<Args...> instances, all invoked together via Broadcast.
+        /// @ingroup events
         template<typename... Args>
         class MulticastDelegate {
         public:

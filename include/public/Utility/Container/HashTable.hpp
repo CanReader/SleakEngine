@@ -25,6 +25,7 @@ namespace Sleak
  * - Uses a hash function to map keys to indices in an internal array.
  * - Handles collisions using chaining or open addressing (specify which one you used).
  * - Provides methods for inserting, deleting, and retrieving key-value pairs.
+ * @ingroup utility
  */
     template <typename Key, typename Value>
     class HashTable

@@ -26,6 +26,7 @@ namespace Sleak {
      * - Elements are kept sorted by priority for efficient retrieval.
      * - Provides methods for inserting elements with priorities,
      * retrieving the highest priority element, and removing it.
+     * @ingroup utility
      */
     template <typename T>
     class PriorityList {

@@ -21,6 +21,7 @@ namespace Sleak
  * Implementation Details:
  * - Uses an adjacency list representation for efficient storage of sparse graphs.
  * - Provides methods for adding vertices and edges, and for traversing the graph.
+ * @ingroup utility
  */
     template <typename T>
     class Graph

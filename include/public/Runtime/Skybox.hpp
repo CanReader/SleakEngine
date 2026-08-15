@@ -15,6 +15,7 @@ namespace Sleak {
     class Texture;
 
     /// Renders the background sky as a cubemap, panorama, or procedural gradient.
+    /// @ingroup rendering
     class ENGINE_API Skybox {
     public:
         /// Construct skybox from 6 cubemap face image paths

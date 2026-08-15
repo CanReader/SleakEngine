@@ -14,6 +14,7 @@ namespace Sleak {
     namespace Physics {
 
         /// Two overlapping colliders and the manifold describing how they overlap.
+        /// @ingroup physics
         struct CollisionPair {
             ColliderComponent* a = nullptr;
             ColliderComponent* b = nullptr;
@@ -21,6 +22,7 @@ namespace Sleak {
         };
 
         /// Result of a single Raycast call.
+        /// @ingroup physics
         struct RayHit {
             bool hit = false;
             ColliderComponent* collider = nullptr;
@@ -30,6 +32,7 @@ namespace Sleak {
         };
 
         /// Result of sweeping a moving shape (e.g. SphereSweep) against the world.
+        /// @ingroup physics
         struct SweepResult {
             bool hit = false;
             ColliderComponent* collider = nullptr;
@@ -39,6 +42,47 @@ namespace Sleak {
         };
 
         /// Owns the broadphase tree and every registered collider; drives collision detection and resolution each step.
+        ///
+        /// Each Scene creates one PhysicsWorld and steps it from its
+        /// update, so you normally reach it with
+        /// SceneBase::GetPhysicsWorld() rather than constructing one. You
+        /// also rarely call RegisterCollider() by hand: adding a
+        /// GameObject that carries a ColliderComponent registers it (and
+        /// its children) automatically.
+        ///
+        /// Step() integrates every dynamic RigidbodyComponent using that
+        /// body's own gravity setting, refreshes the DynamicAABBTree
+        /// broadphase, then finds and resolves overlapping pairs.
+        ///
+        /// The part you will use directly is the query API. Raycast(),
+        /// SphereSweep(), OverlapSphere(), and OverlapAABB() all take an
+        /// optional `layerMask` that is matched against
+        /// ColliderComponent::GetLayer(), so you can aim a query at exactly
+        /// the kind of object you care about.
+        ///
+        /// @code{.cpp}
+        /// auto* world = GetPhysicsWorld();
+        /// if (!world) return;
+        ///
+        /// // What is the player looking at, within 5 meters?
+        /// Sleak::Physics::RayHit hit = world->Raycast(
+        ///     camera->GetPosition(), camera->GetDirection(), 5.0f);
+        /// if (hit.hit) {
+        ///     SLEAK_INFO("Hit {} at {}m",
+        ///                hit.collider->GetOwner()->GetName(), hit.distance);
+        /// }
+        ///
+        /// // Everything inside a blast radius
+        /// auto caught = world->OverlapSphere(
+        ///     Sleak::Math::Vector3D(0.0f, 1.0f, 0.0f), 4.0f);
+        /// for (const auto& pair : caught) {
+        ///     ApplyDamage(pair.b->GetOwner());
+        /// }
+        /// @endcode
+        ///
+        /// @see ColliderComponent, RigidbodyComponent, DynamicAABBTree,
+        ///      RayHit, SweepResult, CollisionPair
+        /// @ingroup physics
         class PhysicsWorld {
         public:
             PhysicsWorld() = default;

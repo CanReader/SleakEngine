@@ -16,6 +16,7 @@ namespace Sleak {
 	     * various types of random numbers and values, including integers,
 	     * floating-point numbers, vectors, and colors. It uses the Mersenne
 	     * Twister engine for high-quality random number generation.
+	     * @ingroup math
 	     */
 	    class Random {
 	    public:

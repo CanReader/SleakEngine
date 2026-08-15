@@ -9,6 +9,7 @@
 namespace Sleak {
     /// Owns and binds a Material for rendering; submits it into the draw
     /// command queue each Update while enabled.
+    /// @ingroup scene
     class ENGINE_API MaterialComponent : public Component {
     public:
         // Construct with a shared material (RefPtr copy - safe for sharing)
