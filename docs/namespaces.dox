@@ -1,0 +1,72 @@
+/**
+ * @namespace Sleak
+ * @brief Root namespace for everything the engine exposes.
+ *
+ * Application and scene lifecycle, the GameObject/Component object model,
+ * runtime resources (meshes, materials, textures, models), lighting,
+ * culling, and the RefPtr ownership types all live here. Your game code
+ * stays in its own namespace or at global scope and reaches into Sleak.
+ */
+
+/**
+ * @namespace Sleak::Math
+ * @brief Vectors, matrices, quaternions, colors, AABBs, and random helpers.
+ *
+ * Vector2D, Vector3D, and Vector4D are the value types nearly every other
+ * engine API accepts. Matrix4 uses the row-vector convention: a point is
+ * transformed as `clip = point * viewProj`.
+ */
+
+/**
+ * @namespace Sleak::Physics
+ * @brief Collision shapes, the broadphase tree, and the world that steps them.
+ *
+ * PhysicsWorld owns a DynamicAABBTree plus every registered collider, and
+ * exposes raycast, sweep, and overlap queries. Each Scene creates one
+ * PhysicsWorld and steps it from its update.
+ */
+
+/**
+ * @namespace Sleak::RenderEngine
+ * @brief Backend-facing rendering layer shared by the four graphics backends.
+ *
+ * The Renderer base class, the command queue, shaders, and GPU buffer types
+ * live here. Most of it is internal; the pieces a game touches are the
+ * opaque handle types carried by public resources such as Material and
+ * MeshHandle.
+ */
+
+/**
+ * @namespace Sleak::Events
+ * @brief Concrete event types dispatched through Sleak::EventDispatcher.
+ *
+ * Window lifecycle and resize events sit directly in this namespace;
+ * keyboard and mouse events are nested one level deeper in
+ * Sleak::Events::Input.
+ */
+
+/**
+ * @namespace Sleak::Events::Input
+ * @brief Keyboard and mouse event types.
+ *
+ * KeyPressedEvent, KeyReleasedEvent, MouseMovedEvent, MouseButtonPressedEvent
+ * and friends. Handle them with EventDispatcher::RegisterEventHandler and
+ * the `if_key_press` / `if_key_down` macros.
+ */
+
+/**
+ * @namespace Sleak::Input
+ * @brief Key and mouse-button code enumerations plus their name lookups.
+ *
+ * Sleak::Input::KEY_CODE is the enum the keyboard events report, and the
+ * `if_key_press(KEY__W)` macro compares against it.
+ */
+
+/**
+ * @namespace Sleak::UI
+ * @brief Immediate-mode UI calls available to game code.
+ *
+ * A flat wrapper over the engine's vendored Dear ImGui build, which is a
+ * private dependency. Build HUDs and debug panels by calling BeginPanel,
+ * the widget functions, and EndPanel from a scene update.
+ */

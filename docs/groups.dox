@@ -1,0 +1,98 @@
+/**
+ * @defgroup core Core
+ * @brief Application lifecycle, scene lifecycle, and the command-line, logging,
+ * and window helpers Application depends on.
+ */
+
+/**
+ * @defgroup scene Scene
+ * @brief Scene graph and Entity-Component system: GameObject, the base
+ * Component type, and the built-in component types.
+ */
+
+/**
+ * @defgroup camera Camera
+ * @brief Camera projection/view state and the view frustum used for
+ * CPU-side visibility tests.
+ */
+
+/**
+ * @defgroup rendering Rendering
+ * @brief Renderer-facing public runtime: meshes, materials, textures,
+ * skybox, and model loading.
+ */
+
+/**
+ * @defgroup animation Animation
+ * @brief Skeletal animation runtime: clips, blending state machines, and
+ * the skeleton bone hierarchy.
+ */
+
+/**
+ * @defgroup vertexformats Vertex Formats
+ * @brief Custom vertex format registration API a game uses to describe its
+ * own vertex layouts to the renderer.
+ */
+
+/**
+ * @defgroup lighting Lighting
+ * @brief Light types (directional, point, spot, area) and the manager that
+ * collects them for rendering.
+ */
+
+/**
+ * @defgroup physics Physics
+ * @brief Collision shapes, broadphase structures, rigidbody simulation, and
+ * the physics world that drives them.
+ */
+
+/**
+ * @defgroup events Events
+ * @brief Core event types plus the dispatcher and delegate machinery that
+ * routes them.
+ */
+
+/**
+ * @defgroup input Input
+ * @brief Keyboard, mouse, and action-mapped input handling.
+ */
+
+/**
+ * @defgroup culling Culling
+ * @brief CPU frustum culling and software occlusion culling against a
+ * rasterized depth buffer.
+ */
+
+/**
+ * @defgroup math Math
+ * @brief Vectors, matrices, quaternions, colors, and general math helpers.
+ */
+
+/**
+ * @defgroup memory Memory
+ * @brief Reference-counted and smart pointer types used for engine resource
+ * ownership.
+ */
+
+/**
+ * @defgroup utility Utility
+ * @brief General-purpose containers, the String type, and the exception
+ * hierarchy.
+ */
+
+/**
+ * @defgroup debug Debug
+ * @brief Debug line rendering, benchmarking, and runtime system metrics
+ * overlays.
+ */
+
+/**
+ * @defgroup ui UI
+ * @brief Thin Dear ImGui wrapper; the only UI surface Game is allowed to
+ * call.
+ */
+
+/**
+ * @defgroup filesystem File System
+ * @brief File access and the serialization interfaces built on top of it.
+ */

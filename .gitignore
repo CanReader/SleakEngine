@@ -57,3 +57,8 @@ Desktop.ini
 .prettierrc
 log.txt
 nul
+
+# generated docs
+docs/html/
+docs/doxygen_warnings.log
+docs/SleakEngine.tag
