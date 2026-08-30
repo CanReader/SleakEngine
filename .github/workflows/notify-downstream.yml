@@ -10,10 +10,11 @@ jobs:
     strategy:
       matrix:
         repo:
+          - SleakCraft
           - SleakEngine-Empty
           - SleakEngine-FPP
     steps:
-      - name: Trigger submodule update in ${{ matrix.repo }}
+      - name: Notify ${{ matrix.repo }}
         run: |
           gh api repos/CanReader/${{ matrix.repo }}/dispatches \
             -f event_type=engine-updated \

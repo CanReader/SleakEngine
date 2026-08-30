@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a capability the engine does not have yet
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should exist
+      description: The capability itself, described from a user of the engine's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is worth building
+      description: What becomes possible, or what is painful today without it.
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Possible approach
+      description: Optional. Libraries worth considering, where it would live, what it depends on.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This belongs in the engine, not in a game built on it
+          required: true

@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Format (changed lines)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      # The existing tree predates the style, so only lines this PR touches
+      # are checked. New code stays clean without a repo-wide reformat.
+      - name: Check formatting of changed lines
+        run: |
+          git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
+          OUT=$(git-clang-format --diff "origin/${{ github.base_ref }}" \
+                  --extensions cpp,hpp,h,cc 2>&1 || true)
+          case "$OUT" in
+            *"no modified files to format"*|*"did not modify any files"*|"")
+              echo "Formatting is clean."
+              ;;
+            *)
+              echo "$OUT"
+              echo
+              echo "Run: git-clang-format origin/${{ github.base_ref }}"
+              exit 1
+              ;;
+          esac
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Debug
+            os: ubuntu-latest
+            config: Debug
+          - name: Linux Release
+            os: ubuntu-latest
+            config: Release
+          - name: Windows Debug
+            os: windows-latest
+            config: Debug
+          - name: Windows Release
+            os: windows-latest
+            config: Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxss-dev libxmu-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            glslc || sudo apt-get install -y glslang-tools
+
+      - name: Cache compiler output
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ matrix.config }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.config }}-
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DSDL_IBUS=OFF
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }}
+
+      - name: Report ccache statistics
+        if: runner.os == 'Linux'
+        run: ccache -s | head -8
+
+  shaders:
+    name: Shaders compile and are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install glslc
+        run: sudo apt-get update && sudo apt-get install -y glslc
+
+      # Every .vert/.frag must have a matching .spv committed alongside it.
+      # Recompiling here must produce no diff, otherwise a shader was edited
+      # without regenerating its SPIR-V.
+      - name: Recompile engine shaders
+        run: |
+          cd assets/shaders
+          fail=0
+          for src in *.vert *.frag; do
+            [ -e "$src" ] || continue
+            case "$src" in *_gl.vert|*_gl.frag) continue ;; esac
+            glslc "$src" -o "$src.spv" || fail=1
+          done
+          exit $fail
+
+      - name: Fail if any committed SPIR-V is stale
+        run: |
+          if ! git diff --quiet -- assets/shaders; then
+            echo "These SPIR-V files do not match their source:"
+            git diff --name-only -- assets/shaders
+            echo
+            echo "Recompile them and commit the result."
+            exit 1
+          fi
+          echo "All SPIR-V output matches its source."

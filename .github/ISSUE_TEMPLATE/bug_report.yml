@@ -1,0 +1,40 @@
+name: Bug report
+description: Something behaves incorrectly, crashes, or renders wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: The incorrect behavior, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Smallest set of steps, flags, or code that shows it.
+      placeholder: |
+        1. Launch with -r vulkan
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      multiple: true
+      options: [Vulkan, OpenGL, DirectX 11, DirectX 12, All of them, Not backend specific]
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and GPU
+      placeholder: Arch Linux, RTX 3060, driver 550
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: Relevant lines from the console or a validation layer dump.
+      render: shell
