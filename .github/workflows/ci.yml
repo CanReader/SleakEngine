@@ -92,7 +92,7 @@ jobs:
 
       - name: Cache compiler output
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ matrix.name }}-${{ github.sha }}
@@ -209,7 +209,7 @@ jobs:
             libxkbcommon-dev libwayland-dev wayland-protocols \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.ccache
           key: ccache-downstream-${{ github.sha }}
