@@ -1,0 +1,66 @@
+name: Nightly sanitizers
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sanitize:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Address and undefined behavior
+            flags: '-fsanitize=address,undefined -fno-omit-frame-pointer -g'
+          - name: Thread
+            flags: '-fsanitize=thread -g'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxss-dev libxmu-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+
+      # Sanitizers are applied to engine code only. Instrumenting the vendored
+      # libraries as well would triple the build for findings we cannot act on.
+      - name: Build with ${{ matrix.name }} sanitizer
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSDL_IBUS=OFF \
+            -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.flags }}"
+          cmake --build build --target Engine
+
+      - name: Open an issue if the sanitizer build breaks
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Nightly ${{ matrix.name }} sanitizer build is failing`;
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'bug'
+            });
+            if (open.data.some(i => i.title === title)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title,
+              labels: ['bug', 'area: build'],
+              body: `The nightly sanitizer build failed.\n\n` +
+                    `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

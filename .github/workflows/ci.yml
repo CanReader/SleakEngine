@@ -61,6 +61,11 @@ jobs:
           - name: Linux Release
             os: ubuntu-latest
             config: Release
+          - name: Linux Clang Release
+            os: ubuntu-latest
+            config: Release
+            cc: clang
+            cxx: clang++
           - name: Windows Debug
             os: windows-latest
             config: Debug
@@ -90,15 +95,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ matrix.config }}-${{ github.sha }}
+          key: ccache-${{ runner.os }}-${{ matrix.name }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ matrix.config }}-
+            ccache-${{ runner.os }}-${{ matrix.name }}-
+            ccache-${{ runner.os }}-
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
+        env:
+          CC: ${{ matrix.cc || 'gcc' }}
+          CXX: ${{ matrix.cxx || 'g++' }}
         run: |
+          ccache -M 2G
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DSDL_IBUS=OFF
 
@@ -112,6 +123,18 @@ jobs:
       - name: Report ccache statistics
         if: runner.os == 'Linux'
         run: ccache -s | head -8
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.name }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            build/CMakeFiles/CMakeError.log
+            build/CMakeFiles/CMakeOutput.log
+            build/CMakeCache.txt
 
   shaders:
     name: Shaders compile and are committed
@@ -154,3 +177,90 @@ jobs:
           done
           [ $missing -eq 0 ] && echo "All Vulkan shaders have committed SPIR-V."
           exit $missing
+
+  # An engine change that breaks the game should be caught at review time, not
+  # by the game's nightly job the following morning.
+  game-build:
+    name: Downstream game still builds
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 90
+    steps:
+      - name: Check out this engine revision
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: SleakEngine
+
+      - name: Check out the game
+        uses: actions/checkout@v4
+        with:
+          repository: CanReader/SleakCraft
+          path: SleakCraft
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxss-dev libxmu-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-downstream-${{ github.sha }}
+          restore-keys: ccache-downstream-
+
+      - name: Build the game against this engine
+        working-directory: SleakCraft
+        run: |
+          ccache -M 2G
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DSDL_IBUS=OFF
+          cmake --build build
+
+  # The existing tree predates the checks, so only lines this PR touches are
+  # analyzed. Advisory for now: it reports findings without blocking a merge.
+  clang-tidy:
+    name: Static analysis (changed lines)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-tidy ninja-build pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxss-dev libxmu-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+
+      - name: Generate the compilation database
+        run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DSDL_IBUS=OFF
+
+      - name: Analyze changed files
+        run: |
+          git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
+          files=$(git diff --name-only --diff-filter=ACM \
+                    "origin/${{ github.base_ref }}"...HEAD \
+                    -- 'src/*.cpp' 'include/**/*.hpp' | tr '\n' ' ')
+          if [ -z "$files" ]; then
+            echo "No C++ sources changed."
+            exit 0
+          fi
+          echo "Analyzing: $files"
+          clang-tidy -p build $files || true

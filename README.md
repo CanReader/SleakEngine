@@ -3,6 +3,7 @@
 <p align="center">A C++23 game engine with four graphics backends: Vulkan, OpenGL, DirectX 11, and DirectX 12.</p>
 
 <p align="center">
+  <a href="https://github.com/CanReader/SleakEngine/actions/workflows/ci.yml"><img src="https://github.com/CanReader/SleakEngine/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="https://canreader.github.io/SleakEngine/"><img src="https://img.shields.io/badge/docs-online-2563eb" alt="Documentation"/></a>
   <img src="https://img.shields.io/badge/C%2B%2B-23-0ea5e9" alt="C++23"/>
   <img src="https://img.shields.io/badge/backends-Vulkan%20%7C%20OpenGL%20%7C%20DX11%20%7C%20DX12-22d3ee" alt="Backends"/>
