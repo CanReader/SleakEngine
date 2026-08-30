@@ -4,13 +4,16 @@ on:
   push:
     branches: [main]
 
+# SleakCraft is verified by its own nightly job instead of a dispatch:
+# DISPATCH_TOKEN does not currently grant access to that repository. To make
+# it instant, add SleakCraft to the token's repository access and list it in
+# the matrix below.
 jobs:
   notify:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         repo:
-          - SleakCraft
           - SleakEngine-Empty
           - SleakEngine-FPP
     steps:
