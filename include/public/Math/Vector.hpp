@@ -1,6 +1,7 @@
 #ifndef _Vector_HPP_
 #define _Vector_HPP_
 
+#include <cstdint>
 #include <string>
 #include <sstream>
 #include <cmath>

@@ -26,7 +26,7 @@ static bool Invert4x4(const float m[16], float inv[16]) {
     float inv12 = -m[4]*m[9] *m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
 
     float det = m[0]*inv0 + m[1]*inv4 + m[2]*inv8 + m[3]*inv12;
-    if (std::fabsf(det) < 1e-8f) return false;
+    if (std::fabs(det) < 1e-8f) return false;
     float id = 1.0f / det;
 
     inv[0]  = inv0  * id;
