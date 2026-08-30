@@ -210,12 +210,12 @@ namespace Sleak
         class Vector2D {
         public:
             // Constructors
-            Vector2D() : vec({0.0f, 0.0f}) {}
-            Vector2D(float x, float y) : vec({x, y}) {}
+            constexpr Vector2D() : vec({0.0f, 0.0f}) {}
+            constexpr Vector2D(float x, float y) : vec({x, y}) {}
     
             // Accessors
-            float GetX() const { return vec[0]; }
-            float GetY() const { return vec[1]; }
+            constexpr float GetX() const { return vec[0]; }
+            constexpr float GetY() const { return vec[1]; }
     
             // Mutators
             void SetX(float val) { vec[0] = val; }

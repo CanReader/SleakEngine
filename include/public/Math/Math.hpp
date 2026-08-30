@@ -11,15 +11,19 @@ namespace Sleak {
 namespace Math {
 
 /// Clamps value into [min, max].
+/// Returns by value: min and max are parameters, so returning a reference
+/// would hand back a dangling one whenever clamping engages.
 template <typename T>
-constexpr const T& Clamp(const T& value, T min, T max) {
+constexpr T Clamp(const T& value, T min, T max) {
     return (value < min) ? min : (value > max) ? max : value;
 }
 
 /// Clamps value into [range.x, range.y].
 template <typename T>
-constexpr const T& Clamp(const T& value, Vector2D range) {
-    return (value < range.GetX()) ? range.GetX() : (value > range.GetY()) ? range.GetY() : value;
+constexpr T Clamp(const T& value, Vector2D range) {
+    return (value < range.GetX())   ? static_cast<T>(range.GetX())
+           : (value > range.GetY()) ? static_cast<T>(range.GetY())
+                                    : value;
 }
 
 template <typename T>

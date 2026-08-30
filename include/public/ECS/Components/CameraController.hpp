@@ -16,7 +16,7 @@ namespace Sleak {
         CameraController(GameObject* object) : Component(object) {}
         ~CameraController() override = default;
 
-        virtual bool Initialize() {
+        bool Initialize() override {
             bIsInitialized = true;
 
             camera = GetCamera();
@@ -24,7 +24,7 @@ namespace Sleak {
             return true;
         }
 
-        virtual void Update(float deltaTime) = 0;
+        void Update(float deltaTime) override = 0;
 
         /// Shows or hides the OS cursor and, typically, toggles relative mouse mode.
         virtual void ToggleCursor(bool enable) = 0;
