@@ -1709,8 +1709,7 @@ bool DirectX12Renderer::CreateImGUI() {
     imguiInit.LegacySingleSrvCpuDescriptor = imguiCpuHandle;
     imguiInit.LegacySingleSrvGpuDescriptor = imguiGpuHandle;
 
-    if (!ImGui_ImplDX12_Init(&imguiInit))
-        return false;
+    if (!ImGui_ImplDX12_Init(&imguiInit)) return false;
 
     bImInitialized = true;
     return true;
