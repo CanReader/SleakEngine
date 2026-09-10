@@ -1699,12 +1699,17 @@ bool DirectX12Renderer::CreateImGUI() {
     if (!ImGui_ImplSDL3_InitForD3D(window->GetSDLWindow()))
         return false;
 
-    if (!ImGui_ImplDX12_Init(
-            device.Get(), FrameCount, DXGI_FORMAT_R8G8B8A8_UNORM,
-            m_sharedSrvHeap.Get(),
-            imguiCpuHandle,
-            imguiGpuHandle))
-        return false;
+    ImGui_ImplDX12_InitInfo imguiInit;
+    imguiInit.Device = device.Get();
+    imguiInit.CommandQueue = commandQueue.Get();
+    imguiInit.NumFramesInFlight = FrameCount;
+    imguiInit.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    imguiInit.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    imguiInit.SrvDescriptorHeap = m_sharedSrvHeap.Get();
+    imguiInit.LegacySingleSrvCpuDescriptor = imguiCpuHandle;
+    imguiInit.LegacySingleSrvGpuDescriptor = imguiGpuHandle;
+
+    if (!ImGui_ImplDX12_Init(&imguiInit)) return false;
 
     bImInitialized = true;
     return true;
