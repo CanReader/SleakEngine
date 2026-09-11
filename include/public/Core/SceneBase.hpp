@@ -125,6 +125,7 @@ namespace Sleak {
         /// Takes ownership of object, registering it with lighting and physics as needed.
         virtual void AddObject(GameObject* object);
         /// Unregisters and deletes object immediately.
+        /// Cancels a queued DestroyObject() on the same object.
         virtual void RemoveObject(GameObject* object);
         /// Queues an object for destruction; actually freed on the next ProcessPendingDestroy().
         void DestroyObject(GameObject* object);
