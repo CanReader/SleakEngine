@@ -263,17 +263,23 @@ void SceneBase::AddObject(GameObject* object) {
 void SceneBase::RemoveObject(GameObject* object) {
     if (!object) return;
     int index = Objects.indexOf(object);
-    if (index != -1) {
-        if (m_lightManager && object->IsLight()) {
-            m_lightManager->UnregisterLight(
-                static_cast<Light*>(object));
-        }
-        if (m_physicsWorld) {
-            UnregisterCollidersRecursive(object, m_physicsWorld);
-        }
-        Objects.erase(index);
-        delete object;
+    if (index == -1) return;
+
+    if (m_lightManager && object->IsLight()) {
+        m_lightManager->UnregisterLight(
+            static_cast<Light*>(object));
     }
+    if (m_physicsWorld) {
+        UnregisterCollidersRecursive(object, m_physicsWorld);
+    }
+
+    int pending = m_pendingDestroy.indexOf(object);
+    if (pending != -1) {
+        m_pendingDestroy.erase(pending);
+    }
+
+    Objects.erase(index);
+    delete object;
 }
 
 void SceneBase::DestroyObject(GameObject* object) {
