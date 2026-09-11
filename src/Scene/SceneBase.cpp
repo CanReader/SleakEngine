@@ -38,6 +38,13 @@ static void UnregisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld*
 }
 
 SceneBase::~SceneBase() {
+    if (state != SceneState::Unloaded) {
+        SLEAK_ERROR(
+            "Scene '{0}' destroyed without Unload(); "
+            "OnDeactivate/OnUnload did not run.",
+            name);
+    }
+
     DestroyAllObjects();
     delete m_lightManager;
     m_lightManager = nullptr;
@@ -56,9 +63,10 @@ void SceneBase::Load() {
 
 void SceneBase::Unload() {
     if (state == SceneState::Unloaded || state == SceneState::Unloading) return;
-    state = SceneState::Unloading;
 
-    if (bActive) Deactivate();
+    Deactivate();
+
+    state = SceneState::Unloading;
 
     OnUnload();
 
