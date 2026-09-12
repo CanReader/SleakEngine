@@ -56,13 +56,13 @@ namespace Sleak {
          * @brief Serializes the object using the specified context.
          * @param context The serialization context.
          */
-        virtual void Serialize(std::unique_ptr<ISerializationContext> context) const = 0;
+        virtual void Serialize(ISerializationContext& context) const = 0;
 
         /**
          * @brief Deserializes the object using the specified context.
          * @param context The deserialization context.
          */
-        virtual void Deserialize(std::unique_ptr<ISerializationContext> context) = 0;
+        virtual void Deserialize(const ISerializationContext& context) = 0;
 
         /**
          * @brief Serializes the object to a file.

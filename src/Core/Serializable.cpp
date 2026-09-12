@@ -143,7 +143,7 @@ namespace Sleak {
             throw std::runtime_error("Failed to open file for writing: " + filePath);
         }
 
-        Serialize(std::move(context));
+        Serialize(*context);
         context->WriteToStream(file);
     }
 
@@ -157,7 +157,7 @@ namespace Sleak {
         }
 
         context->ReadFromStream(file);
-        Deserialize(std::move(context));
+        Deserialize(*context);
     }
 
     // SerializationFactory methods
