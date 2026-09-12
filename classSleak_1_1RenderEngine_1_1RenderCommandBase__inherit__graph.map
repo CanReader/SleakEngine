@@ -1,0 +1,23 @@
+<map id="Sleak::RenderEngine::RenderCommandBase" name="Sleak::RenderEngine::RenderCommandBase">
+<area shape="rect" id="Node000001" title="One recorded draw plus the state it needs to replay into a command list." alt="" coords="1118,5,1349,377"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1BindConstantBufferCommand.html" title="Binds a constant buffer to a pipeline slot." alt="" coords="5,477,227,710"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1104,198,923,212,814,227,698,249,580,279,461,318,347,367,240,428,211,451,186,478,182,475,208,447,237,423,344,362,459,313,578,274,697,244,813,222,922,207,1104,192"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1BindMaterialCommand.html" title="Binds a material&#39;s shader and textures for subsequent draws." alt="" coords="251,494,464,693"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="1105,209,966,234,887,252,803,275,718,304,634,338,553,379,478,427,443,459,414,495,409,492,439,455,474,423,550,375,632,333,716,299,801,270,885,247,965,228,1104,204"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1RenderEngine_1_1BindShaderCommand.html" title="Binds a shader program for subsequent draws." alt="" coords="488,511,701,675"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="1106,231,1014,264,912,307,809,362,761,393,715,427,675,468,642,513,638,510,671,464,712,423,758,389,807,357,910,302,1012,259,1104,226"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1RenderEngine_1_1BindTextureCommand.html" title="Binds a texture for subsequent draws." alt="" coords="725,511,939,675"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="1109,287,1029,353,953,427,917,469,885,513,881,510,913,466,949,424,1026,349,1105,283"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1RenderEngine_1_1CustomCommand.html" title="Wraps an arbitrary callback as a queueable render command." alt="" coords="963,511,1221,675"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="1166,391,1123,512,1118,510,1161,389"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1RenderEngine_1_1DrawCommand.html" title="Non&#45;indexed draw command with its vertex and constant buffers." alt="" coords="1245,440,1507,747"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="1306,390,1324,439,1319,441,1301,391"/>
+<area shape="rect" id="Node000008" href="$classSleak_1_1RenderEngine_1_1DrawIndexedCommand.html" title="Indexed draw command with its vertex, index, and constant buffers." alt="" coords="1531,425,1837,761"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="1361,289,1520,423,1533,435,1529,439,1517,427,1358,293"/>
+<area shape="rect" id="Node000009" href="$classSleak_1_1RenderEngine_1_1SetRenderFaceCommand.html" title="Switches the cull&#45;face mode." alt="" coords="1861,511,2075,675"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="1363,215,1474,245,1601,288,1667,316,1731,347,1793,383,1851,423,1893,464,1926,509,1922,513,1889,467,1848,427,1790,387,1729,352,1665,321,1599,293,1473,250,1361,221"/>
+<area shape="rect" id="Node000010" href="$classSleak_1_1RenderEngine_1_1SetRenderModeCommand.html" title="Switches the rasterizer fill mode." alt="" coords="2099,511,2312,675"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="1363,198,1520,219,1611,236,1708,259,1807,288,1905,325,2000,369,2088,423,2132,463,2166,510,2162,513,2128,467,2085,427,1997,374,1903,329,1805,293,1707,264,1610,241,1519,224,1362,204"/>
+<area shape="rect" id="Node000011" href="$classSleak_1_1RenderEngine_1_1UpdateConstantBufferCommand.html" title="Constant buffer write, captured by value into inline storage or a heap fallback for larger payloads." alt="" coords="2336,477,2587,710"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="1363,191,1560,203,1680,218,1809,239,1941,269,2075,308,2204,359,2266,390,2325,423,2357,447,2386,475,2382,479,2354,451,2323,428,2263,394,2202,364,2073,313,1940,274,1808,244,1679,223,1560,209,1362,196"/>
+</map>

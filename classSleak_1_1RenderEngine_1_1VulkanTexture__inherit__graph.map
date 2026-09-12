@@ -1,0 +1,5 @@
+<map id="Sleak::RenderEngine::VulkanTexture" name="Sleak::RenderEngine::VulkanTexture">
+<area shape="rect" id="Node000001" title="Vulkan 2D texture: image + view + sampler, with per&#45;swapchain&#45;image descriptor sets." alt="" coords="5,613,304,1069"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Texture.html" title=" " alt="" coords="31,5,279,565"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,579,157,613,152,613,152,579"/>
+</map>

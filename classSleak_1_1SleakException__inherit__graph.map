@@ -1,0 +1,21 @@
+<map id="Sleak::SleakException" name="Sleak::SleakException">
+<area shape="rect" id="Node000001" title=" " alt="" coords="741,119,931,248"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1EmptyContainerException.html" title=" " alt="" coords="5,296,232,391"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="728,202,504,240,373,267,245,299,233,302,231,297,243,293,372,261,503,235,727,197"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1FileIOException.html" title=" " alt="" coords="256,296,427,391"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="729,212,590,249,440,299,428,303,426,298,438,293,588,244,727,207"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1IndexOutOfBoundsException.html" title=" " alt="" coords="451,296,695,391"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="731,251,652,298,649,294,728,246"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1InvalidArgumentException.html" title=" " alt="" coords="719,296,953,391"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="839,262,839,296,833,296,833,262"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1InvalidIteratorException.html" title=" " alt="" coords="977,296,1196,391"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="944,249,1015,294,1012,298,941,254"/>
+<area shape="rect" id="Node000008" href="$classSleak_1_1NotImplementedException.html" title=" " alt="" coords="1220,296,1452,391"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="945,213,1209,293,1221,297,1219,303,1207,299,943,218"/>
+<area shape="rect" id="Node000009" href="$classSleak_1_1NullPointerException.html" title=" " alt="" coords="1476,296,1687,391"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="945,195,1185,231,1326,259,1465,293,1476,297,1475,302,1463,299,1325,264,1184,236,944,200"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="783,5,889,71"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="839,84,839,118,833,118,833,84"/>
+<area shape="rect" id="Node000010" href="$classSleak_1_1CameraNotFound.html" title=" " alt="" coords="1475,439,1688,548"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="1584,404,1584,438,1579,438,1579,404"/>
+</map>

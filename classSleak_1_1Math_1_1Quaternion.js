@@ -1,0 +1,27 @@
+var classSleak_1_1Math_1_1Quaternion =
+[
+    [ "Quaternion", "classSleak_1_1Math_1_1Quaternion.html#a246a37e68b715b62eca785499c8bff7b", null ],
+    [ "Quaternion", "classSleak_1_1Math_1_1Quaternion.html#a8ea8bf7d4c68befd19dd38b17c8188bb", null ],
+    [ "Quaternion", "classSleak_1_1Math_1_1Quaternion.html#a478435d5b66a5be1f9a4e07cee4742b2", null ],
+    [ "Quaternion", "classSleak_1_1Math_1_1Quaternion.html#af9567f2408045c55e4a14e64d3c92a40", null ],
+    [ "conjugate", "classSleak_1_1Math_1_1Quaternion.html#a38add06255417033c8829f97346acdfa", null ],
+    [ "GetW", "classSleak_1_1Math_1_1Quaternion.html#ae9dc513b3358a3fecb9b8f0d6b572e89", null ],
+    [ "GetX", "classSleak_1_1Math_1_1Quaternion.html#a4de8758424d29535b57cc944eab62d2c", null ],
+    [ "GetY", "classSleak_1_1Math_1_1Quaternion.html#a75bd61e63b4a7212bd6ac84d174ca721", null ],
+    [ "GetZ", "classSleak_1_1Math_1_1Quaternion.html#abd62c07404fab84b1cdf37a6a16165b3", null ],
+    [ "inverse", "classSleak_1_1Math_1_1Quaternion.html#af952fab142c64285f3c623950424889d", null ],
+    [ "LookRotation", "classSleak_1_1Math_1_1Quaternion.html#a777fdf0bdf18c7d8b3d23c98aebce6d3", null ],
+    [ "magnitude", "classSleak_1_1Math_1_1Quaternion.html#a06798ddaa6e064fb4692f44c4d3af4c4", null ],
+    [ "normalize", "classSleak_1_1Math_1_1Quaternion.html#a6559375082d8159e0f77fed2744bd086", null ],
+    [ "operator*", "classSleak_1_1Math_1_1Quaternion.html#a2aa1237a3f634c529d0d85336d62f00a", null ],
+    [ "operator*=", "classSleak_1_1Math_1_1Quaternion.html#a5c3b23feef0262313861574a47b2af83", null ],
+    [ "operator-", "classSleak_1_1Math_1_1Quaternion.html#aea362f76350e84cc9f9d5f6399ce6985", null ],
+    [ "operator[]", "classSleak_1_1Math_1_1Quaternion.html#a9f27b1ed55b41d1b39615af9b726a062", null ],
+    [ "operator[]", "classSleak_1_1Math_1_1Quaternion.html#a330eec4f1c53610c033988acf5f0fc70", null ],
+    [ "rotateVector", "classSleak_1_1Math_1_1Quaternion.html#a6efb374003a667054e51d737e7537d63", null ],
+    [ "toRotationMatrix", "classSleak_1_1Math_1_1Quaternion.html#ae41ea797ae30d992a5a9c428616540e9", null ],
+    [ "w", "classSleak_1_1Math_1_1Quaternion.html#a994b5dc361c30b347a2c42263a8b6f98", null ],
+    [ "x", "classSleak_1_1Math_1_1Quaternion.html#ac1c832af82731e35e87f56649bbea9dc", null ],
+    [ "y", "classSleak_1_1Math_1_1Quaternion.html#a12155fa2fa9156ee68bba9ef41cff2cd", null ],
+    [ "z", "classSleak_1_1Math_1_1Quaternion.html#a098e27335c604a68251c4bd145f18118", null ]
+];

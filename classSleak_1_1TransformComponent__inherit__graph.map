@@ -1,0 +1,7 @@
+<map id="Sleak::TransformComponent" name="Sleak::TransformComponent">
+<area shape="rect" id="Node000001" title="Represents the position, rotation, and scale of an entity in 3D space." alt="" coords="5,644,228,1175"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Component.html" title=" " alt="" coords="17,257,217,596"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="119,610,119,644,114,644,114,610"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Object.html" title=" " alt="" coords="19,5,214,209"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="119,223,119,257,114,257,114,223"/>
+</map>

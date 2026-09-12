@@ -1,0 +1,7 @@
+<map id="Sleak::ColliderComponent" name="Sleak::ColliderComponent">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,644,247,1188"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Component.html" title=" " alt="" coords="26,257,226,596"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="129,610,129,644,123,644,123,610"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Object.html" title=" " alt="" coords="29,5,223,209"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="129,223,129,257,123,257,123,223"/>
+</map>

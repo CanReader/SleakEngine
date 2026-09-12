@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::DirectX11Buffer" name="Sleak::RenderEngine::DirectX11Buffer">
+<area shape="rect" id="Node000001" title="D3D11 buffer wrapper covering vertex/index/constant usages and custom configurations." alt="" coords="5,893,279,1320"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1BufferBase.html" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="23,228,261,845"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="145,859,145,893,139,893,139,859"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="47,5,237,180"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="145,194,145,228,139,228,139,194"/>
+</map>

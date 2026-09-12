@@ -1,0 +1,9 @@
+<map id="Sleak::IDelegate" name="Sleak::IDelegate">
+<area shape="rect" id="Node000001" title=" " alt="" coords="113,5,299,140"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Delegate.html" title=" " alt="" coords="5,188,185,357"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,154,145,189,140,186,160,151"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1EventDelegateBase.html" title=" " alt="" coords="210,215,423,330"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="252,151,287,214,283,216,248,154"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1EventDelegate.html" title=" " alt="" coords="209,405,424,609"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="319,344,319,405,314,405,314,344"/>
+</map>

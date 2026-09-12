@@ -1,0 +1,21 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" title=" " alt="" coords="5,153,120,179"/>
+<area shape="rect" id="Node000001" href="$classSleak_1_1SleakException.html" title=" " alt="" coords="168,153,335,179"/>
+<area shape="poly" id="edge86_Node000000_Node000001" title=" " alt="" coords="134,163,168,163,168,169,134,169"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1EmptyContainerException.html" title=" " alt="" coords="391,5,626,31"/>
+<area shape="poly" id="edge87_Node000001_Node000002" title=" " alt="" coords="268,141,315,89,347,62,381,40,410,28,412,33,384,44,350,66,319,93,272,144"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1FileIOException.html" title=" " alt="" coords="425,55,592,80"/>
+<area shape="poly" id="edge88_Node000001_Node000003" title=" " alt="" coords="280,143,327,115,382,89,424,77,426,82,384,94,329,120,283,148"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1IndexOutOfBoundsException.html" title=" " alt="" coords="383,104,635,129"/>
+<area shape="poly" id="edge89_Node000001_Node000004" title=" " alt="" coords="331,148,382,138,441,127,442,132,383,143,332,153"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1InvalidArgumentException.html" title=" " alt="" coords="389,153,628,179"/>
+<area shape="poly" id="edge90_Node000001_Node000005" title=" " alt="" coords="349,163,389,163,389,169,349,169"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1InvalidIteratorException.html" title=" " alt="" coords="397,203,620,228"/>
+<area shape="poly" id="edge91_Node000001_Node000006" title=" " alt="" coords="332,179,442,200,441,205,331,184"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1NotImplementedException.html" title=" " alt="" coords="389,252,629,277"/>
+<area shape="poly" id="edge92_Node000001_Node000007" title=" " alt="" coords="284,184,330,212,384,237,427,249,425,254,382,242,327,216,281,189"/>
+<area shape="rect" id="Node000008" href="$classSleak_1_1NullPointerException.html" title=" " alt="" coords="407,301,610,327"/>
+<area shape="poly" id="edge93_Node000001_Node000008" title=" " alt="" coords="272,188,319,238,350,265,384,286,416,299,414,304,381,291,347,269,316,242,268,191"/>
+<area shape="rect" id="Node000009" href="$classSleak_1_1CameraNotFound.html" title=" " alt="" coords="683,301,861,327"/>
+<area shape="poly" id="edge94_Node000008_Node000009" title=" " alt="" coords="624,311,682,311,682,317,624,317"/>
+</map>

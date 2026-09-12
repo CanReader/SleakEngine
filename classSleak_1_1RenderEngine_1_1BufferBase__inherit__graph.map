@@ -1,0 +1,13 @@
+<map id="Sleak::RenderEngine::BufferBase" name="Sleak::RenderEngine::BufferBase">
+<area shape="rect" id="Node000001" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="474,228,711,845"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1DirectX11Buffer.html" title="D3D11 buffer wrapper covering vertex/index/constant usages and custom configurations." alt="" coords="5,1045,279,1471"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="466,670,376,776,332,835,292,895,252,969,218,1046,213,1043,247,966,288,892,327,832,372,773,462,666"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1RenderEngine_1_1DirectX12Buffer.html" title="D3D12 buffer wrapper: default&#45;heap resource plus an upload heap for CPU&#45;to&#45;GPU copies." alt="" coords="303,995,608,1521"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="534,859,508,995,503,994,529,858"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1RenderEngine_1_1OpenGLBuffer.html" title="OpenGL VBO/EBO/UBO wrapper; target is derived from BufferType at construction." alt="" coords="633,1081,830,1435"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="657,858,700,1081,695,1082,652,859"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1RenderEngine_1_1VulkanBuffer.html" title="VMA&#45;backed Vulkan buffer with staging uploads, batched copies, and a size&#45;bucketed recycling pool." alt="" coords="854,893,1153,1623"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="722,703,785,795,844,892,856,914,852,916,840,895,781,798,717,706"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="498,5,687,180"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="595,194,595,228,590,228,590,194"/>
+</map>
