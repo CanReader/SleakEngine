@@ -47,8 +47,8 @@ bool Window::InitializeWindow() {
     GraphicsAPI = SDL_WINDOW_VULKAN;
 
   if (!SDL_Init(SDL_INIT_VIDEO)) {
-    SLEAK_FATAL("Failed to initialize SDL: {0}", SDL_GetError());
-    return false;
+      SLEAK_FATAL("Failed to initialize SDL: {0}", SDL_GetError());
+      return false;
     }
 
   SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height, GraphicsAPI | SDL_WINDOW_RESIZABLE); 
