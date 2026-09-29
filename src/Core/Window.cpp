@@ -75,9 +75,9 @@ bool Window::InitializeWindow() {
 
   SLEAK_INFO("Current used operating system: {0}" , OS);
   #ifdef WINDOW_SYSTEM
-  SLEAK_INFO("Current used window system: {0}" , WINDOW_SYSTEM);
+  SLEAK_INFO("Current used window system: {0}", WINDOW_SYSTEM);
   #else
-  SLEAK_FATAL("No window system has been detected! are you sure you use a computer?" , WINDOW_SYSTEM);
+  SLEAK_FATAL("No window system has been detected! are you sure you use a computer?");
   #endif
 
   return true;
