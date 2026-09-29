@@ -1,0 +1,55 @@
+html {
+  --side-nav-arrow-opacity: 0.7;
+  --side-nav-arrow-hover-opacity: 1;
+  --primary-color: #2a8f85;
+  --primary-dark-color: #4dd0c4;
+  --side-nav-background: #14181a;
+  --fragment-lineheight: 1.55;
+  --content-maxwidth: 1080px;
+}
+html.dark-mode { --primary-color: #4dd0c4; --primary-dark-color: #4dd0c4; }
+#projectlogo img { max-height: 38px; }
+.contents .image img, .contents img.inline { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,.35); }
+
+/* Hero */
+.se-hero { text-align: center; padding: 44px 20px 36px; margin: 0 0 28px;
+  background: linear-gradient(160deg, rgba(37,99,235,.14), rgba(34,211,238,.06) 60%, transparent);
+  border: 1px solid rgba(77,208,196,.18); border-radius: 14px; }
+.se-hero img { height: 96px; margin-bottom: 14px; box-shadow: none !important; }
+.se-hero h1 { font-size: 2.1em; margin: 0 0 8px; border: none; }
+.se-hero p { font-size: 1.08em; opacity: .85; max-width: 640px; margin: 0 auto 20px; }
+.se-btn { display: inline-block; padding: 10px 22px; margin: 0 6px; border-radius: 8px;
+  font-weight: 600; text-decoration: none !important; border: 1px solid transparent; }
+.se-btn-primary { background: linear-gradient(135deg, #2563eb, #22d3ee) !important; color: #fff !important; }
+.se-btn-secondary { border-color: rgba(77,208,196,.4); color: inherit !important; }
+.se-btn:hover { filter: brightness(1.12); }
+
+/* Card grid */
+.se-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 18px 0 26px; }
+.se-card { display: block; padding: 16px 18px; border: 1px solid rgba(128,160,180,.22);
+  border-radius: 10px; text-decoration: none !important; color: inherit !important;
+  background: rgba(128,160,180,.05); transition: border-color .15s, transform .15s; }
+.se-card:hover { border-color: #4dd0c4; transform: translateY(-2px); }
+.se-card b { display: block; margin-bottom: 6px; font-size: 1.03em; color: var(--primary-dark-color); }
+.se-card span { font-size: .92em; opacity: .8; line-height: 1.45; }
+
+/* General polish */
+.contents h2 { margin-top: 2em; }
+table.markdownTable th { background: rgba(77,208,196,.08); }
+div.fragment { border-radius: 8px; }
+
+/* Graphics feature tracker ticks */
+.feat-y { color: #22c55e; font-weight: 700; }
+.feat-n { color: var(--page-foreground-color, inherit); opacity: 0.45; font-weight: 700; }
+
+/* GitHub link in the top menu, right of search */
+#github-link { margin-left: 8px; display: inline-flex; align-items: center; vertical-align: middle; }
+#github-link a { color: #181717; display: flex; align-items: center; padding: 0 10px; background: none; }
+#github-link a:hover { opacity: 0.75; background: none; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) #github-link a { color: #f0f6fc; }
+}
+html[data-theme="dark"] #github-link a { color: #f0f6fc; }
+
+/* hide the generator footer */
+address.footer, li.footer, img.footer { display: none !important; }

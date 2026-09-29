@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::Renderer" name="Sleak::RenderEngine::Renderer">
+<area shape="rect" id="Node000001" title="Abstract render backend: swapchain, frame lifecycle, and post&#45;effect toggles." alt="" coords="123,5,365,668"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1OpenGLRenderer.html" title="OpenGL 3.3+ backend: deferred GBuffer pipeline, SSAO, shadow mapping, and baked IBL." alt="" coords="5,716,227,1216"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="176,682,169,716,164,715,171,681"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1VulkanRenderer.html" title=" " alt="" coords="251,753,493,1179"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="317,681,331,752,326,753,312,682"/>
+</map>

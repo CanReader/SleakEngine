@@ -1,0 +1,27 @@
+var classSleak_1_1RenderEngine_1_1DirectX12Buffer =
+[
+    [ "DirectX12Buffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a8276b1eeaa5c7c967f2966db28d8a318", null ],
+    [ "DirectX12Buffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ac2bfa258fa36e40578ba37239337678b", null ],
+    [ "DirectX12Buffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#af4ce962821612b91a067129300b0cd89", null ],
+    [ "DirectX12Buffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a3bf08cf6c2b4b5dd4adcf9ea3b23cc36", null ],
+    [ "~DirectX12Buffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a797429e744510a5a78ca26545006be52", null ],
+    [ "Cleanup", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a0e932604fca49d06ae5818985524a4cf", null ],
+    [ "DeferCleanup", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ac400bb8745fcc676bc122dffbbd02f1f", null ],
+    [ "GetCommandList", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a2340a4fa285187bc20ced806ec298558", null ],
+    [ "GetD3DBuffer", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ae2ad61bc0070f56a728d0861e9a7c45a", null ],
+    [ "GetData", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a108381f13c199305d57b7c12dc5148a0", null ],
+    [ "GetHeapType", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ae06e32bcb48a38d8a286c0efa7ed42a3", null ],
+    [ "GetResourceState", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a87d916f47ae2fcdd0a6739fd5ef8d853", null ],
+    [ "HasPendingCommands", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a8523cedeaae05efda3b39db6c7ab4fa8", null ],
+    [ "Initialize", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ac02a18af8438ced79d8d0ba06ec342f9", null ],
+    [ "Initialize", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a7df6fb879a48c80ca207252eeb052acb", null ],
+    [ "IsValid", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a701dcc9b822e2d2aa8b690303bdde6cc", null ],
+    [ "Map", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#acb0010ed9f2eb7b43a9b3b10d3ab47a5", null ],
+    [ "operator=", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ad33310cba64cfb33a6153bb36d4908d2", null ],
+    [ "operator=", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a7d9a2524674e69702231a492a174699f", null ],
+    [ "ProcessDeferredCleanup", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#ab8efef96594af7810b9e8bed478d960b", null ],
+    [ "ReleaseUploadResources", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a61d2ac8cb08b8017443bafda0aa862e9", null ],
+    [ "Unmap", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a94799a71512146002055b1a7509aee70", null ],
+    [ "Update", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a37fa6de292ea972ae013d4da45d8ffe3", null ],
+    [ "Update", "classSleak_1_1RenderEngine_1_1DirectX12Buffer.html#a1de031e87fccb66934d8331ff63a2197", null ]
+];

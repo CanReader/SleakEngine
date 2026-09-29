@@ -1,0 +1,26 @@
+var structSleak_1_1RenderEngine_1_1ShadowLightUBO =
+[
+    [ "_extraPad", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a832b32584be947ab13a48171606ab278", null ],
+    [ "_fogPad", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a6dcadf837f6d63479fda3ad3b1c759c9", null ],
+    [ "Ambient", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#aec931a42dee911786d67072976e9332e", null ],
+    [ "CameraPos", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#ad2ca833efa1e4ea10840e223bf2356b5", null ],
+    [ "ExtraLightColor", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a4351faddc6c6f9002242d8094bd9ce09", null ],
+    [ "ExtraLightDir", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a14ce333d533a25ec79c2e279be8fdab0", null ],
+    [ "FogColor", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a36a7d2c05ab709da256fd2775ddf3358", null ],
+    [ "FogColorZenith", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#abca682a3ce8a74c151d214a1e197ab09", null ],
+    [ "FogEnd", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a39aa3a3fe43360c1343b9bcf698ebace", null ],
+    [ "FogStart", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a0821c769a7d6aff3abe1a27f63c309c0", null ],
+    [ "HeightFogDensity", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#ac4fb920e90e97e8164bd2b52aa144051", null ],
+    [ "HeightFogEnabled", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#ac6288b0b44c23a354c35719010153dbf", null ],
+    [ "HeightFogFalloff", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#aba582afb0014144ec2fae177f40898aa", null ],
+    [ "HeightFogTop", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#afa7b7a032269688eb6e3a5d361fde02b", null ],
+    [ "LightColor", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a626aa8144772c79fc04159b875bf931f", null ],
+    [ "LightDir", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#ae596e6119a61a167d2046561fc1fd6ed", null ],
+    [ "LightSize", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a099c55e94eefa606fc6b3a084d39b93b", null ],
+    [ "LightVP", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a68f66d836df06068141ccf532bc05492", null ],
+    [ "NdcToShadow", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a4c8ad8a200091b0822c37e0da6c46fd5", null ],
+    [ "NumExtraLights", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a7ad1e3b59f60c9a90c9727a8faea17d3", null ],
+    [ "ShadowBias", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a07d8ecd82f9900cca2e80b94e18f6088", null ],
+    [ "ShadowStrength", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#af0b08f6b44987ff2e95102a431788ae9", null ],
+    [ "ShadowTexelSize", "structSleak_1_1RenderEngine_1_1ShadowLightUBO.html#a403a3b016ea08273c6ac56072dea230e", null ]
+];

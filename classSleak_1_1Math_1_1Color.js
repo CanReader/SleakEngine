@@ -1,0 +1,28 @@
+var classSleak_1_1Math_1_1Color =
+[
+    [ "Color", "classSleak_1_1Math_1_1Color.html#a72fc4001ef0f7534d15e2e269155ac26", null ],
+    [ "Color", "classSleak_1_1Math_1_1Color.html#a01f90ae15214182d71c960b2188095be", null ],
+    [ "clamped", "classSleak_1_1Math_1_1Color.html#aba40ecaa0de5517cec1665ef514699e0", null ],
+    [ "fromHex", "classSleak_1_1Math_1_1Color.html#ae4ad19cd8e0ca240ea800135d0213d5a", null ],
+    [ "fromHSV", "classSleak_1_1Math_1_1Color.html#a59c4b3228d0aa278ea983f1ef53889f4", null ],
+    [ "GetA", "classSleak_1_1Math_1_1Color.html#ad0b9dfd0211d06d099d71d6710da51b0", null ],
+    [ "GetB", "classSleak_1_1Math_1_1Color.html#a5c9b855d963db2b2e723ee99c419d766", null ],
+    [ "GetG", "classSleak_1_1Math_1_1Color.html#ab33fe9f3cac8bf6046bd04586ef50e23", null ],
+    [ "GetR", "classSleak_1_1Math_1_1Color.html#a3e9db362a8a3271d7ac6446188688754", null ],
+    [ "linearToSrgb", "classSleak_1_1Math_1_1Color.html#a121283e521654d2fc6dd21a0d70e8c85", null ],
+    [ "normalize", "classSleak_1_1Math_1_1Color.html#aac3ee47bd6f5a697dd12bfd7283752d0", null ],
+    [ "operator!=", "classSleak_1_1Math_1_1Color.html#aad91bb43de55bf507257020d153db69d", null ],
+    [ "operator*", "classSleak_1_1Math_1_1Color.html#a464a532d1fe391ea160494f16eac1795", null ],
+    [ "operator+", "classSleak_1_1Math_1_1Color.html#a678374b4b2559e9b850e8515bb249694", null ],
+    [ "operator==", "classSleak_1_1Math_1_1Color.html#af13b19c6a4cecfd6568962fa721a3675", null ],
+    [ "premultiplied", "classSleak_1_1Math_1_1Color.html#a76a7c6f81004b316a5a28b54d49f08a8", null ],
+    [ "srgbToLinear", "classSleak_1_1Math_1_1Color.html#a0a9f03e4cec40e1e417141318fee4636", null ],
+    [ "toString", "classSleak_1_1Math_1_1Color.html#a867f7e4f95faf334a2b11560e7fc2db9", null ],
+    [ "withAlpha", "classSleak_1_1Math_1_1Color.html#a8f55977a7bdb9408e314af7983ae0742", null ],
+    [ "Black", "classSleak_1_1Math_1_1Color.html#a7adca4aa2474f873f56e6d95d26e2ee4", null ],
+    [ "Blue", "classSleak_1_1Math_1_1Color.html#ae84a361972b498a9c216c8d8ca09e192", null ],
+    [ "Green", "classSleak_1_1Math_1_1Color.html#ac0cbba19ddc74dc8f60a4b563e0673eb", null ],
+    [ "Red", "classSleak_1_1Math_1_1Color.html#a60994f06f79092dcd5f02e980f011edf", null ],
+    [ "Transparent", "classSleak_1_1Math_1_1Color.html#a0056a3203a4831483d053eaeb63a4af4", null ],
+    [ "White", "classSleak_1_1Math_1_1Color.html#ac67c9a8ce19466ce2f16d54f41db2265", null ]
+];

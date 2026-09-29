@@ -1,0 +1,13 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="5,109,164,134"/>
+<area shape="rect" id="Node000001" href="$classSleak_1_1RenderEngine_1_1BufferBase.html" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="212,101,368,141"/>
+<area shape="poly" id="edge63_Node000000_Node000001" title=" " alt="" coords="178,119,212,119,212,124,178,124"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1DirectX11Buffer.html" title="D3D11 buffer wrapper covering vertex/index/constant usages and custom configurations." alt="" coords="416,5,572,45"/>
+<area shape="poly" id="edge64_Node000001_Node000002" title=" " alt="" coords="340,92,415,55,442,43,444,48,417,60,342,97"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1DirectX12Buffer.html" title="D3D12 buffer wrapper: default&#45;heap resource plus an upload heap for CPU&#45;to&#45;GPU copies." alt="" coords="416,69,572,109"/>
+<area shape="poly" id="edge65_Node000001_Node000003" title=" " alt="" coords="381,104,415,99,416,104,382,110"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1RenderEngine_1_1OpenGLBuffer.html" title="OpenGL VBO/EBO/UBO wrapper; target is derived from BufferType at construction." alt="" coords="416,133,572,173"/>
+<area shape="poly" id="edge66_Node000001_Node000004" title=" " alt="" coords="382,133,416,138,415,144,381,138"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1RenderEngine_1_1VulkanBuffer.html" title="VMA&#45;backed Vulkan buffer with staging uploads, batched copies, and a size&#45;bucketed recycling pool." alt="" coords="416,197,572,237"/>
+<area shape="poly" id="edge67_Node000001_Node000005" title=" " alt="" coords="342,145,417,183,444,195,442,200,415,188,340,150"/>
+</map>

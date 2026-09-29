@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::DirectX12Buffer" name="Sleak::RenderEngine::DirectX12Buffer">
+<area shape="rect" id="Node000001" title="D3D12 buffer wrapper: default&#45;heap resource plus an upload heap for CPU&#45;to&#45;GPU copies." alt="" coords="5,893,311,1419"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1BufferBase.html" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="39,228,277,845"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="161,859,161,893,155,893,155,859"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="63,5,253,180"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="161,194,161,228,155,228,155,194"/>
+</map>
