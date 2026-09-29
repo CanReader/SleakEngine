@@ -182,12 +182,14 @@ void Window::Update() {
 }
 
 void Window::SetFullScreen(bool isFullscreen) {
-  if (SDL_SetWindowFullscreen(SDLWindow, isFullscreen)) {
-    bIsFullScreen = isFullscreen;
-    SLEAK_INFO("Successfully changed window state: {}", isFullscreen ? "Fullscreen is enabled" : "Fullscreen is disabled");
-  } else {
-    SLEAK_ERROR("Failed to set full screen state! {}", SDL_GetError());
-  }
+    if (SDL_SetWindowFullscreen(SDLWindow, isFullscreen)) {
+        bIsFullScreen = isFullscreen;
+        SLEAK_INFO(
+            "Successfully changed window state: {}",
+            isFullscreen ? "Fullscreen is enabled" : "Fullscreen is disabled");
+    } else {
+        SLEAK_ERROR("Failed to set full screen state! {}", SDL_GetError());
+    }
 }
 
 void Window::SetRelativeMouseMode(bool enabled) {
