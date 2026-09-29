@@ -54,7 +54,7 @@ private:
   bool m_imguiReady = false;
   std::string WindowName;
 
-  SDL_Window* SDLWindow;
+  SDL_Window* SDLWindow = nullptr;
   SDL_Event event;
 
   static int Width;
