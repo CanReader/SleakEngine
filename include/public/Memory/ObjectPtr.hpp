@@ -73,4 +73,4 @@ namespace Sleak {
 
 } // namespace Sleak
 
-#endif // _OBJECT_PTR_H_
+#endif  // _OBJECT_PTR_H_
