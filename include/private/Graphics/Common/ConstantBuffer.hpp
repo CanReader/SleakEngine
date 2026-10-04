@@ -47,6 +47,16 @@ namespace Sleak {
         /// Upper bound on directional shadow cascades (array layers).
         static constexpr uint32_t MAX_SHADOW_CASCADES = 4;
 
+        /// Clustered lighting grid (screen tiles x tiles x depth slices).
+        static constexpr uint32_t CLUSTER_GRID_X = 16;
+        static constexpr uint32_t CLUSTER_GRID_Y = 9;
+        static constexpr uint32_t CLUSTER_GRID_Z = 24;
+        static constexpr uint32_t CLUSTER_COUNT =
+            CLUSTER_GRID_X * CLUSTER_GRID_Y * CLUSTER_GRID_Z;
+        /// Capacity of the clustered light list and its per-cluster indices.
+        static constexpr uint32_t MAX_CLUSTERED_LIGHTS = 1024;
+        static constexpr uint32_t MAX_CLUSTER_LIGHT_INDICES = 1u << 18;
+
         /// Full per-frame lighting UBO: camera, ambient, fog, and the packed light array.
         struct alignas(16) LightCBData {
             // Header Row 0: CameraPos.xyz + NumActiveLights
@@ -73,6 +83,19 @@ namespace Sleak {
             float HeightFogDensity;    // max density at low elevations [0..1]
             float HeightFogFalloff;    // exponential falloff per world unit
             float HeightFogEnabled;    // 0 = off, 1 = on
+        };
+
+        /// Lookup parameters for the clustered light grid. The light list
+        /// holds GlobalLightCount directional lights followed by the local
+        /// lights the clusters index into.
+        struct alignas(16) ClusterParamsGPU {
+            float ViewZ[4];  // view depth = dot(xyz, worldPos) + w
+            uint32_t GridX, GridY, GridZ;
+            uint32_t GlobalLightCount;
+            float ZScale;  // slice = log(depth) * ZScale + ZBias
+            float ZBias;
+            uint32_t LocalLightCount;
+            float _pad;
         };
 
         /// Interface for a CPU-side payload that can be uploaded to a GPU constant buffer.

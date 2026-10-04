@@ -184,6 +184,12 @@ public:
     void SetLightVP(const float* lightVP) override;
     /// Stages the per-cascade light view-projections for the next BeginRender.
     void SetShadowCascades(const float* viewProj, uint32_t count) override;
+    bool SupportsClusteredLights() const override { return true; }
+    /// Writes the clustered light data into the current frame's buffers.
+    void UpdateClusteredLights(const ClusterParamsGPU& params,
+                               const LightGPUEntry* lights,
+                               const uint32_t* cells, const uint32_t* indices,
+                               uint32_t indexCount) override;
 
     // Deferred rendering overrides
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
@@ -273,6 +279,12 @@ private:
     void WriteShadowSamplerDescriptors();
     /// Renders the cached shadow casters into every cascade layer.
     void RecordShadowPass();
+
+    // Clustered lights
+    /// Creates the per-frame cluster buffers and their set-4 descriptors.
+    bool CreateClusterResources();
+    /// Destroys the cluster buffers, layout, and pool.
+    void CleanupClusterResources();
     /// Creates the Vulkan instance with validation layers when available.
     bool InitVulkan();
     /// Creates the SDL-backed Vulkan presentation surface.
@@ -526,6 +538,18 @@ private:
     float m_pendingCascadeVP[MAX_SHADOW_CASCADES][16] = {};
     uint32_t m_cascadeCount = 0;
     uint32_t m_pendingCascadeCount = 0;
+
+    // Clustered lights (lighting pass set 4): params UBO, light list,
+    // per-cluster (offset, count) and the flat index list, one set per frame.
+    struct ClusterFrameBuffers {
+        VkBuffer buffers[4] = {};
+        VmaAllocation allocations[4] = {};
+        void* mapped[4] = {};
+    };
+    VkDescriptorSetLayout m_clusterDSL = VK_NULL_HANDLE;
+    VkDescriptorPool m_clusterPool = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_clusterSets = {};
+    std::array<ClusterFrameBuffers, MAX_FRAMES_IN_FLIGHT> m_clusterBuffers = {};
 
     // Light/Shadow UBO (set 2, binding 0)
     VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;

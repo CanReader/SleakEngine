@@ -145,6 +145,7 @@ set(GRAPHICS_OPENGL_SOURCES
 set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanBloom.cpp
     src/Graphics/Vulkan/VulkanBuffer.cpp
+    src/Graphics/Vulkan/VulkanClusteredLights.cpp
     src/Graphics/Vulkan/VulkanCubemapTexture.cpp
     src/Graphics/Vulkan/VulkanDeferred.cpp
     src/Graphics/Vulkan/VulkanDescriptors.cpp

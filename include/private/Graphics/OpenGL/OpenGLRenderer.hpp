@@ -129,6 +129,13 @@ private:
     void SetLightVP(const float* mat) override;
     /// Stages the per-cascade light view-projections for the next BeginRender.
     void SetShadowCascades(const float* viewProj, uint32_t count) override;
+    bool SupportsClusteredLights() const override { return true; }
+    /// Uploads the clustered light data: params UBO 7, light SSBOs 0-2.
+    void UpdateClusteredLights(const ClusterParamsGPU& params,
+                               const LightGPUEntry* lights,
+                               const uint32_t* cells, const uint32_t* indices,
+                               uint32_t indexCount) override;
+    GLuint m_clusterBuffers[4] = {};
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     /// Drops the shadow map so it is rebuilt with the queued settings.
     void ApplyShadowResolutionChange() override;
