@@ -129,6 +129,32 @@ jobs:
             exit 1
           fi
 
+      # Nothing loads the generated GL or HLSL until runtime, so compile them here.
+      - name: Generated GL shaders compile
+        if: runner.os == 'Linux'
+        run: |
+          failed=0
+          for f in build/shaders/*.glsl; do
+            stage="${f%.glsl}"; stage="${stage##*.}"
+            glslc --target-env=opengl -fauto-map-locations -fauto-bind-uniforms \
+              -fshader-stage="$stage" "$f" -o /dev/null || failed=1
+          done
+          exit $failed
+
+      - name: Generated HLSL compiles with fxc
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\fxc.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          $failed = 0
+          foreach ($f in Get-ChildItem build/shaders/*.hlsl) {
+            $target = if ($f.Name -like '*.vert.hlsl') { 'vs_5_0' } else { 'ps_5_0' }
+            & $fxc.FullName /nologo /T $target /E main /Fo NUL $f.FullName
+            if ($LASTEXITCODE -ne 0) { $failed = 1 }
+          }
+          exit $failed
+
       - name: Report ccache statistics
         if: runner.os == 'Linux'
         run: ccache -s | head -8
