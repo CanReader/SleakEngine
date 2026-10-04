@@ -62,9 +62,10 @@ enum class EventCategory {
     }                                                            \
     virtual const char* GetName() const override { return #type; }
 
-#define EVENT_CLASS_CATEGORY(category)\
-    virtual int GetCategoryFlags() const override \
-     { return static_cast<int>(category); }
+#define EVENT_CLASS_CATEGORY(category)              \
+    virtual int GetCategoryFlags() const override { \
+        return static_cast<int>(category);          \
+    }
 
     /// Base for all engine events; carries type/category identity and the
     /// Handled flag consumers can set to stop further propagation.
