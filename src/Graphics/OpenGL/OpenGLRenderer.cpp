@@ -228,16 +228,26 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     }
 }
 
-void OpenGLRenderer::Draw(uint32_t vertexCount) {
+void OpenGLRenderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
+
+void OpenGLRenderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
-    glDrawArrays(mode, 0, vertexCount);
+    glDrawArrays(mode, static_cast<GLint>(firstVertex), vertexCount);
     DrawnVertices += vertexCount;
     DrawnTriangles += vertexCount / 3;
 }
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
+    DrawIndexed(indexCount, 0, 0);
+}
+
+void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                 int32_t baseVertex) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
-    glDrawElements(mode, indexCount, GL_UNSIGNED_INT, 0);
+    const void* offset = reinterpret_cast<const void*>(
+        static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
+    glDrawElementsBaseVertex(mode, indexCount, GL_UNSIGNED_INT, offset,
+                             baseVertex);
     DrawnVertices += indexCount;
     DrawnTriangles += indexCount / 3;
 }
@@ -253,9 +263,18 @@ void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
 
 void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
+    DrawIndexedInstance(instanceCount, indexPerInstance, 0, 0);
+}
+
+void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
+                                         uint32_t indexPerInstance,
+                                         uint32_t firstIndex,
+                                         int32_t baseVertex) {
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
-    glDrawElementsInstanced(mode, indexPerInstance,
-                            GL_UNSIGNED_INT, 0, instanceCount);
+    const void* offset = reinterpret_cast<const void*>(
+        static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
+    glDrawElementsInstancedBaseVertex(mode, indexPerInstance, GL_UNSIGNED_INT,
+                                      offset, instanceCount, baseVertex);
     DrawnVertices += indexPerInstance * instanceCount;
     DrawnTriangles += (indexPerInstance / 3) * instanceCount;
 }
