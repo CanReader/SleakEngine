@@ -71,9 +71,10 @@ produces a file the loader never looks for.
 
 `.spv` files are committed to the repository, but only as a fallback that
 keeps a checkout runnable on Vulkan without the Vulkan SDK installed. A
-build with `glslc` never reads or writes them. CI recompiles every shader
-and fails if a committed `.spv` no longer matches its source, so recompile
-and commit the `.spv` whenever you edit Vulkan GLSL.
+build with `glslc` never reads or writes them. CI fails when a change to a
+Vulkan `.vert` or `.frag` lands without its `.spv`, unless the edit compiles
+to the same code (a comment), so recompile and commit the `.spv` with every
+GLSL edit.
 
 ### The engine's CompileShaders target
 

@@ -208,7 +208,7 @@ filename stem:
 
 When you change a shader, grep for the stem and update every variant you
 ship. Commit the `.spv` files: a machine without `glslc` still needs them,
-and CI fails when a committed `.spv` no longer matches its source.
+and CI fails when a GLSL edit lands without its recompiled `.spv`.
 
 ---
 
