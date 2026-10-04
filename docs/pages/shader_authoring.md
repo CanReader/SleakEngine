@@ -2,14 +2,16 @@
 
 Four backends means four shading languages. A single logical shader such as
 `default_shader` exists on disk as up to eight files, and the engine picks
-between them by rewriting the file extension at load time. Nothing
-cross-compiles, and nothing falls back, so a variant you forget to write is
-a pass that silently stops drawing on that backend.
+between them by rewriting the file extension at load time. A growing set of
+shaders is authored once as Vulkan GLSL and the build generates the OpenGL
+and HLSL text from its SPIR-V (see section 4). Everything else is still
+written by hand per backend, so a variant you forget to write is a pass that
+silently stops drawing on that backend.
 
 | Backend | Files for stem `foo` | Compiled |
 | :--- | :--- | :--- |
 | Vulkan | `foo.vert`, `foo.frag`, plus `foo.vert.spv`, `foo.frag.spv` | Ahead of time by `glslc`, committed as `.spv` |
-| OpenGL | `foo_gl.vert`, `foo_gl.frag` | At load, by the GL driver |
+| OpenGL | `foo.vert.glsl`, `foo.frag.glsl` when generated, else `foo_gl.vert`, `foo_gl.frag` | Generated at build time by SPIRV-Cross, or hand-written; compiled at load by the GL driver |
 | DirectX 11 | `foo.hlsl` | At load, by `D3DCompileFromFile` |
 | DirectX 12 | `foo_dx12.hlsl` | At load, by `D3DCompileFromFile` |
 
@@ -143,10 +145,44 @@ first that the variant file exists under the exact expected name.
 
 ---
 
-## 4. GLSL for OpenGL
+## 4. Generated Variants
 
-OpenGL loads `foo_gl.vert` and `foo_gl.frag` as GLSL text and compiles them
-in the driver. Its error reporting is the best of the four:
+Shaders listed in `ENGINE_CROSS_SHADERS` (or `ENGINE_CROSS_SHADERS_FLIP_Y`)
+in the engine's `CMakeLists.txt` are authored only as Vulkan GLSL. After
+`glslc` produces the `.spv`, `sleak_cross_compile_shader()` runs the
+vendored SPIRV-Cross (`vendors/SPIRV-Cross`, built as a host tool) on it and
+writes two more files per stage into `<build>/Engine/shaders`, staged next
+to the `.spv`:
+
+- `foo.vert.glsl`, `foo.frag.glsl`: GLSL 4.00 with
+  `GL_ARB_shading_language_420pack`, so `layout(binding = N)` survives. Push
+  constant blocks become a `std140` uniform block with no binding, which GL
+  places at binding 0. Varyings carry no `location`, so a generated stage
+  links with a hand-written one by name.
+- `foo.vert.hlsl`, `foo.frag.hlsl`: Shader Model 5.0, entry point `main`.
+  Nothing loads these yet. The DirectX backends keep their hand-written
+  files because their register layout and input semantics differ from what
+  SPIRV-Cross emits.
+
+Without `glslc`, the generator runs on the committed `.spv` instead, so a
+checkout still gets its GL shaders. A cross compiling build can not run the
+vendored tool and needs a host `spirv-cross` (configure fails without one).
+
+The GL binding of each resource is its Vulkan `binding`, with the `set`
+dropped. That only works when the Vulkan layout already matches what the GL
+backend binds, so a shader is listed only after checking that. Add
+`FLIP_Y` for vertex shaders that negate `gl_Position.y` for Vulkan;
+SPIRV-Cross negates it back for GL.
+
+`OpenGLShader` maps `foo_gl.vert` and `foo_gl.frag` to the generated
+`foo.vert.glsl` and `foo.frag.glsl` when they exist, stage by stage, and
+otherwise loads the hand-written file. A game that wants to override a
+generated engine shader has to ship a file under the generated name.
+
+## 5. GLSL for OpenGL
+
+OpenGL loads `foo_gl.vert` and `foo_gl.frag` (or their generated
+replacements) as GLSL text and compiles them in the driver. Its error reporting is the best of the four:
 `Cannot open shader file: {path}` names the missing file,
 `Failed to read shader files: {vert} and {frag}` names both, and
 `Shader compilation failed: {log}` and `Shader program linking failed: {log}`
@@ -158,7 +194,7 @@ is not valid SPIR-V input.
 
 ---
 
-## 5. Custom Vertex Formats and Shader Stems
+## 6. Custom Vertex Formats and Shader Stems
 
 A game that registers its own vertex layout names its shaders through
 `Sleak::VertexLayoutDesc`:
@@ -225,7 +261,7 @@ recreation or shutdown, so a resize re-attempts compilation.
 
 ---
 
-## 6. Keeping Variants in Sync
+## 7. Keeping Variants in Sync
 
 Grep for the stem before you touch anything:
 
@@ -244,7 +280,9 @@ backends whose variant is absent, which matches what
 A working checklist for a new shader stem:
 
 1. Write `foo.vert` and `foo.frag` (Vulkan GLSL).
-2. Write `foo_gl.vert` and `foo_gl.frag` (desktop GLSL).
+2. If the GL backend can bind it with the Vulkan bindings, add it to
+   `ENGINE_CROSS_SHADERS`. Otherwise write `foo_gl.vert` and `foo_gl.frag`
+   (desktop GLSL).
 3. Write `foo.hlsl` and `foo_dx12.hlsl` with `VS_Main` and `PS_Main`.
 4. Build, or run the project's shader script, to produce `foo.vert.spv` and
    `foo.frag.spv`.
@@ -258,12 +296,14 @@ not even name the file it wanted.
 
 ---
 
-## 7. Where to Look in the Source
+## 8. Where to Look in the Source
 
 | Question | File |
 | :--- | :--- |
 | Extension rewrite per backend | The single-argument `compile()` in each `src/Graphics/<backend>/` shader class |
 | SPIR-V build target and its scope | `CMakeLists.txt`, the `find_program(GLSLC ...)` block |
+| Which shaders are generated, and how | `CMakeLists.txt`, `sleak_cross_compile_shader` and `ENGINE_CROSS_SHADERS` |
+| Generated GL path lookup | `src/Graphics/OpenGL/OpenGLShader.cpp`, `ResolveGenerated` |
 | Stem to pipeline mapping and error text | `src/Graphics/Vulkan/VulkanPipelines.cpp`, `CreateCustomFormatPipelines` |
 | Sticky failure flags and draw suppression | `include/private/Graphics/Vulkan/VulkanRenderer.hpp`, `CustomFormatPipelines` |
 | OpenGL attribute binding from a layout | `src/Graphics/OpenGL/OpenGLRenderer.cpp`, `BindVertexBuffer` |
