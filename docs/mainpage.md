@@ -156,9 +156,9 @@ flat index.
 - **Windows**: DirectX 11, DirectX 12, Vulkan, and OpenGL. DirectX 11 is
   the default backend, and DirectX 12 falls back to DirectX 11 when the GPU
   does not support it.
-- Dependencies are vendored (SDL3, glm, fmt, spdlog, assimp, Dear ImGui,
-  stb, glad, json, yaml-cpp, and the Vulkan SDK), so there is nothing to
-  install system-wide.
+- Dependencies are vendored (SDL3, spdlog, assimp, Dear ImGui, stb, glad,
+  json, yaml-cpp, and the Vulkan SDK), so there is nothing to install
+  system-wide.
 
 <h2>How the source is organized</h2>
 

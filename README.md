@@ -66,9 +66,9 @@ cmake -B build -S .
 cmake --build build -j
 ```
 
-Requires a C++23 compiler and CMake. Vulkan and OpenGL backends build everywhere;
-DirectX 11/12 build on Windows. Third-party dependencies live in `vendors/` as
-submodules, so clone with `--recurse-submodules`.
+Requires a C++23 compiler and CMake. Vulkan and OpenGL build on Linux and
+Windows; DirectX 11/12 build on Windows. Third-party dependencies live in
+`vendors/` as submodules, so clone with `--recurse-submodules`.
 
 ## Quick start
 
@@ -127,7 +127,7 @@ src/              Implementation, one folder per subsystem
   Core/  Math/  Scene/  Animation/  Physics/  Lighting/  Culling/
   Assets/  Debug/  UI/  Graphics/{Common, Vulkan, OpenGL, DirectX11, DirectX12}
 assets/           Engine shaders and built-in assets, staged next to your binary
-vendors/          Third-party libraries (SDL3, Assimp, glm, fmt, ImGui, ...)
+vendors/          Third-party libraries (SDL3, Assimp, spdlog, ImGui, ...)
 docs/             Doxygen manual sources
 ```
 
