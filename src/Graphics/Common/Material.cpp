@@ -5,11 +5,11 @@
 
 namespace Sleak {
 
-    namespace {
-        void AdoptTexture(RefPtr<Texture>& slot, Texture* texture) {
-            if (slot.get() != texture) slot = RefPtr<Texture>(texture);
-        }
-    }  // namespace
+namespace {
+void AdoptTexture(RefPtr<Texture>& slot, Texture* texture) {
+    if (slot.get() != texture) slot = RefPtr<Texture>(texture);
+}
+}  // namespace
 
     Material::Material() : Object("Material") {}
 
