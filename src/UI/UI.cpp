@@ -161,6 +161,38 @@ void Dummy(float width, float height) {
     ImGui::Dummy(ImVec2(width, height));
 }
 
+static ImGuiCol ToImGuiCol(StyleColor color) {
+    switch (color) {
+        case StyleColor_Text:
+            return ImGuiCol_Text;
+        case StyleColor_WindowBg:
+            return ImGuiCol_WindowBg;
+        case StyleColor_ChildBg:
+            return ImGuiCol_ChildBg;
+        case StyleColor_Button:
+            return ImGuiCol_Button;
+        case StyleColor_ButtonHovered:
+            return ImGuiCol_ButtonHovered;
+        case StyleColor_ButtonActive:
+            return ImGuiCol_ButtonActive;
+        case StyleColor_FrameBg:
+            return ImGuiCol_FrameBg;
+        case StyleColor_Header:
+            return ImGuiCol_Header;
+        case StyleColor_HeaderHovered:
+            return ImGuiCol_HeaderHovered;
+        case StyleColor_HeaderActive:
+            return ImGuiCol_HeaderActive;
+        case StyleColor_ScrollbarBg:
+            return ImGuiCol_ScrollbarBg;
+    }
+    return ImGuiCol_Text;
+}
+
+void PushStyleColor(StyleColor idx, float r, float g, float b, float a) {
+    ImGui::PushStyleColor(ToImGuiCol(idx), ImVec4(r, g, b, a));
+}
+
 void PushStyleColor(int idx, float r, float g, float b, float a) {
     ImGui::PushStyleColor(static_cast<ImGuiCol>(idx), ImVec4(r, g, b, a));
 }
