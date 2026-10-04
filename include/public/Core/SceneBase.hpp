@@ -90,7 +90,7 @@ namespace Sleak {
         // Initialization
         /// Runs once before the scene's first Begin()/Update().
         virtual bool Initialize();
-        /// Activates every owned object; runs once after Initialize().
+        /// Activates every owned object; runs once per Load().
         virtual void Begin() = 0;
 
         // Update loops
@@ -112,7 +112,7 @@ namespace Sleak {
         void Load();
         /// Deactivates if active, calls OnUnload(), and destroys all owned objects.
         void Unload();
-        /// Marks the scene active and calls OnActivate().
+        /// Marks the scene active, calls OnActivate(), then Begin() once.
         void Activate();
         /// Marks the scene inactive and calls OnDeactivate().
         void Deactivate();
@@ -160,6 +160,7 @@ namespace Sleak {
         SceneState state;
         bool bInitialized;
         bool bActive;
+        bool bHasBegun = false;
 
         List<GameObject*> Objects;
         List<GameObject*> m_pendingDestroy;

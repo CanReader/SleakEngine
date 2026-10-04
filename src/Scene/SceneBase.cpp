@@ -76,6 +76,7 @@ void SceneBase::Unload() {
         q->ClearAll();
 
     bInitialized = false;
+    bHasBegun = false;
     state = SceneState::Unloaded;
 }
 
@@ -89,7 +90,10 @@ void SceneBase::Activate() {
 
     OnActivate();
 
-    Begin();
+    if (!bHasBegun) {
+        bHasBegun = true;
+        Begin();
+    }
 }
 
 void SceneBase::Deactivate() {
@@ -135,7 +139,8 @@ bool SceneBase::Initialize() {
     }
 
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
-        if (Objects[i]) Objects[i]->Initialize();
+        if (Objects[i] && !Objects[i]->IsInitialized())
+            Objects[i]->Initialize();
     }
 
     bInitialized = true;
@@ -254,9 +259,8 @@ void SceneBase::AddObject(GameObject* object) {
         RegisterCollidersRecursive(object, m_physicsWorld);
     }
 
-    if (bInitialized && !object->IsActive()) {
+    if (bInitialized && !object->IsInitialized()) {
         object->Initialize();
-        if (bActive) object->SetActive(true);
     }
 }
 

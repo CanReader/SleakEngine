@@ -131,7 +131,7 @@ void PredecodeEmbeddedTextures(const aiScene* scene,
                         SLEAK_INFO("  Loaded embedded texture: {} ({}x{})",
                                    texPath, d.width, d.height);
                 }
-                textureCache[key] = tex;
+                textureCache[key] = RefPtr<::Sleak::Texture>(tex);
             }
             stbi_image_free(d.pixels);
             d.pixels = nullptr;
@@ -194,6 +194,7 @@ GameObject* ModelLoader::Load(const std::string& filePath,
     std::string directory = std::filesystem::path(filePath).parent_path().string();
     auto* root = new GameObject(std::filesystem::path(filePath).stem().string());
     TextureCache textureCache;
+    MaterialCache materialCache;
 
     if (!hasAnimations) {
         // Static model: reimport with PreTransformVertices for optimization
@@ -209,7 +210,8 @@ GameObject* ModelLoader::Load(const std::string& filePath,
         }
 
         PredecodeEmbeddedTextures(scene, textureCache);
-        ProcessNode(scene->mRootNode, scene, root, directory, options, textureCache);
+        ProcessNode(scene->mRootNode, scene, root, directory, options,
+                    textureCache, materialCache);
     } else {
         // Animated model: extract skeleton and animations
         Skeleton* skeleton = ExtractSkeleton(scene);
@@ -219,8 +221,8 @@ GameObject* ModelLoader::Load(const std::string& filePath,
                    skeleton->GetBoneCount(), clips.size());
 
         PredecodeEmbeddedTextures(scene, textureCache);
-        ProcessNodeAnimated(scene->mRootNode, scene, root, directory,
-                            options, textureCache, skeleton, clips);
+        ProcessNodeAnimated(scene->mRootNode, scene, root, directory, options,
+                            textureCache, materialCache, skeleton, clips);
     }
 
     InitializeRecursive(root);
@@ -365,7 +367,8 @@ std::vector<AnimationClip*> ModelLoader::ExtractAnimations(
 void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
                               GameObject* parent, const std::string& directory,
                               const ModelLoadOptions& options,
-                              TextureCache& textureCache) {
+                              TextureCache& textureCache,
+                              MaterialCache& materialCache) {
     std::string nodeName = node->mName.C_Str();
     if (nodeName.empty()) nodeName = "Node";
 
@@ -384,8 +387,11 @@ void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
             Math::Vector3D(sf, sf, sf));
 
         if (mesh->mMaterialIndex < scene->mNumMaterials) {
-            auto material = ProcessMaterial(
-                scene->mMaterials[mesh->mMaterialIndex], scene, directory, textureCache);
+            auto& material = materialCache[uint64_t(mesh->mMaterialIndex) << 1];
+            if (!material)
+                material =
+                    ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex],
+                                    scene, directory, textureCache);
             meshObj->AddComponent<MaterialComponent>(material);
         }
 
@@ -398,16 +404,16 @@ void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-        ProcessNode(node->mChildren[i], scene, parent, directory, options, textureCache);
+        ProcessNode(node->mChildren[i], scene, parent, directory, options,
+                    textureCache, materialCache);
     }
 }
 
-void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
-                                       GameObject* parent, const std::string& directory,
-                                       const ModelLoadOptions& options,
-                                       TextureCache& textureCache,
-                                       Skeleton* skeleton,
-                                       std::vector<AnimationClip*>& clips) {
+void ModelLoader::ProcessNodeAnimated(
+    aiNode* node, const aiScene* scene, GameObject* parent,
+    const std::string& directory, const ModelLoadOptions& options,
+    TextureCache& textureCache, MaterialCache& materialCache,
+    Skeleton* skeleton, std::vector<AnimationClip*>& clips) {
     std::string nodeName = node->mName.C_Str();
     if (nodeName.empty()) nodeName = "Node";
 
@@ -428,9 +434,13 @@ void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
         // Use skinned shader for animated models
         bool hasBones = mesh->HasBones();
         if (mesh->mMaterialIndex < scene->mNumMaterials) {
-            auto material = ProcessMaterial(
-                scene->mMaterials[mesh->mMaterialIndex], scene, directory,
-                textureCache, hasBones);
+            uint64_t key =
+                (uint64_t(mesh->mMaterialIndex) << 1) | (hasBones ? 1u : 0u);
+            auto& material = materialCache[key];
+            if (!material)
+                material =
+                    ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex],
+                                    scene, directory, textureCache, hasBones);
             meshObj->AddComponent<MaterialComponent>(material);
         }
 
@@ -450,7 +460,8 @@ void ModelLoader::ProcessNodeAnimated(aiNode* node, const aiScene* scene,
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
         ProcessNodeAnimated(node->mChildren[i], scene, parent, directory,
-                            options, textureCache, skeleton, clips);
+                            options, textureCache, materialCache, skeleton,
+                            clips);
     }
 }
 
@@ -588,7 +599,7 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, val) == AI_SUCCESS)
         material->SetRoughness(val);
 
-    Texture* tex = nullptr;
+    RefPtr<Texture> tex;
 
     tex = LoadMaterialTexture(mat, aiTextureType_DIFFUSE, scene, directory, textureCache);
     if (!tex) tex = LoadMaterialTexture(mat, aiTextureType_BASE_COLOR, scene, directory, textureCache);
@@ -612,14 +623,12 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
     return RefPtr<Material>(material);
 }
 
-::Sleak::Texture* ModelLoader::LoadMaterialTexture(aiMaterial* mat, int type,
-                                                   const aiScene* scene,
-                                                   const std::string& directory,
-                                                   TextureCache& textureCache) {
+RefPtr<::Sleak::Texture> ModelLoader::LoadMaterialTexture(
+    aiMaterial* mat, int type, const aiScene* scene,
+    const std::string& directory, TextureCache& textureCache) {
     auto texType = static_cast<aiTextureType>(type);
 
-    if (mat->GetTextureCount(texType) == 0)
-        return nullptr;
+    if (mat->GetTextureCount(texType) == 0) return RefPtr<Texture>();
 
     aiString aiPath;
     mat->GetTexture(texType, 0, &aiPath);
@@ -645,7 +654,7 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
 
             if (!pixels) {
                 SLEAK_ERROR("  Failed to decode embedded texture: {}", texPath);
-                return nullptr;
+                return RefPtr<Texture>();
             }
 
             tex = RenderEngine::ResourceManager::CreateTextureFromMemory(
@@ -680,8 +689,9 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
             }
         }
 
-        if (tex) textureCache[cacheKey] = tex;
-        return tex;
+        RefPtr<Texture> owned(tex);
+        if (owned) textureCache[cacheKey] = owned;
+        return owned;
     }
 
     // External texture file
@@ -692,10 +702,10 @@ RefPtr<Material> ModelLoader::ProcessMaterial(aiMaterial* mat,
 
     if (!std::filesystem::exists(fullPath)) {
         SLEAK_WARN("  Texture file not found: {}", fullPath);
-        return nullptr;
+        return RefPtr<Texture>();
     }
 
-    auto* tex = RenderEngine::ResourceManager::CreateTexture(fullPath);
+    RefPtr<Texture> tex(RenderEngine::ResourceManager::CreateTexture(fullPath));
     if (tex) {
         SLEAK_INFO("  Loaded texture: {}", fullPath);
         textureCache[cacheKey] = tex;

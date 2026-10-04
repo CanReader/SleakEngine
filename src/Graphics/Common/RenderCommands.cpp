@@ -19,23 +19,23 @@ DrawCommand::DrawCommand(RefPtr<BufferBase> buffer,
       m_startVertexLocation(vertexLocation) {}
 
 void DrawCommand::Execute(RenderContext* context) {
-    context->BindVertexBuffer(m_vertexBuffer, m_startVertexLocation);
+    context->BindVertexBuffer(m_vertexBuffer, 0);
 
     for (const auto& b : m_constantBuffers)
         if (b) context->BindConstantBuffer(b, b->GetSlot());
 
-    context->Draw(m_vertexCount);
+    context->Draw(m_vertexCount, m_startVertexLocation);
 }
 
 void DrawCommand::ExecuteShadow(RenderContext* context) {
-    context->BindVertexBuffer(m_vertexBuffer, m_startVertexLocation);
+    context->BindVertexBuffer(m_vertexBuffer, 0);
     for (const auto& b : m_constantBuffers) {
         if (b && b->GetSlot() == 0) {
             context->BindConstantBuffer(b, 0);
             break;
         }
     }
-    context->Draw(m_vertexCount);
+    context->Draw(m_vertexCount, m_startVertexLocation);
 }
 
 bool DrawCommand::IsSkinned() const {
@@ -60,8 +60,8 @@ DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
 
 /// Binds buffers, routes bone data through the skinned pipeline when present, then draws.
 void DrawIndexedCommand::Execute(RenderContext* context) {
-    context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
-    context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
+    context->BindVertexBuffer(m_vertexBuffer, 0);
+    context->BindIndexBuffer(m_indexBuffer, 0);
 
     // Detect if this is a skinned mesh (has bone buffer at slot 3)
     bool hasBones = false;
@@ -82,22 +82,24 @@ void DrawIndexedCommand::Execute(RenderContext* context) {
         }
     }
 
-    context->DrawIndexed(m_indexCount);
+    context->DrawIndexed(m_indexCount, m_startIndexLocation,
+                         m_baseVertexLocation);
 
     // Switch back to default pipeline for subsequent non-skinned draws
     if (hasBones) context->EndSkinnedPass();
 }
 
 void DrawIndexedCommand::ExecuteShadow(RenderContext* context) {
-    context->BindVertexBuffer(m_vertexBuffer, m_startIndexLocation);
-    context->BindIndexBuffer(m_indexBuffer, m_startIndexLocation);
+    context->BindVertexBuffer(m_vertexBuffer, 0);
+    context->BindIndexBuffer(m_indexBuffer, 0);
     for (const auto& b : m_constantBuffers) {
         if (b && b->GetSlot() == 0) {
             context->BindConstantBuffer(b, 0);
             break;
         }
     }
-    context->DrawIndexed(m_indexCount);
+    context->DrawIndexed(m_indexCount, m_startIndexLocation,
+                         m_baseVertexLocation);
 }
 
 bool DrawIndexedCommand::IsSkinned() const {

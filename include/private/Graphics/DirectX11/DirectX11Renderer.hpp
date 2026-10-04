@@ -44,9 +44,16 @@ public:
     }
 
     virtual void Draw(uint32_t vertexCount) override;
+    virtual void Draw(uint32_t vertexCount, uint32_t firstVertex) override;
     virtual void DrawIndexed(uint32_t indexCount) override;
+    virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                             int32_t baseVertex) override;
     virtual void DrawInstance(uint32_t instanceCount, uint32_t vertexPerInstance) override;
     virtual void DrawIndexedInstance(uint32_t instanceCount, uint32_t indexPerInstance) override;
+    virtual void DrawIndexedInstance(uint32_t instanceCount,
+                                     uint32_t indexPerInstance,
+                                     uint32_t firstIndex,
+                                     int32_t baseVertex) override;
 
     // State management
     virtual void SetRenderMode(RenderMode mode) override;

@@ -68,6 +68,11 @@ ENGINE_API bool Selectable(const char* label, bool selected);
 ENGINE_API void SetNextItemWidth(float width);
 ENGINE_API void Spacing();
 ENGINE_API void Dummy(float width, float height);
+enum StyleColor : int;
+/// Pushes a color for one of the StyleColor slots.
+ENGINE_API void PushStyleColor(StyleColor idx, float r, float g, float b,
+                               float a);
+/// Pushes a color by raw ImGuiCol index.
 ENGINE_API void PushStyleColor(int idx, float r, float g, float b, float a);
 ENGINE_API void PopStyleColor(int count = 1);
 ENGINE_API void PushStyleVar(int idx, float val);
@@ -98,20 +103,20 @@ ENGINE_API Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t heig
 ENGINE_API unsigned char* LoadImagePixels(const char* path, int* w, int* h);
 ENGINE_API void FreeImagePixels(unsigned char* pixels);
 
-/// Style color indices (mirrors ImGuiCol_).
+/// Style color slots, mapped to the matching ImGui color inside the engine.
 /// @ingroup ui
 enum StyleColor : int {
-    StyleColor_Text = 0,
-    StyleColor_WindowBg = 2,
-    StyleColor_ChildBg = 3,
-    StyleColor_Button = 21,
-    StyleColor_ButtonHovered = 22,
-    StyleColor_ButtonActive = 23,
-    StyleColor_FrameBg = 7,
-    StyleColor_Header = 24,
-    StyleColor_HeaderHovered = 25,
-    StyleColor_HeaderActive = 26,
-    StyleColor_ScrollbarBg = 14,
+    StyleColor_Text,
+    StyleColor_WindowBg,
+    StyleColor_ChildBg,
+    StyleColor_Button,
+    StyleColor_ButtonHovered,
+    StyleColor_ButtonActive,
+    StyleColor_FrameBg,
+    StyleColor_Header,
+    StyleColor_HeaderHovered,
+    StyleColor_HeaderActive,
+    StyleColor_ScrollbarBg,
 };
 
 /// Style var indices (must match ImGuiStyleVar_).
