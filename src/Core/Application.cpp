@@ -3,6 +3,7 @@
 #include "../../include/private/Graphics/Common/RendererFactory.hpp" 
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp" 
 #include <Core/WindowHelper.hpp>
+#include <Core/JobSystem.hpp>
 #include <Graphics/Common/Renderer.hpp>
 #include <Core/Window.hpp>
 #include <algorithm>
@@ -54,6 +55,7 @@ namespace Sleak {
             throw std::runtime_error("The Application is already running!");
         }
         Instance = this;
+        m_jobSystem = new JobSystem();
 
         // Read all settings from CommandLine (parsed in main before Application)
         {
@@ -108,6 +110,8 @@ namespace Sleak {
         if (renderer) renderer->WaitIdle();
 
         delete Game;
+        delete m_jobSystem;
+        m_jobSystem = nullptr;
         Sleak::UI::ShutdownTextureCache();  // frees cached VkImage/memory pre-device-teardown
         Sleak::MeshBatch::Shutdown();
         delete m_benchmark;

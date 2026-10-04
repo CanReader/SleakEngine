@@ -57,6 +57,7 @@ struct ENGINE_API ApplicationDefaults {
 
 class Window;
 class DebugOverlay;
+class JobSystem;
 namespace RenderEngine { class Renderer; }
 
 /// Owns the window, renderer, and game loop. One instance per process,
@@ -210,6 +211,7 @@ class ENGINE_API Application {
     RenderEngine::Renderer* renderer;
     DebugOverlay* m_DebugOverlay = nullptr;
     Benchmark* m_benchmark = nullptr;
+    JobSystem* m_jobSystem = nullptr;
     GraphicsConfig m_graphicsConfig;
     float DeltaTime;
 
