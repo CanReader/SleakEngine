@@ -117,18 +117,6 @@ computes no shadow term. The map is rendered and discarded.
 shader. `GetGraphicsCaps()` reports `CapShadows` here, so do not rely on the
 mask alone for this one.
 
-### OpenGL falls back to forward and SSAO stops working
-
-**Cause.** `CreateGBufferResources` compiles
-`assets/shaders/lighting_pass_gl.frag`, which the engine does not ship. The
-pass logs `Failed to compile deferred lighting pass shader!`, tears the
-GBuffer down, and returns false. `CreateSSAOResources` then bails because it
-requires a live GBuffer.
-
-**Fix.** Supply `lighting_pass_gl.frag` in the project's own shader folder.
-Game assets are staged over engine assets, so a game-side file of that name
-is what the loader finds.
-
 ### `pcssEnabled` does nothing
 
 **Cause.** The flag reaches the shader only on OpenGL and DirectX 11. Vulkan
