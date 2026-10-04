@@ -739,4 +739,4 @@ std::vector<AnimationClip*> ModelLoader::LoadAnimationsOnly(
     return result;
 }
 
-} // namespace Sleak
+}  // namespace Sleak
