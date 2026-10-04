@@ -1,12 +1,15 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
+
 #include <backends/imgui_impl_vulkan.h>
-#include <Core/Logger.hpp>
 #include <stb_image.h>
-#include <cstring>
+
+#include <Core/Logger.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+
+#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 
 namespace Sleak {
 namespace RenderEngine {

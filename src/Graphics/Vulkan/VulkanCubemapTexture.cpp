@@ -1,11 +1,14 @@
 #include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
-#include <Core/Logger.hpp>
+
 #include <stb_image.h>
-#include <cstring>
-#include <cmath>
+
+#include <Core/Logger.hpp>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
