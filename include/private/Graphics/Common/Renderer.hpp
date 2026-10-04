@@ -135,6 +135,21 @@ public:
     // Shadow mapping support (overridden by VulkanRenderer)
     virtual void UpdateShadowLightUBO(const void* data, uint32_t size) { (void)data; (void)size; }
     virtual void SetLightVP(const float* lightVP) { (void)lightVP; }
+    /// True when the deferred lighting pass reads UpdateClusteredLights data.
+    virtual bool SupportsClusteredLights() const { return false; }
+    /// Uploads the light list, per-cluster (offset, count) pairs, and the
+    /// flat light index list the deferred lighting pass reads.
+    virtual void UpdateClusteredLights(const ClusterParamsGPU& params,
+                                       const LightGPUEntry* lights,
+                                       const uint32_t* cells,
+                                       const uint32_t* indices,
+                                       uint32_t indexCount) {
+        (void)params;
+        (void)lights;
+        (void)cells;
+        (void)indices;
+        (void)indexCount;
+    }
     /// Stages one light view-projection per cascade for the next shadow pass.
     virtual void SetShadowCascades(const float* viewProj, uint32_t count) {
         (void)viewProj;

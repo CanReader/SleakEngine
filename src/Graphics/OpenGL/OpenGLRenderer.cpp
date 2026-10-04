@@ -196,6 +196,8 @@ void OpenGLRenderer::Cleanup() {
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         DestroyShadowMapResources();
+        if (m_clusterBuffers[0]) glDeleteBuffers(4, m_clusterBuffers);
+        std::fill(std::begin(m_clusterBuffers), std::end(m_clusterBuffers), 0u);
         m_shadowUBOCreated = false;
         CleanupMSAAFramebuffer();
         if (bImInitialized) {
@@ -658,6 +660,48 @@ void OpenGLRenderer::SetShadowCascades(const float* viewProj, uint32_t count) {
     if (count > 0 && viewProj)
         memcpy(m_pendingCascadeVP, viewProj, sizeof(float) * 16 * count);
     m_pendingCascadeCount = count;
+}
+
+void OpenGLRenderer::UpdateClusteredLights(const ClusterParamsGPU& params,
+                                           const LightGPUEntry* lights,
+                                           const uint32_t* cells,
+                                           const uint32_t* indices,
+                                           uint32_t indexCount) {
+    const GLsizeiptr sizes[4] = {
+        sizeof(ClusterParamsGPU),
+        sizeof(LightGPUEntry) * MAX_CLUSTERED_LIGHTS,
+        sizeof(uint32_t) * 2 * CLUSTER_COUNT,
+        sizeof(uint32_t) * MAX_CLUSTER_LIGHT_INDICES,
+    };
+    if (m_clusterBuffers[0] == 0) {
+        glGenBuffers(4, m_clusterBuffers);
+        for (int i = 0; i < 4; ++i) {
+            glBindBuffer(GL_COPY_WRITE_BUFFER, m_clusterBuffers[i]);
+            glBufferData(GL_COPY_WRITE_BUFFER, sizes[i], nullptr,
+                         GL_DYNAMIC_DRAW);
+        }
+    }
+
+    const uint32_t lightCount = std::min(
+        params.GlobalLightCount + params.LocalLightCount, MAX_CLUSTERED_LIGHTS);
+    indexCount = std::min(indexCount, MAX_CLUSTER_LIGHT_INDICES);
+    const GLsizeiptr used[4] = {
+        sizes[0],
+        static_cast<GLsizeiptr>(sizeof(LightGPUEntry) * lightCount),
+        sizes[2],
+        static_cast<GLsizeiptr>(sizeof(uint32_t) * indexCount),
+    };
+    const void* data[4] = {&params, lights, cells, indices};
+    for (int i = 0; i < 4; ++i) {
+        if (used[i] == 0) continue;
+        glBindBuffer(GL_COPY_WRITE_BUFFER, m_clusterBuffers[i]);
+        glBufferSubData(GL_COPY_WRITE_BUFFER, 0, used[i], data[i]);
+    }
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+
+    glBindBufferBase(GL_UNIFORM_BUFFER, 7, m_clusterBuffers[0]);
+    for (GLuint i = 1; i < 4; ++i)
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i - 1, m_clusterBuffers[i]);
 }
 
 void OpenGLRenderer::ApplyShadowResolutionChange() {

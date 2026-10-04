@@ -7,6 +7,7 @@
 // Set 1: DeferredCB UBO
 // Set 2: ShadowLightUBO (directional light + shadow params + fog)
 // Set 3: IBL (irradiance cubemap, prefiltered env map, BRDF LUT, settings)
+// Set 4: Clustered lights (grid params, light list, cells, light indices)
 // ============================================================
 
 layout(location = 0) in vec2 fragUV;
@@ -71,6 +72,33 @@ layout(set = 3, binding = 3) uniform IBLSettings {
     float iblIntensity;
     float maxReflectionLOD;
     float _iblPad;
+};
+
+// -- Set 4: Clustered lights -----------------------------------------
+// lights[] holds uClusterGrid.w extra directional lights, then the local
+// lights that cells[] (offset, count) index into via lightIndices[].
+struct GPULight {
+    vec3  position;  uint  type;      // 0=dir, 1=point, 2=spot, 3=area
+    vec3  direction; float intensity;
+    vec3  color;     float range;
+    float spotInnerCos; float spotOuterCos; float areaWidth; float areaHeight;
+};
+
+layout(set = 4, binding = 0) uniform ClusterParams {
+    vec4  uViewZ;            // view depth = dot(xyz, worldPos) + w
+    uvec4 uClusterGrid;      // xyz = tiles x, tiles y, slices; w = global lights
+    float uClusterZScale;    // slice = log(depth) * scale + bias
+    float uClusterZBias;
+    uint  uLocalLightCount;
+};
+layout(std430, set = 4, binding = 1) readonly buffer ClusterLights {
+    GPULight lights[];
+};
+layout(std430, set = 4, binding = 2) readonly buffer ClusterCells {
+    uvec2 cells[];
+};
+layout(std430, set = 4, binding = 3) readonly buffer ClusterLightIndices {
+    uint lightIndices[];
 };
 
 layout(location = 0) out vec4 outColor;
@@ -191,6 +219,48 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
              * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
+// Cook-Torrance response to one light of the given radiance.
+vec3 CookTorrance(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo,
+                  float roughness, float metallic, vec3 F0, float NdotV) {
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0) return vec3(0.0);
+    vec3  H  = normalize(V + L);
+    float D  = DistributionGGX(N, H, roughness);
+    float G  = GeometrySmith(N, V, L, roughness);
+    vec3  F  = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    vec3  kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3  specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// ==================================================================
+// Clustered lights
+// ==================================================================
+
+uint ClusterIndex(vec2 ndcXY, vec3 worldPos) {
+    float viewZ = dot(uViewZ.xyz, worldPos) + uViewZ.w;
+    float slice = log(max(viewZ, 1e-3)) * uClusterZScale + uClusterZBias;
+    uint  z     = uint(clamp(slice, 0.0, float(uClusterGrid.z - 1u)));
+    vec2  tile  = clamp((ndcXY * 0.5 + 0.5) * vec2(uClusterGrid.xy),
+                        vec2(0.0), vec2(uClusterGrid.xy) - 1.0);
+    return (z * uClusterGrid.y + uint(tile.y)) * uClusterGrid.x + uint(tile.x);
+}
+
+// Windowed inverse-square falloff that reaches zero at the light's range,
+// which is what lets the CPU cull it per cluster. Spots add the cone.
+vec3 LocalLightRadiance(GPULight light, vec3 worldPos, out vec3 L) {
+    vec3  toLight = light.position - worldPos;
+    float dist    = length(toLight);
+    L             = toLight / max(dist, 1e-4);
+    float d       = dist / max(light.range, 1e-4);
+    float window  = clamp(1.0 - d * d * d * d, 0.0, 1.0);
+    float atten   = window * window / (dist * dist + 1.0);
+    if (light.type == 2u)
+        atten *= smoothstep(light.spotOuterCos, light.spotInnerCos,
+                            dot(-L, normalize(light.direction)));
+    return light.color * light.intensity * atten;
+}
+
 // ==================================================================
 // Fog
 // ==================================================================
@@ -238,6 +308,7 @@ void main() {
     vec3  worldPos  = ReconstructWorldPos(fragUV, depth);
     vec4  ndcPos    = vec4(fragUV.x * 2.0 - 1.0, 1.0 - 2.0 * fragUV.y,
                            depth, 1.0);
+    uint  cluster   = ClusterIndex(ndcPos.xy, worldPos);
     vec4  albedoAO  = texture(gAlbedoAO,    fragUV);
     vec4  normalRg  = texture(gNormalRough, fragUV);
     vec4  metalEmit = texture(gMetalEmit,   fragUV); // R16G16B16A16: .r=metallic, .gba=emissive
@@ -289,21 +360,19 @@ void main() {
             Lo = (kD * albedo / PI + specular) * lightColor * NdotL * shadow;
         }
 
-        // Extra directional lights (fill, rim — no shadows)
-        for (uint li = 0u; li < uNumExtraLights; ++li) {
-            vec3  Lx    = normalize(-uExtraDir[li].xyz);
-            vec3  Hx    = normalize(V + Lx);
-            float NdotLx = max(dot(N, Lx), 0.0);
-            if (NdotLx > 0.0) {
-                float Dx = DistributionGGX(N, Hx, roughness);
-                float Gx = GeometrySmith(N, V, Lx, roughness);
-                vec3  Fx = FresnelSchlick(max(dot(Hx, V), 0.0), F0);
-                vec3  kSx = Fx;
-                vec3  kDx = (vec3(1.0) - kSx) * (1.0 - metallic);
-                vec3  specx = (Dx * Gx * Fx) / (4.0 * NdotV * NdotLx + 0.0001);
-                vec3  lightColorx = uExtraColor[li].rgb * uExtraColor[li].a;
-                Lo += (kDx * albedo / PI + specx) * lightColorx * NdotLx;
-            }
+        // Extra directional lights, then this pixel's cluster
+        for (uint li = 0u; li < uClusterGrid.w; ++li) {
+            vec3 Lx = normalize(-lights[li].direction);
+            Lo += CookTorrance(N, V, Lx, lights[li].color * lights[li].intensity,
+                               albedo, roughness, metallic, F0, NdotV);
+        }
+        uvec2 cell = cells[cluster];
+        for (uint i = 0u; i < cell.y; ++i) {
+            vec3 Lx;
+            vec3 radiance = LocalLightRadiance(lights[lightIndices[cell.x + i]],
+                                               worldPos, Lx);
+            Lo += CookTorrance(N, V, Lx, radiance, albedo, roughness,
+                               metallic, F0, NdotV);
         }
 
         // Indirect: IBL split-sum approximation
@@ -333,10 +402,17 @@ void main() {
         float shad    = CalcShadow(worldPos, N);
         shad         *= smoothstep(-0.15, 0.0, rawNdL);
         vec3 direct   = uLightColor.rgb * uLightColor.a * wrapNdL * shad;
-        for (uint li = 0u; li < uNumExtraLights; ++li) {
-            vec3  Lx   = normalize(-uExtraDir[li].xyz);
+        for (uint li = 0u; li < uClusterGrid.w; ++li) {
+            vec3  Lx   = normalize(-lights[li].direction);
             float NdLx = max(dot(N, Lx), 0.0);
-            direct += uExtraColor[li].rgb * uExtraColor[li].a * NdLx;
+            direct += lights[li].color * lights[li].intensity * NdLx;
+        }
+        uvec2 cell = cells[cluster];
+        for (uint i = 0u; i < cell.y; ++i) {
+            vec3 Lx;
+            vec3 radiance = LocalLightRadiance(lights[lightIndices[cell.x + i]],
+                                               worldPos, Lx);
+            direct += radiance * max(dot(N, Lx), 0.0);
         }
         ambient = albedo * mix(groundAmbient, skyAmbient, hemisphere) * bakedAO;
         Lo      = albedo * direct;

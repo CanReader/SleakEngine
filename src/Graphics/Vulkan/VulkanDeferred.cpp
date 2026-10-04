@@ -513,12 +513,9 @@ bool VulkanRenderer::CreateLightingPipeline() {
     // Set 1: m_deferredCBDSL      (1 UBO: InvViewProj + screen size)
     // Set 2: m_lightUBODescriptorSetLayout  (1 UBO: directional light + shadow + fog)
     // Set 3: m_iblDSL             (3 samplerCubes + 1 sampler2D + 1 UBO: IBL)
-    std::array<VkDescriptorSetLayout, 4> setLayouts = {
-        m_gbufferSamplerDSL,
-        m_deferredCBDSL,
-        m_lightUBODescriptorSetLayout,
-        m_iblDSL
-    };
+    std::array<VkDescriptorSetLayout, 5> setLayouts = {
+        m_gbufferSamplerDSL, m_deferredCBDSL, m_lightUBODescriptorSetLayout,
+        m_iblDSL, m_clusterDSL};
 
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1180,15 +1177,14 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     //    set 1: DeferredCB (InvViewProj + screen size)
     //    set 2: LightUBO (directional light + shadow params + fog)
     //    set 3: IBL (irradiance + prefilter + BRDF LUT + settings)
-    VkDescriptorSet lightingSets[4] = {
-        m_gbufferSamplerSets[currentFrame],
-        m_deferredCBSets[currentFrame],
-        m_lightUBODescriptorSets[currentFrame],
-        m_iblSets[currentFrame]
-    };
+    //    set 4: clustered lights
+    VkDescriptorSet lightingSets[5] = {
+        m_gbufferSamplerSets[currentFrame], m_deferredCBSets[currentFrame],
+        m_lightUBODescriptorSets[currentFrame], m_iblSets[currentFrame],
+        m_clusterSets[currentFrame]};
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_lightingPipelineLayout, 0, 4,
-                            lightingSets, 0, nullptr);
+                            m_lightingPipelineLayout, 0, 5, lightingSets, 0,
+                            nullptr);
 
     // 7. Fullscreen triangle draw (3 vertices, no VBO)
     vkCmdDraw(command, 3, 1, 0, 0);

@@ -9,6 +9,7 @@
 namespace Sleak {
 
     class Light;
+    class DirectionalLight;
 
     namespace RenderEngine {
         class BufferBase;
@@ -58,6 +59,8 @@ namespace Sleak {
     public:
         LightManager();
         ~LightManager();
+        LightManager(const LightManager&) = delete;
+        LightManager& operator=(const LightManager&) = delete;
 
         /// Allocates the GPU light buffer; call once before the first UpdateAndBind.
         void Initialize();
@@ -84,6 +87,9 @@ namespace Sleak {
         size_t GetLightCount() const {
             return m_lights.GetSize();
         }
+
+        /// Registered point, spot and area lights (culled per cluster).
+        size_t GetLocalLightCount() const { return m_localLights.GetSize(); }
 
         void SetFogColor(float r, float g, float b) {
             m_fogR = r; m_fogG = g; m_fogB = b;
@@ -147,6 +153,19 @@ namespace Sleak {
             1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
         };
         bool m_hasPrevLightVP = false;
+
+        struct ClusterScratch;
+
+        /// First enabled shadow-casting directional light, else first enabled.
+        DirectionalLight* FindMainDirectionalLight(bool& castsShadow) const;
+        /// Orders the enabled local lights by distance to the camera.
+        void SortLocalLights(const Math::Vector3D& camPos);
+        /// Builds the cluster grid over the sorted local lights.
+        void UpdateClusters(const DirectionalLight* mainLight);
+
+        List<DirectionalLight*> m_directionalLights;
+        List<Light*> m_localLights;
+        ClusterScratch* m_clusters = nullptr;  // owned
     };
 
 }  // namespace Sleak

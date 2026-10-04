@@ -129,13 +129,42 @@ void BuildShadowCascades(const Sleak::DirectionalLight& light,
         std::memcpy(outVP[i], &vp(0, 0), sizeof(float) * 16);
     }
 }
+
+/// Projection near and far planes of the main camera.
+void MainCameraNearFar(float& nearP, float& farP) {
+    const auto& P = Sleak::Camera::GetMainProjectionMatrix();
+    nearP = MainCameraNear();
+    farP = (P(2, 2) > 1.0f) ? P(2, 2) * nearP / (P(2, 2) - 1.0f) : 1000.0f;
+}
+
+/// Inclusive [lo, hi] tile range covered by an NDC interval.
+void NdcToTiles(float ndcMin, float ndcMax, uint32_t tiles, uint32_t& lo,
+                uint32_t& hi) {
+    auto toTile = [tiles](float ndc) {
+        float t = (ndc * 0.5f + 0.5f) * static_cast<float>(tiles);
+        return static_cast<uint32_t>(
+            std::clamp(t, 0.0f, static_cast<float>(tiles - 1)));
+    };
+    lo = toTile(ndcMin);
+    hi = toTile(ndcMax);
+}
 } // namespace
 
 namespace Sleak {
 
-LightManager::LightManager() = default;
+/// Per-frame buffers reused by the light sort and the cluster build.
+struct LightManager::ClusterScratch {
+    std::vector<std::pair<float, Light*>> sortedLocal;
+    std::vector<RenderEngine::LightGPUEntry> gpuLights;
+    std::vector<uint32_t> pairs;  // cluster << 10 | light
+    std::vector<uint32_t> cells;  // (offset, count) per cluster
+    std::vector<uint32_t> indices;
+    bool warnedOverflow = false;
+};
 
-LightManager::~LightManager() = default;
+LightManager::LightManager() : m_clusters(new ClusterScratch()) {}
+
+LightManager::~LightManager() { delete m_clusters; }
 
 void LightManager::Initialize() {
     if (!m_lightBuffer) {
@@ -152,23 +181,59 @@ void LightManager::RegisterLight(Light* light) {
     if (!light) return;
     if (m_lights.indexOf(light) != -1) return;
 
-    if (m_lights.GetSize() >= RenderEngine::MAX_LIGHTS) {
-        SLEAK_WARN(
-            "Maximum light count ({}) reached, cannot register "
-            "light '{}'",
-            RenderEngine::MAX_LIGHTS, light->GetName());
-        return;
-    }
-
     m_lights.add(light);
+    if (auto* dir = dynamic_cast<DirectionalLight*>(light))
+        m_directionalLights.add(dir);
+    else
+        m_localLights.add(light);
 }
 
 void LightManager::UnregisterLight(Light* light) {
     if (!light) return;
     int index = m_lights.indexOf(light);
-    if (index != -1) {
-        m_lights.erase(index);
+    if (index == -1) return;
+    m_lights.erase(index);
+
+    for (size_t i = 0; i < m_directionalLights.GetSize(); ++i) {
+        if (m_directionalLights[i] == light) {
+            m_directionalLights.erase(static_cast<int>(i));
+            return;
+        }
     }
+    int local = m_localLights.indexOf(light);
+    if (local != -1) m_localLights.erase(local);
+}
+
+DirectionalLight* LightManager::FindMainDirectionalLight(
+    bool& castsShadow) const {
+    DirectionalLight* firstEnabled = nullptr;
+    for (size_t i = 0; i < m_directionalLights.GetSize(); ++i) {
+        DirectionalLight* light = m_directionalLights[i];
+        if (!light->IsEnabled()) continue;
+        if (light->GetCastShadows()) {
+            castsShadow = true;
+            return light;
+        }
+        if (!firstEnabled) firstEnabled = light;
+    }
+    castsShadow = false;
+    return firstEnabled;
+}
+
+void LightManager::SortLocalLights(const Math::Vector3D& camPos) {
+    auto& sorted = m_clusters->sortedLocal;
+    sorted.clear();
+    for (size_t i = 0; i < m_localLights.GetSize(); ++i) {
+        Light* light = m_localLights[i];
+        if (!light->IsEnabled()) continue;
+        const auto gpu = light->BuildGPUData();
+        const float dx = gpu.PositionX - camPos.GetX();
+        const float dy = gpu.PositionY - camPos.GetY();
+        const float dz = gpu.PositionZ - camPos.GetZ();
+        sorted.emplace_back(dx * dx + dy * dy + dz * dz, light);
+    }
+    std::sort(sorted.begin(), sorted.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
 }
 
 void LightManager::UpdateAndBind() {
@@ -215,17 +280,23 @@ void LightManager::UpdateAndBind() {
         cbData.HeightFogEnabled = 0.0f;
     }
 
-    // Collect active lights
-    uint32_t count = 0;
-    for (size_t i = 0;
-         i < m_lights.GetSize() && count < RenderEngine::MAX_LIGHTS;
-         ++i) {
-        Light* light = m_lights[i];
-        if (!light || !light->IsEnabled()) continue;
+    // Forward list: the main directional light first (shaders shadow slot
+    // 0), the other directional lights, then the nearest local lights.
+    bool mainCastsShadow = false;
+    DirectionalLight* mainLight = FindMainDirectionalLight(mainCastsShadow);
+    SortLocalLights(camPos);
 
-        cbData.Lights[count] = light->BuildGPUData();
-        ++count;
+    uint32_t count = 0;
+    auto pushForward = [&](const Light* light) {
+        if (count < RenderEngine::MAX_LIGHTS)
+            cbData.Lights[count++] = light->BuildGPUData();
+    };
+    if (mainLight) pushForward(mainLight);
+    for (size_t i = 0; i < m_directionalLights.GetSize(); ++i) {
+        DirectionalLight* light = m_directionalLights[i];
+        if (light != mainLight && light->IsEnabled()) pushForward(light);
     }
+    for (const auto& entry : m_clusters->sortedLocal) pushForward(entry.second);
     cbData.NumActiveLights = count;
 
     // Update and bind at slot 2
@@ -237,6 +308,8 @@ void LightManager::UpdateAndBind() {
 
     // Update deferred CB (InvViewProj + screen size) for the lighting pass
     UpdateDeferredCB();
+
+    UpdateClusters(mainLight);
 }
 
 void LightManager::UpdateShadowData() {
@@ -245,39 +318,12 @@ void LightManager::UpdateShadowData() {
     auto* renderer = app->GetRenderer();
     if (!renderer) return;
 
-    // Find first shadow-casting directional light
-    DirectionalLight* shadowLight = nullptr;
-    for (size_t i = 0; i < m_lights.GetSize(); ++i) {
-        Light* light = m_lights[i];
-        if (!light || !light->IsEnabled() || !light->GetCastShadows()) continue;
-
-        auto* dirLight = dynamic_cast<DirectionalLight*>(light);
-        if (dirLight) {
-            shadowLight = dirLight;
-            break;
-        }
-    }
-
-    // Find first enabled directional light (regardless of shadow casting)
-    // for populating light/ambient data in the UBO
-    DirectionalLight* anyDirLight = nullptr;
-    if (!shadowLight) {
-        for (size_t i = 0; i < m_lights.GetSize(); ++i) {
-            Light* light = m_lights[i];
-            if (!light || !light->IsEnabled()) continue;
-            auto* dirLight = dynamic_cast<DirectionalLight*>(light);
-            if (dirLight) {
-                anyDirLight = dirLight;
-                break;
-            }
-        }
-    }
+    bool castsShadow = false;
+    DirectionalLight* activeLight = FindMainDirectionalLight(castsShadow);
+    DirectionalLight* shadowLight = castsShadow ? activeLight : nullptr;
 
     // Tell the renderer whether the shadow pass should run
     renderer->SetShadowPassEnabled(shadowLight != nullptr);
-
-    // Use shadow light if available, otherwise fall back to any directional light
-    DirectionalLight* activeLight = shadowLight ? shadowLight : anyDirLight;
 
     if (!activeLight) {
         static bool warned = false;
@@ -422,12 +468,10 @@ void LightManager::UpdateShadowData() {
 
     // Populate extra lights (fill, rim — non-shadow directional lights)
     ubo.NumExtraLights = 0;
-    for (size_t i = 0; i < m_lights.GetSize() && ubo.NumExtraLights < 3; ++i) {
-        Light* light = m_lights[i];
-        if (!light || !light->IsEnabled()) continue;
-        if (light == activeLight) continue; // already in primary slot
-        auto* dlight = dynamic_cast<DirectionalLight*>(light);
-        if (!dlight) continue;
+    for (size_t i = 0;
+         i < m_directionalLights.GetSize() && ubo.NumExtraLights < 3; ++i) {
+        DirectionalLight* dlight = m_directionalLights[i];
+        if (!dlight->IsEnabled() || dlight == activeLight) continue;
         auto  eDir   = dlight->GetDirection();
         auto  eColor = dlight->GetColor();
         uint32_t idx = ubo.NumExtraLights;
@@ -443,6 +487,155 @@ void LightManager::UpdateShadowData() {
     }
 
     renderer->UpdateShadowLightUBO(&ubo, sizeof(ubo));
+}
+
+void LightManager::UpdateClusters(const DirectionalLight* mainLight) {
+    using namespace RenderEngine;
+    auto* app = Application::GetInstance();
+    auto* renderer = app ? app->GetRenderer() : nullptr;
+    if (!renderer || !renderer->SupportsClusteredLights()) return;
+
+    auto& sc = *m_clusters;
+    sc.gpuLights.clear();
+    for (size_t i = 0; i < m_directionalLights.GetSize(); ++i) {
+        DirectionalLight* light = m_directionalLights[i];
+        if (light != mainLight && light->IsEnabled() &&
+            sc.gpuLights.size() < MAX_CLUSTERED_LIGHTS)
+            sc.gpuLights.push_back(light->BuildGPUData());
+    }
+    const uint32_t globalCount = static_cast<uint32_t>(sc.gpuLights.size());
+    for (const auto& entry : sc.sortedLocal) {
+        if (sc.gpuLights.size() >= MAX_CLUSTERED_LIGHTS) break;
+        sc.gpuLights.push_back(entry.second->BuildGPUData());
+    }
+    const uint32_t lightCount = static_cast<uint32_t>(sc.gpuLights.size());
+
+    // Exponential depth slices between the camera near plane (at least 1m,
+    // anything closer lands in slice 0) and the far plane.
+    float nearP, farP;
+    MainCameraNearFar(nearP, farP);
+    const float zNear = std::max(nearP, 1.0f);
+    const float zFar = std::max(farP, zNear * 2.0f);
+    const float logRange = std::log(zFar / zNear);
+    const float zScale = static_cast<float>(CLUSTER_GRID_Z) / logRange;
+    const float zBias = -zScale * std::log(zNear);
+    auto sliceOf = [&](float z) {
+        float k = std::log(std::max(z, 1e-3f)) * zScale + zBias;
+        return static_cast<uint32_t>(
+            std::clamp(k, 0.0f, static_cast<float>(CLUSTER_GRID_Z - 1)));
+    };
+    auto sliceNear = [&](uint32_t k) {
+        return k == 0 ? 0.0f : zNear * std::exp(static_cast<float>(k) / zScale);
+    };
+
+    const Math::Matrix4& V = Camera::GetMainViewMatrix();
+    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    const float p00 = P(0, 0), p11 = P(1, 1);
+
+    ClusterParamsGPU params{};
+    params.ViewZ[0] = V(0, 2);
+    params.ViewZ[1] = V(1, 2);
+    params.ViewZ[2] = V(2, 2);
+    params.ViewZ[3] = V(3, 2);
+    params.GridX = CLUSTER_GRID_X;
+    params.GridY = CLUSTER_GRID_Y;
+    params.GridZ = CLUSTER_GRID_Z;
+    params.GlobalLightCount = globalCount;
+    params.ZScale = zScale;
+    params.ZBias = zBias;
+    params.LocalLightCount = lightCount - globalCount;
+
+    // Pass 1: (cluster, light) pairs from each light's sphere against the
+    // view-space box of every cluster its screen bounds and depth touch.
+    sc.pairs.clear();
+    for (uint32_t li = globalCount; li < lightCount; ++li) {
+        const LightGPUEntry& l = sc.gpuLights[li];
+        const float r = l.Range;
+        if (r <= 0.0f) continue;
+        const float px = l.PositionX, py = l.PositionY, pz = l.PositionZ;
+        const float vx = px * V(0, 0) + py * V(1, 0) + pz * V(2, 0) + V(3, 0);
+        const float vy = px * V(0, 1) + py * V(1, 1) + pz * V(2, 1) + V(3, 1);
+        const float vz = px * V(0, 2) + py * V(1, 2) + pz * V(2, 2) + V(3, 2);
+        if (vz + r <= nearP) continue;
+
+        const float z0 = std::max(vz - r, nearP);
+        const float z1 = vz + r;
+        float ndc[4] = {1.0f, -1.0f, 1.0f, -1.0f};  // xmin xmax ymin ymax
+        for (float z : {z0, z1}) {
+            for (float x : {vx - r, vx + r}) {
+                ndc[0] = std::min(ndc[0], p00 * x / z);
+                ndc[1] = std::max(ndc[1], p00 * x / z);
+            }
+            for (float y : {vy - r, vy + r}) {
+                ndc[2] = std::min(ndc[2], p11 * y / z);
+                ndc[3] = std::max(ndc[3], p11 * y / z);
+            }
+        }
+        if (ndc[1] < -1.0f || ndc[0] > 1.0f || ndc[3] < -1.0f || ndc[2] > 1.0f)
+            continue;
+
+        uint32_t tx0, tx1, ty0, ty1;
+        NdcToTiles(ndc[0], ndc[1], CLUSTER_GRID_X, tx0, tx1);
+        NdcToTiles(ndc[2], ndc[3], CLUSTER_GRID_Y, ty0, ty1);
+        const uint32_t k0 = sliceOf(z0), k1 = sliceOf(z1);
+
+        for (uint32_t k = k0; k <= k1; ++k) {
+            const float cz0 = sliceNear(k);
+            const float cz1 = (k + 1 == CLUSTER_GRID_Z) ? std::max(z1, cz0)
+                                                        : sliceNear(k + 1);
+            const float dz = vz < cz0 ? cz0 - vz : (vz > cz1 ? vz - cz1 : 0.0f);
+            for (uint32_t ty = ty0; ty <= ty1; ++ty) {
+                const float ny0 = -1.0f + 2.0f * ty / CLUSTER_GRID_Y;
+                const float ny1 = -1.0f + 2.0f * (ty + 1) / CLUSTER_GRID_Y;
+                const float y0 = std::min(ny0 * cz0, ny0 * cz1) / p11;
+                const float y1 = std::max(ny1 * cz0, ny1 * cz1) / p11;
+                const float dy = vy < y0 ? y0 - vy : (vy > y1 ? vy - y1 : 0.0f);
+                for (uint32_t tx = tx0; tx <= tx1; ++tx) {
+                    const float nx0 = -1.0f + 2.0f * tx / CLUSTER_GRID_X;
+                    const float nx1 = -1.0f + 2.0f * (tx + 1) / CLUSTER_GRID_X;
+                    const float x0 = std::min(nx0 * cz0, nx0 * cz1) / p00;
+                    const float x1 = std::max(nx1 * cz0, nx1 * cz1) / p00;
+                    const float dx =
+                        vx < x0 ? x0 - vx : (vx > x1 ? vx - x1 : 0.0f);
+                    if (dx * dx + dy * dy + dz * dz > r * r) continue;
+                    const uint32_t cell =
+                        (k * CLUSTER_GRID_Y + ty) * CLUSTER_GRID_X + tx;
+                    sc.pairs.push_back(cell << 10 | li);
+                }
+            }
+        }
+    }
+
+    // Pass 2: counting sort the pairs into per-cluster runs.
+    sc.cells.assign(CLUSTER_COUNT * 2, 0);
+    size_t total = sc.pairs.size();
+    if (total > MAX_CLUSTER_LIGHT_INDICES) {
+        if (!sc.warnedOverflow) {
+            SLEAK_WARN(
+                "Clustered lights: {} light references exceed the {} "
+                "index budget, dropping the rest",
+                total, MAX_CLUSTER_LIGHT_INDICES);
+            sc.warnedOverflow = true;
+        }
+        total = MAX_CLUSTER_LIGHT_INDICES;
+    }
+    for (size_t i = 0; i < total; ++i) ++sc.cells[(sc.pairs[i] >> 10) * 2 + 1];
+    uint32_t offset = 0;
+    for (uint32_t c = 0; c < CLUSTER_COUNT; ++c) {
+        sc.cells[c * 2] = offset;
+        offset += sc.cells[c * 2 + 1];
+        sc.cells[c * 2 + 1] = 0;
+    }
+    sc.indices.resize(total);
+    for (size_t i = 0; i < total; ++i) {
+        const uint32_t cell = sc.pairs[i] >> 10;
+        uint32_t& n = sc.cells[cell * 2 + 1];
+        sc.indices[sc.cells[cell * 2] + n++] = sc.pairs[i] & 1023u;
+    }
+
+    renderer->UpdateClusteredLights(params, sc.gpuLights.data(),
+                                    sc.cells.data(), sc.indices.data(),
+                                    static_cast<uint32_t>(total));
 }
 
 void LightManager::SetAmbientColor(float r, float g, float b) {

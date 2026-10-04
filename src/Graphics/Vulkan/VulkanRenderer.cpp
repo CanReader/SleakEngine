@@ -133,6 +133,9 @@ bool VulkanRenderer::Initialize() {
     if (!CreateShadowResources())
         SLEAK_WARN("Failed to create shadow mapping resources — shadows disabled");
 
+    if (!CreateClusterResources())
+        SLEAK_RETURN_ERR("Failed to create clustered light buffers!");
+
     if (!CreateFrameBuffer())
         SLEAK_RETURN_ERR("Failed to create framebuffer of renderer!");
 
@@ -1046,6 +1049,7 @@ void VulkanRenderer::Cleanup() {
 
     // Destroy shadow mapping resources
     CleanupShadowResources();
+    CleanupClusterResources();
 
     // Backstop: free any shader modules whose resource-guarded cleanup was
     // skipped (guard false while shader non-null). Cleanups null after delete,
