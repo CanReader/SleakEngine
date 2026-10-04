@@ -8,7 +8,7 @@
 #include <Memory/RefPtr.hpp>
 
 namespace Sleak {
-    class MeshData;
+    struct MeshData;
     namespace RenderEngine {
         class TransformBuffer;
         class BufferBase;
