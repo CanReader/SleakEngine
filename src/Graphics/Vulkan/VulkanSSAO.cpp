@@ -715,9 +715,9 @@ void VulkanRenderer::UpdateSSAOUBO() {
     p.NoiseScaleX = static_cast<float>(scExtent.width)  / float(SSAO_NOISE_SIZE);
     p.NoiseScaleY = static_cast<float>(scExtent.height) / float(SSAO_NOISE_SIZE);
 
-    p.Radius     = 0.5f;    // 0.5m world-space hemisphere
-    p.Bias       = 0.012f;
-    p.Power      = 2.5f;
+    p.Radius     = m_ssaoRadius;
+    p.Bias       = m_ssaoBias;
+    p.Power      = m_ssaoPower;
     p.Intensity  = 1.3f;
     p.KernelSize = 16;  // sample first 16 of the 32-vec kernel (perf; no res change → no seam)
 

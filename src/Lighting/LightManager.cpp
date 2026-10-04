@@ -9,6 +9,7 @@
 #include <Camera/Camera.hpp>
 #include <Core/Window.hpp>
 #include <Core/Application.hpp>
+#include <Core/SceneBase.hpp>
 #include <Core/CommandLine.hpp>
 #include <Math/Matrix.hpp>
 #include <Core/Timer.hpp>
@@ -455,6 +456,12 @@ void LightManager::UpdateDeferredCB() {
     cb.ScreenHeight = static_cast<float>(app->GetWindow().GetHeight());
     cb.NearPlane    = 0.1f;
     cb.FarPlane     = 2000.0f;
+    if (auto* game = app->GetGame(); game && game->GetActiveScene()) {
+        if (auto* cam = game->GetActiveScene()->GetActiveCamera()) {
+            cb.NearPlane = cam->GetNearPlane();
+            cb.FarPlane  = cam->GetFarPlane();
+        }
+    }
 
     ctx->UpdateDeferredCB(&cb, sizeof(cb));
 }

@@ -463,15 +463,11 @@ void VulkanRenderer::UpdateSSRUBO() {
     p.ScreenW = static_cast<float>(scExtent.width);
     p.ScreenH = static_cast<float>(scExtent.height);
 
-    // Quality vs perf defaults — 32 coarse + 8 binary is the sweet spot
-    // for full-res UE-style SSR. Thickness in view-space *depth* units
-    // (post-divide), 0.02 catches near+mid hits without smearing through
-    // thin geometry.
-    p.MaxDistance        = 20.0f;
-    p.Thickness          = 0.5f;
-    p.NumSteps           = 20;
-    p.NumBinarySteps     = 6;
-    p.RoughnessThreshold = 0.9f;
+    p.MaxDistance        = m_ssrMaxDistance;
+    p.Thickness          = m_ssrThickness;
+    p.NumSteps           = m_ssrSteps;
+    p.NumBinarySteps     = m_ssrBinarySteps;
+    p.RoughnessThreshold = m_ssrRoughnessThreshold;
     p._pad               = 0.0f;
 
     memcpy(m_ssrUboMapped[currentFrame], &p, sizeof(p));
