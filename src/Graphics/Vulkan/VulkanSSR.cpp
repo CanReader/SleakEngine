@@ -463,10 +463,10 @@ void VulkanRenderer::UpdateSSRUBO() {
     p.ScreenW = static_cast<float>(scExtent.width);
     p.ScreenH = static_cast<float>(scExtent.height);
 
-    p.MaxDistance        = m_ssrMaxDistance;
-    p.Thickness          = m_ssrThickness;
-    p.NumSteps           = m_ssrSteps;
-    p.NumBinarySteps     = m_ssrBinarySteps;
+    p.MaxDistance = m_ssrMaxDistance;
+    p.Thickness = m_ssrThickness;
+    p.NumSteps = m_ssrSteps;
+    p.NumBinarySteps = m_ssrBinarySteps;
     p.RoughnessThreshold = m_ssrRoughnessThreshold;
     p._pad               = 0.0f;
 
