@@ -1,9 +1,9 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-
 #include <Camera/RenderView.hpp>
 #include <array>
 #include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "Core/Logger.hpp"
 
 namespace Sleak {

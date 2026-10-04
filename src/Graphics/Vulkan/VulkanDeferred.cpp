@@ -1,14 +1,14 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanInternal.hpp"
-
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <vector>
-#include "Core/Logger.hpp"
+
+#include "../../include/private/Graphics/Vulkan/VulkanInternal.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 #include "Camera/RenderView.hpp"
+#include "Core/Logger.hpp"
 #include "Math/Matrix.hpp"
 
 namespace Sleak {

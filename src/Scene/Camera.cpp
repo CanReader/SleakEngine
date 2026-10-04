@@ -69,4 +69,4 @@ namespace Sleak {
                                      -height / 2.0f, height / 2.0f, nearPlane,
                                      farPlane);
     }
-}
+    }  // namespace Sleak

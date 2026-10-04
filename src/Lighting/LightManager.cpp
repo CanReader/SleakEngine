@@ -1,20 +1,20 @@
-#include <Lighting/LightManager.hpp>
-#include <Lighting/Light.hpp>
-#include <Lighting/DirectionalLight.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <Graphics/Common/ResourceManager.hpp>
-#include <Graphics/Common/BufferBase.hpp>
-#include <Graphics/Common/Renderer.hpp>
-#include <Graphics/Common/RenderContext.hpp>
 #include <Camera/RenderView.hpp>
-#include <Core/Window.hpp>
 #include <Core/Application.hpp>
 #include <Core/CommandLine.hpp>
-#include <Math/Matrix.hpp>
-#include <Core/Timer.hpp>
 #include <Core/Logger.hpp>
-#include <cstring>
+#include <Core/Timer.hpp>
+#include <Core/Window.hpp>
+#include <Graphics/Common/BufferBase.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/Common/RenderContext.hpp>
+#include <Graphics/Common/Renderer.hpp>
+#include <Graphics/Common/ResourceManager.hpp>
+#include <Lighting/DirectionalLight.hpp>
+#include <Lighting/Light.hpp>
+#include <Lighting/LightManager.hpp>
+#include <Math/Matrix.hpp>
 #include <cmath>
+#include <cstring>
 
 namespace {
 /// 4x4 row-major matrix inverse via cofactors (Cramer's rule).

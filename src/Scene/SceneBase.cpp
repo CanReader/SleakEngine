@@ -1,15 +1,17 @@
 #include "../../include/public/Core/SceneBase.hpp"
+
+#include <Camera/Camera.hpp>
 #include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
-#include <Camera/Camera.hpp>
 #include <Culling/CullingSystem.hpp>
+#include <Debug/DebugLineRenderer.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Physics/PhysicsWorld.hpp>
 #include <Physics/ColliderComponent.hpp>
-#include <Debug/DebugLineRenderer.hpp>
+#include <Physics/PhysicsWorld.hpp>
+#include <Runtime/Skybox.hpp>
+
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
 
 namespace Sleak {
@@ -158,8 +160,7 @@ void SceneBase::Update(float deltaTime) {
         }
     }
 
-    if (m_physicsWorld)
-        m_physicsWorld->Step(deltaTime);
+    if (m_physicsWorld) m_physicsWorld->Step(deltaTime);
 
     if (m_activeCamera) {
         m_renderView = m_activeCamera->BuildRenderView();
@@ -181,11 +182,9 @@ void SceneBase::SubmitRender(const RenderView& view) {
         }
     }
 
-    if (m_lightManager)
-        m_lightManager->UpdateAndBind(view);
+    if (m_lightManager) m_lightManager->UpdateAndBind(view);
 
-    if (m_skybox)
-        m_skybox->Render(view);
+    if (m_skybox) m_skybox->Render(view);
 
     if (DebugLineRenderer::IsEnabled()) {
         auto drawColliderShape = [](ColliderComponent* collider, const Math::Vector3D& worldPos, const Math::Vector3D& worldScale) {

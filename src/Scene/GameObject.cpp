@@ -81,8 +81,7 @@ namespace Sleak {
         if (!m_isActive || m_pendingDestroy) return;
 
         for (size_t i = 0; i < Components.GetSize(); ++i) {
-            if (Components[i])
-                Components[i]->SubmitRender(view);
+            if (Components[i]) Components[i]->SubmitRender(view);
         }
 
         for (size_t i = 0; i < m_children.GetSize(); ++i) {

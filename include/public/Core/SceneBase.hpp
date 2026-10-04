@@ -1,12 +1,11 @@
 #ifndef _SCENE_BASE_HPP_
 #define _SCENE_BASE_HPP_
 
-#include <string>
-#include <Memory/RefPtr.hpp>
-#include <Core/OSDef.hpp>
-#include <Utility/Container/List.hpp>
 #include <Camera/RenderView.hpp>
-
+#include <Core/OSDef.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Utility/Container/List.hpp>
+#include <string>
 
 namespace Sleak {
 

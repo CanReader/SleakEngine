@@ -1,11 +1,11 @@
+#include <Camera/RenderView.hpp>
+#include <Core/GameObject.hpp>
+#include <ECS/Components/MeshComponent.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
-#include <Graphics/Common/ResourceManager.hpp>
-#include <Camera/RenderView.hpp>
-#include <Core/GameObject.hpp>
 #include <Graphics/Common/RenderCommandQueue.hpp>
-#include <ECS/Components/MeshComponent.hpp>
+#include <Graphics/Common/ResourceManager.hpp>
 
 namespace Sleak {
 
@@ -150,7 +150,6 @@ namespace Sleak {
         Transform->CalculateTransformMatrix();
     }
 
-
     void TransformComponent::UpdateConstantBuffer(const RenderView& view) {
         if (!ConstantBuffer) {
             SLEAK_ERROR("Constant buffer is not found to update for object {}", owner->GetName());
@@ -165,10 +164,9 @@ namespace Sleak {
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitUpdateConstantBuffer(ConstantBuffer, tb.GetData(), tb.GetSize());
     }
 
-
     Math::Matrix4 TransformComponent::GetMVP() {
-        auto mat = GetTransformMatrix() *
-                   RenderView::GetCurrent().viewProjection;
+        auto mat =
+            GetTransformMatrix() * RenderView::GetCurrent().viewProjection;
 
         return mat;
     }

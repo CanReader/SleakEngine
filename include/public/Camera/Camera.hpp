@@ -1,12 +1,12 @@
 #ifndef _CAMERA_HPP_
 #define _CAMERA_HPP_
 
-#include <Utility/Exception.hpp>
-#include <Core/GameObject.hpp>
 #include <Camera/RenderView.hpp>
 #include <Camera/ViewFrustum.hpp>
+#include <Core/GameObject.hpp>
 #include <Math/Matrix.hpp>
 #include <Math/Vector.hpp>
+#include <Utility/Exception.hpp>
 
 namespace Sleak {
     /// Perspective or orthographic projection mode for a Camera.
@@ -130,31 +130,31 @@ namespace Sleak {
         }
 
     protected:
-        /// Rebuilds this camera's view matrix from position/target/up.
-        void RecalculateViewMatrix();
-        /// Rebuilds this camera's projection matrix from FOV/aspect/near/far
-        /// or the orthographic extents.
-        void RecalculateProjectionMatrix();
+     /// Rebuilds this camera's view matrix from position/target/up.
+     void RecalculateViewMatrix();
+     /// Rebuilds this camera's projection matrix from FOV/aspect/near/far
+     /// or the orthographic extents.
+     void RecalculateProjectionMatrix();
 
-        /// LookAt matrix for the current position, target and up vector.
-        Math::Matrix4 ComputeViewMatrix() const;
-        /// Perspective or orthographic matrix for the current settings.
-        Math::Matrix4 ComputeProjectionMatrix() const;
+     /// LookAt matrix for the current position, target and up vector.
+     Math::Matrix4 ComputeViewMatrix() const;
+     /// Perspective or orthographic matrix for the current settings.
+     Math::Matrix4 ComputeProjectionMatrix() const;
 
-        float fieldOfView;
-        float nearPlane;
-        float farPlane;
-        float width;
-        float height;
+     float fieldOfView;
+     float nearPlane;
+     float farPlane;
+     float width;
+     float height;
 
-        ProjectionType type = ProjectionType::Perspective;
+     ProjectionType type = ProjectionType::Perspective;
 
-        Math::Vector3D Position;
-        Math::Vector3D LookTarget;
-        Math::Vector3D Up = Math::Vector3D::Up();
+     Math::Vector3D Position;
+     Math::Vector3D LookTarget;
+     Math::Vector3D Up = Math::Vector3D::Up();
 
-        Math::Matrix4 m_view = Math::Matrix4::Identity();
-        Math::Matrix4 m_projection = Math::Matrix4::Identity();
+     Math::Matrix4 m_view = Math::Matrix4::Identity();
+     Math::Matrix4 m_projection = Math::Matrix4::Identity();
     };
 }
 
