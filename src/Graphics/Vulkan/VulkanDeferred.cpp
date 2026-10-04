@@ -800,9 +800,10 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
 
     // SSAO (binding 6) — fallback to default white texture when SSAO isn't ready,
     // so the lighting shader multiplies by 1.0 (no occlusion) as a safe default.
-    if (m_ssaoBlurView != VK_NULL_HANDLE && m_ssaoSampler != VK_NULL_HANDLE) {
+    VkImageView ssaoBlurView = m_postGraph.GetView({m_ssaoBlurTarget, 0});
+    if (ssaoBlurView != VK_NULL_HANDLE && m_ssaoSampler != VK_NULL_HANDLE) {
         imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[6].imageView   = m_ssaoBlurView;
+        imageInfos[6].imageView = ssaoBlurView;
         imageInfos[6].sampler     = m_ssaoSampler;
     } else if (m_defaultTexture) {
         imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1107,6 +1108,7 @@ void VulkanRenderer::CleanupGBufferResources() {
     CleanupSSAOResources();
     CleanupSSRResources();
     CleanupBloomResources();
+    m_postGraph.Reset();
 
     m_gbufferResourcesCreated    = false;
     m_inGeometryPass             = false;

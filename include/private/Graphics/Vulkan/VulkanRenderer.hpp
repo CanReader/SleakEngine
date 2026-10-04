@@ -17,6 +17,7 @@
 #include "Core/Logger.hpp"
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
 #include "Graphics/Vulkan/VulkanImmediateSubmit.hpp"
+#include "Graphics/Vulkan/VulkanPostGraph.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 
@@ -634,25 +635,22 @@ private:
     bool m_iblResourcesCreated = false;
     bool m_iblReady            = false;
 
+    // ---- Post-processing frame graph (SSAO + bloom targets and passes) ----
+    enum PostPhase : uint32_t { kPostPhaseSSAO = 0, kPostPhaseBloom = 1 };
+    VulkanPostGraph m_postGraph;
+
     // ---- SSAO resources ----
-    // Half-resolution R8 occlusion buffer (raw SSAO + blurred).
+    // Full-resolution R8 occlusion buffer (raw SSAO + blurred), graph owned.
     static constexpr uint32_t SSAO_KERNEL_SIZE = 32;
     static constexpr uint32_t SSAO_NOISE_SIZE  = 4;
     bool       m_ssaoResourcesCreated      = false;
-    VkExtent2D m_ssaoExtent                = {0, 0};
     VkFormat   m_ssaoFormat                = VK_FORMAT_R8_UNORM;
 
-    VkImage        m_ssaoRawImage          = VK_NULL_HANDLE;
-    VkDeviceMemory m_ssaoRawMemory         = VK_NULL_HANDLE;
-    VkImageView    m_ssaoRawView           = VK_NULL_HANDLE;
-    VkFramebuffer  m_ssaoRawFramebuffer    = VK_NULL_HANDLE;
+    VulkanPostGraph::TargetId m_ssaoRawTarget = VulkanPostGraph::kInvalid;
+    VulkanPostGraph::TargetId m_ssaoBlurTarget = VulkanPostGraph::kInvalid;
+    VulkanPostGraph::PassId m_ssaoPass = VulkanPostGraph::kInvalid;
+    VulkanPostGraph::PassId m_ssaoBlurPass = VulkanPostGraph::kInvalid;
 
-    VkImage        m_ssaoBlurImage         = VK_NULL_HANDLE;
-    VkDeviceMemory m_ssaoBlurMemory        = VK_NULL_HANDLE;
-    VkImageView    m_ssaoBlurView          = VK_NULL_HANDLE;
-    VkFramebuffer  m_ssaoBlurFramebuffer   = VK_NULL_HANDLE;
-
-    VkRenderPass   m_ssaoRenderPass        = VK_NULL_HANDLE;  // shared for raw + blur
     VkPipeline     m_ssaoPipeline          = VK_NULL_HANDLE;
     VkPipeline     m_ssaoBlurPipeline      = VK_NULL_HANDLE;
     VkPipelineLayout m_ssaoPipelineLayout  = VK_NULL_HANDLE;
@@ -665,7 +663,7 @@ private:
 
     // SSAO noise texture (4x4 RGBA random rotation vectors)
     VkImage        m_ssaoNoiseImage        = VK_NULL_HANDLE;
-    VkDeviceMemory m_ssaoNoiseMemory       = VK_NULL_HANDLE;
+    VmaAllocation m_ssaoNoiseAllocation = VK_NULL_HANDLE;
     VkImageView    m_ssaoNoiseView         = VK_NULL_HANDLE;
     VkSampler      m_ssaoNoiseSampler      = VK_NULL_HANDLE;
 
@@ -700,20 +698,18 @@ private:
     // SSAO/SSR passes to reconstruct world position from the depth buffer.
     float m_cachedInvViewProj[16] = {};
 
-    /// Creates all SSAO images, render pass, framebuffers, descriptors, and pipelines.
+    /// Declares the SSAO graph targets and passes, then creates descriptors and
+    /// pipelines.
     bool CreateSSAOResources();
     /// Primes the disabled-effect fallback images (ssaoBlur=white, ssr=black, bloom
     /// mip0=black) once after (re)creation, leaving them SHADER_READ_ONLY. Per-frame
     /// disabled paths then skip the redundant clear since the content is static.
     void InitDisabledEffectFallbacks();
-    /// Destroys all SSAO pipelines, framebuffers, descriptors, images, and samplers.
+    /// Destroys the SSAO pipelines, descriptors, noise texture, and samplers.
     void CleanupSSAOResources();
-    /// Creates the full-res raw and blurred SSAO color images, views, and samplers.
-    bool CreateSSAOImages();
-    /// Creates the shared SSAO render pass (R8 color, DONT_CARE load, shader-read-only output).
-    bool CreateSSAORenderPass();
-    /// Creates the raw and blur SSAO framebuffers.
-    bool CreateSSAOFramebuffers();
+    /// Declares the raw and blurred SSAO targets and passes, and creates the
+    /// samplers.
+    bool CreateSSAOTargets();
     /// Compiles the SSAO and SSAO-blur shaders and creates their pipelines.
     bool CreateSSAOPipelines();
     /// Creates the SSAO input/UBO/blur descriptor layouts, pool, sets, and UBO buffers.
@@ -848,21 +844,17 @@ private:
 
     // HDR scene color image (lighting pass target)
     VkImage        m_hdrSceneImage         = VK_NULL_HANDLE;
-    VkDeviceMemory m_hdrSceneMemory        = VK_NULL_HANDLE;
+    VmaAllocation m_hdrSceneAllocation = VK_NULL_HANDLE;
     VkImageView    m_hdrSceneView          = VK_NULL_HANDLE;
     VkFramebuffer  m_hdrSceneFramebuffer   = VK_NULL_HANDLE;
     VkRenderPass   m_hdrLightingRenderPass = VK_NULL_HANDLE;
 
-    // Bloom mip chain — single image with BLOOM_MIP_COUNT mip levels; each
-    // level gets its own VkImageView so we can render into/out of it.
-    VkImage        m_bloomImage            = VK_NULL_HANDLE;
-    VkDeviceMemory m_bloomMemory           = VK_NULL_HANDLE;
-    std::array<VkImageView, BLOOM_MIP_COUNT> m_bloomMipViews = {};
-    std::array<VkFramebuffer, BLOOM_MIP_COUNT> m_bloomMipFramebuffers = {};
-    std::array<VkExtent2D, BLOOM_MIP_COUNT> m_bloomMipExtents = {};
+    // Bloom mip chain: one graph target with BLOOM_MIP_COUNT mips, starting
+    // at half the swapchain size.
+    VulkanPostGraph::TargetId m_bloomTarget = VulkanPostGraph::kInvalid;
+    VulkanPostGraph::PassId m_bloomThresholdPass = VulkanPostGraph::kInvalid;
+    VulkanPostGraph::PassId m_bloomUpsamplePass = VulkanPostGraph::kInvalid;
 
-    VkRenderPass   m_bloomRenderPass       = VK_NULL_HANDLE;   // shared, loadOp=DONT_CARE, color output
-    VkRenderPass   m_bloomAddRenderPass    = VK_NULL_HANDLE;   // LOAD, blend-add
     VkRenderPass   m_bloomCompositeRenderPass = VK_NULL_HANDLE; // swapchain target (DONT_CARE -> PRESENT_SRC)
     std::vector<VkFramebuffer> m_bloomCompositeFramebuffers;   // one per swapchain image
 
@@ -900,11 +892,12 @@ private:
     void CleanupBloomResources();
     /// Creates the HDR scene color image, view, and the shared bloom-source sampler.
     bool CreateHDRSceneResources();
-    /// Creates the multi-mip bloom image and a per-mip image view.
-    bool CreateBloomImages();
-    /// Creates the bloom threshold/downsample, additive-upsample, and composite render passes.
+    /// Declares the bloom mip chain target and its threshold, downsample, and
+    /// upsample passes.
+    bool CreateBloomTargets();
+    /// Creates the swapchain composite render pass.
     bool CreateBloomRenderPasses();
-    /// Creates the per-mip bloom framebuffers and one composite framebuffer per swapchain image.
+    /// Creates one composite framebuffer per swapchain image.
     bool CreateBloomFramebuffers();
     /// Compiles the bloom threshold/downsample/upsample/composite shaders and creates their pipelines.
     bool CreateBloomPipelines();
@@ -915,7 +908,7 @@ private:
     /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
     void RenderBloomCompositePass();
 
-    /// Sets the dynamic viewport and scissor to fill the given extent. Defined in VulkanBloom.cpp (most call sites of the four post-effect TUs).
+    /// Sets the dynamic viewport and scissor to fill the given extent.
     static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
 };
 

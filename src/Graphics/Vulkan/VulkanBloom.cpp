@@ -9,8 +9,6 @@
 namespace Sleak {
     namespace RenderEngine {
 
-// FillFullscreenViewportScissor moved here: of its 8 call sites across the
-// four post-effect TUs, bloom has the most (4 of 8; SSAO 2, TAA 1, SSR 1).
 /// Sets the dynamic viewport and scissor to fill the given extent.
 void VulkanRenderer::FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext) {
     VkViewport vp{};
@@ -53,16 +51,9 @@ bool VulkanRenderer::CreateHDRSceneResources() {
                        | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     info.samples       = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateImage(device, &info, nullptr, &m_hdrSceneImage) != VK_SUCCESS) return false;
-
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(device, m_hdrSceneImage, &req);
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize  = req.size;
-    alloc.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device, &alloc, nullptr, &m_hdrSceneMemory) != VK_SUCCESS) return false;
-    vkBindImageMemory(device, m_hdrSceneImage, m_hdrSceneMemory, 0);
+    if (!VulkanPostGraph::CreateImage(VulkanBuffer::GetAllocator(), info,
+                                      m_hdrSceneImage, m_hdrSceneAllocation))
+        return false;
 
     VkImageViewCreateInfo vinfo{};
     vinfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -88,59 +79,141 @@ bool VulkanRenderer::CreateHDRSceneResources() {
     return true;
 }
 
-/// Creates the multi-mip bloom image and a per-mip image view.
-bool VulkanRenderer::CreateBloomImages() {
-    // Single image with BLOOM_MIP_COUNT mip levels, each starting at
-    // (scExtent / 2) and halving. HDR float format preserves bloom energy.
-    uint32_t w = std::max(1u, scExtent.width  / 2);
-    uint32_t h = std::max(1u, scExtent.height / 2);
+/// Writes a filter-DSL descriptor set for a given source view.
+static void WriteSingleImageSampler(VkDevice dev, VkDescriptorSet set,
+                                    VkImageView view, VkSampler sampler,
+                                    VkImageLayout layout) {
+    VkDescriptorImageInfo ii{};
+    ii.imageLayout = layout;
+    ii.imageView = view;
+    ii.sampler = sampler;
 
-    VkImageCreateInfo info{};
-    info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    info.imageType     = VK_IMAGE_TYPE_2D;
-    info.extent.width  = w;
-    info.extent.height = h;
-    info.extent.depth  = 1;
-    info.mipLevels     = BLOOM_MIP_COUNT;
-    info.arrayLayers   = 1;
-    info.format        = m_hdrSceneFormat;
-    info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // TRANSFER_DST_BIT: when bloom is disabled, mip[0] is cleared-to-black so the
-    // composite pass samples a defined SHADER_READ_ONLY image (no full mip chain).
-    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                         VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    info.samples       = VK_SAMPLE_COUNT_1_BIT;
-    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateImage(device, &info, nullptr, &m_bloomImage) != VK_SUCCESS) return false;
+    VkWriteDescriptorSet w{};
+    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w.dstSet = set;
+    w.dstBinding = 0;
+    w.dstArrayElement = 0;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w.descriptorCount = 1;
+    w.pImageInfo = &ii;
+    vkUpdateDescriptorSets(dev, 1, &w, 0, nullptr);
+}
 
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(device, m_bloomImage, &req);
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize  = req.size;
-    alloc.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device, &alloc, nullptr, &m_bloomMemory) != VK_SUCCESS) return false;
-    vkBindImageMemory(device, m_bloomImage, m_bloomMemory, 0);
+/// Declares the bloom mip chain target and its threshold, downsample, and
+/// upsample passes.
+bool VulkanRenderer::CreateBloomTargets() {
+    // BLOOM_MIP_COUNT mips starting at half the swapchain size. TRANSFER_DST:
+    // when bloom is disabled, mip 0 is cleared to black so the composite pass
+    // samples a defined SHADER_READ_ONLY image (no full mip chain).
+    VulkanPostGraph::TargetDesc desc;
+    desc.name = "bloom";
+    desc.format = m_hdrSceneFormat;
+    desc.extentDivisor = 2;
+    desc.mipLevels = BLOOM_MIP_COUNT;
+    desc.extraUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    m_bloomTarget = m_postGraph.AddTarget(desc);
 
-    // Per-mip views — each is a single-mip view so framebuffers can target it.
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
-        m_bloomMipExtents[m].width  = std::max(1u, w >> m);
-        m_bloomMipExtents[m].height = std::max(1u, h >> m);
+    // Filter set index layout per frame:
+    //   [0]              : threshold  (sceneHDR -> bloomMip0)
+    //   [1..MIP-1]       : downsamples (bloomMip[i-1] -> bloomMip[i])
+    //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
+    VulkanPostGraph::PassDesc pass;
+    pass.phase = kPostPhaseBloom;
+    pass.name = "bloom_threshold";
+    pass.output = {m_bloomTarget, 0};
+    pass.record = [this](VkCommandBuffer cmd, VkExtent2D) {
+        VkDescriptorSet set = m_bloomFilterSets[currentFrame][0];
+        WriteSingleImageSampler(device, set, m_hdrSceneView, m_bloomSampler,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_bloomThresholdPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_bloomFilterPipelineLayout, 0, 1, &set, 0,
+                                nullptr);
+        struct {
+            float threshold, knee, p0, p1;
+        } thresh{1.0f, 0.5f, 0.0f, 0.0f};
+        vkCmdPushConstants(cmd, m_bloomFilterPipelineLayout,
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(thresh),
+                           &thresh);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    };
+    m_bloomThresholdPass = m_postGraph.AddPass(pass);
 
-        VkImageViewCreateInfo vinfo{};
-        vinfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vinfo.image    = m_bloomImage;
-        vinfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vinfo.format   = m_hdrSceneFormat;
-        vinfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, m, 1, 0, 1};
-        if (vkCreateImageView(device, &vinfo, nullptr, &m_bloomMipViews[m]) != VK_SUCCESS) return false;
+    for (uint32_t m = 1; m < BLOOM_MIP_COUNT; ++m) {
+        pass.name = "bloom_downsample";
+        pass.output = {m_bloomTarget, m};
+        pass.reads = {{m_bloomTarget, m - 1}};
+        pass.record = [this, m](VkCommandBuffer cmd, VkExtent2D) {
+            VkDescriptorSet set = m_bloomFilterSets[currentFrame][m];
+            const VulkanPostGraph::TargetRef src = {m_bloomTarget, m - 1};
+            WriteSingleImageSampler(device, set, m_postGraph.GetView(src),
+                                    m_bloomSampler,
+                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              m_bloomDownsamplePipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_bloomFilterPipelineLayout, 0, 1, &set, 0,
+                                    nullptr);
+
+            const VkExtent2D srcExt = m_postGraph.GetExtent(src);
+            struct {
+                float tsx, tsy, karis, p;
+            } pc;
+            pc.tsx = 1.0f / float(srcExt.width);
+            pc.tsy = 1.0f / float(srcExt.height);
+            // Karis only on first downsample (firefly kill).
+            pc.karis = (m == 1) ? 1.0f : 0.0f;
+            pc.p = 0.0f;
+            vkCmdPushConstants(cmd, m_bloomFilterPipelineLayout,
+                               VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc),
+                               &pc);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+        };
+        m_postGraph.AddPass(pass);
+    }
+
+    // Upsample chain, additively blended onto the next larger mip.
+    for (uint32_t m = BLOOM_MIP_COUNT - 1; m > 0; --m) {
+        pass.name = "bloom_upsample";
+        pass.output = {m_bloomTarget, m - 1};
+        pass.loadOutput = true;
+        pass.reads = {{m_bloomTarget, m}};
+        pass.record = [this, m](VkCommandBuffer cmd, VkExtent2D) {
+            const uint32_t setIdx = BLOOM_MIP_COUNT + (BLOOM_MIP_COUNT - 1 - m);
+            VkDescriptorSet set = m_bloomFilterSets[currentFrame][setIdx];
+            const VulkanPostGraph::TargetRef src = {m_bloomTarget, m};
+            WriteSingleImageSampler(device, set, m_postGraph.GetView(src),
+                                    m_bloomSampler,
+                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              m_bloomUpsamplePipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_bloomFilterPipelineLayout, 0, 1, &set, 0,
+                                    nullptr);
+
+            const VkExtent2D srcExt = m_postGraph.GetExtent(src);
+            struct {
+                float tsx, tsy, radius, intensity;
+            } pc;
+            pc.tsx = 1.0f / float(srcExt.width);
+            pc.tsy = 1.0f / float(srcExt.height);
+            pc.radius = 1.0f;
+            pc.intensity = 1.0f;
+            vkCmdPushConstants(cmd, m_bloomFilterPipelineLayout,
+                               VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc),
+                               &pc);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+        };
+        const VulkanPostGraph::PassId id = m_postGraph.AddPass(pass);
+        if (m_bloomUpsamplePass == VulkanPostGraph::kInvalid)
+            m_bloomUpsamplePass = id;
     }
 
     return true;
 }
 
-/// Creates the bloom threshold/downsample, additive-upsample, and composite render passes.
+/// Creates the swapchain composite render pass.
 bool VulkanRenderer::CreateBloomRenderPasses() {
     // Common HDR color attachment.
     auto makeRP = [&](VkAttachmentLoadOp loadOp, VkImageLayout initial,
@@ -194,16 +267,6 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
         return vkCreateRenderPass(device, &rp, nullptr, &out) == VK_SUCCESS;
     };
 
-    // Downsample / threshold: DONT_CARE → STORE → SHADER_READ_ONLY.
-    if (!makeRP(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
-                m_hdrSceneFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                m_bloomRenderPass)) return false;
-
-    // Upsample (blend-add): LOAD → STORE → SHADER_READ_ONLY.
-    if (!makeRP(VK_ATTACHMENT_LOAD_OP_LOAD, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                m_hdrSceneFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                m_bloomAddRenderPass)) return false;
-
     // Composite: writes swapchain image, ends in PRESENT_SRC_KHR. ImGui draws here.
     if (!makeRP(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
                 scImageFormat, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -212,21 +275,8 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
     return true;
 }
 
-/// Creates the per-mip bloom framebuffers and one composite framebuffer per swapchain image.
+/// Creates one composite framebuffer per swapchain image.
 bool VulkanRenderer::CreateBloomFramebuffers() {
-    // One framebuffer per bloom mip (reused between threshold/downsample/upsample).
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
-        VkFramebufferCreateInfo fb{};
-        fb.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fb.renderPass      = m_bloomRenderPass;
-        fb.attachmentCount = 1;
-        fb.pAttachments    = &m_bloomMipViews[m];
-        fb.width           = m_bloomMipExtents[m].width;
-        fb.height          = m_bloomMipExtents[m].height;
-        fb.layers          = 1;
-        if (vkCreateFramebuffer(device, &fb, nullptr, &m_bloomMipFramebuffers[m]) != VK_SUCCESS) return false;
-    }
-
     // One framebuffer per swapchain image for the composite pass.
     m_bloomCompositeFramebuffers.resize(swapChainImageViews.size());
     for (size_t i = 0; i < swapChainImageViews.size(); ++i) {
@@ -431,7 +481,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.pColorBlendState    = &cbOpaque;
     gpi.pDynamicState       = &ds;
     gpi.layout              = m_bloomFilterPipelineLayout;
-    gpi.renderPass          = m_bloomRenderPass;
+    gpi.renderPass = m_postGraph.GetRenderPass(m_bloomThresholdPass);
     gpi.subpass             = 0;
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomThresholdPipeline) != VK_SUCCESS) return false;
 
@@ -450,7 +500,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     };
     gpi.pStages          = upStages;
     gpi.pColorBlendState = &cbAdd;
-    gpi.renderPass       = m_bloomAddRenderPass;
+    gpi.renderPass = m_postGraph.GetRenderPass(m_bloomUpsamplePass);
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomUpsamplePipeline) != VK_SUCCESS) return false;
 
     // ---- Composite pipeline ----
@@ -472,7 +522,10 @@ bool VulkanRenderer::CreateBloomResources() {
     if (m_bloomResourcesCreated) return true;
 
     if (!CreateHDRSceneResources())        { SLEAK_ERROR("Bloom: HDR scene resources failed");  return false; }
-    if (!CreateBloomImages())              { SLEAK_ERROR("Bloom: images failed");               return false; }
+    if (!CreateBloomTargets()) {
+        SLEAK_ERROR("Bloom: targets failed");
+        return false;
+    }
     if (!CreateBloomRenderPasses())        { SLEAK_ERROR("Bloom: render passes failed");        return false; }
     if (!CreateBloomFramebuffers())        { SLEAK_ERROR("Bloom: framebuffers failed");         return false; }
     if (!CreateBloomDescriptorResources()) { SLEAK_ERROR("Bloom: descriptor resources failed"); return false; }
@@ -511,21 +564,15 @@ void VulkanRenderer::CleanupBloomResources() {
     }
     m_bloomCompositeFramebuffers.clear();
 
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
-        if (m_bloomMipFramebuffers[m]) { vkDestroyFramebuffer(device, m_bloomMipFramebuffers[m], nullptr); m_bloomMipFramebuffers[m] = VK_NULL_HANDLE; }
-        if (m_bloomMipViews[m])        { vkDestroyImageView(device, m_bloomMipViews[m], nullptr);           m_bloomMipViews[m] = VK_NULL_HANDLE; }
-    }
-
-    if (m_bloomRenderPass)          { vkDestroyRenderPass(device, m_bloomRenderPass, nullptr);          m_bloomRenderPass = VK_NULL_HANDLE; }
-    if (m_bloomAddRenderPass)       { vkDestroyRenderPass(device, m_bloomAddRenderPass, nullptr);       m_bloomAddRenderPass = VK_NULL_HANDLE; }
     if (m_bloomCompositeRenderPass) { vkDestroyRenderPass(device, m_bloomCompositeRenderPass, nullptr); m_bloomCompositeRenderPass = VK_NULL_HANDLE; }
 
-    if (m_bloomImage)  { vkDestroyImage(device, m_bloomImage, nullptr);   m_bloomImage = VK_NULL_HANDLE; }
-    if (m_bloomMemory) { vkFreeMemory(device, m_bloomMemory, nullptr);    m_bloomMemory = VK_NULL_HANDLE; }
-
     if (m_hdrSceneView)   { vkDestroyImageView(device, m_hdrSceneView, nullptr); m_hdrSceneView = VK_NULL_HANDLE; }
-    if (m_hdrSceneImage)  { vkDestroyImage(device, m_hdrSceneImage, nullptr);    m_hdrSceneImage = VK_NULL_HANDLE; }
-    if (m_hdrSceneMemory) { vkFreeMemory(device, m_hdrSceneMemory, nullptr);     m_hdrSceneMemory = VK_NULL_HANDLE; }
+    if (m_hdrSceneImage) {
+        vmaDestroyImage(VulkanBuffer::GetAllocator(), m_hdrSceneImage,
+                        m_hdrSceneAllocation);
+        m_hdrSceneImage = VK_NULL_HANDLE;
+        m_hdrSceneAllocation = VK_NULL_HANDLE;
+    }
 
     if (m_bloomSampler) { vkDestroySampler(device, m_bloomSampler, nullptr); m_bloomSampler = VK_NULL_HANDLE; }
 
@@ -533,168 +580,24 @@ void VulkanRenderer::CleanupBloomResources() {
     m_bloomResourcesCreated = false;
 }
 
-/// Writes a filter-DSL descriptor set for a given source view.
-static void WriteSingleImageSampler(VkDevice dev, VkDescriptorSet set,
-                                    VkImageView view, VkSampler sampler,
-                                    VkImageLayout layout) {
-    VkDescriptorImageInfo ii{};
-    ii.imageLayout = layout;
-    ii.imageView   = view;
-    ii.sampler     = sampler;
-
-    VkWriteDescriptorSet w{};
-    w.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    w.dstSet          = set;
-    w.dstBinding      = 0;
-    w.dstArrayElement = 0;
-    w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    w.descriptorCount = 1;
-    w.pImageInfo      = &ii;
-    vkUpdateDescriptorSets(dev, 1, &w, 0, nullptr);
-}
-
 /// Runs the threshold, downsample, and additive-upsample bloom mip chain, or clears mip 0 when bloom is disabled.
 void VulkanRenderer::RenderBloomPass() {
     if (!m_bloomResourcesCreated) return;
 
-    // Bloom disabled: skip the expensive 6-mip threshold/downsample/upsample
-    // chain. The composite still samples bloomMip[0] (binding 1), so leave it in
-    // a defined SHADER_READ_ONLY state by clearing only that one mip to black.
-    // Composite also pushes bloomStrength=0 so even a stale mip adds nothing.
-    // Mirrors the SSAO/SSR disabled-fallback pattern.
+    // Bloom disabled: skip the mip chain. The composite still samples mip 0,
+    // so keep it black and shader-readable (composite also pushes
+    // bloomStrength=0). Static content, so only re-clear after the enabled
+    // path has dirtied it.
     if (!m_bloomEnabled) {
-        // Already primed to black SHADER_READ_ONLY — composite also pushes
-        // bloomStrength=0, so skip the redundant per-frame clear. Re-prime only
-        // if the enabled path dirtied it.
         if (m_bloomFallbackPrimed) return;
-        VkImageMemoryBarrier toClear{};
-        toClear.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toClear.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-        toClear.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toClear.srcAccessMask       = 0;
-        toClear.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toClear.image               = m_bloomImage;
-        toClear.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &toClear);
-
-        VkClearColorValue black{};
-        VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(command, m_bloomImage,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
-
-        VkImageMemoryBarrier toRead = toClear;
-        toRead.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toRead.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &toRead);
+        const VkClearColorValue black{};
+        m_postGraph.Clear(command, {m_bloomTarget, 0}, black);
         m_bloomFallbackPrimed = true;
         return;
     }
 
-    // Enabled path dirties bloom mip0; force a re-prime if bloom is later
-    // disabled (composite's bloomStrength=0 already neutralizes stale content,
-    // but keep the buffer well-defined for consistency).
     m_bloomFallbackPrimed = false;
-
-    // Per-frame transition set index layout:
-    //   [0]              : threshold  (sceneHDR -> bloomMip0)
-    //   [1..MIP-1]       : downsamples (bloomMip[i-1] -> bloomMip[i])
-    //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
-    // BLOOM_TRANSITION_COUNT = 1 + (MIP-1) + (MIP-1) = 11 for MIP=6.
-    auto& setArray = m_bloomFilterSets[currentFrame];
-
-    // ---------- 1. Threshold / prefilter pass ----------
-    //   Input: sceneHDR (already SHADER_READ_ONLY_OPTIMAL via forward RP finalLayout)
-    //   Output: bloomMip[0]
-    WriteSingleImageSampler(device, setArray[0], m_hdrSceneView, m_bloomSampler,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    {
-        VkRenderPassBeginInfo rp{};
-        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rp.renderPass        = m_bloomRenderPass;
-        rp.framebuffer       = m_bloomMipFramebuffers[0];
-        rp.renderArea.offset = {0, 0};
-        rp.renderArea.extent = m_bloomMipExtents[0];
-        rp.clearValueCount   = 0;
-        vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
-        FillFullscreenViewportScissor(command, m_bloomMipExtents[0]);
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomThresholdPipeline);
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_bloomFilterPipelineLayout, 0, 1, &setArray[0], 0, nullptr);
-        struct { float threshold, knee, p0, p1; } thresh{ 1.0f, 0.5f, 0.0f, 0.0f };
-        vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
-                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(thresh), &thresh);
-        vkCmdDraw(command, 3, 1, 0, 0);
-        vkCmdEndRenderPass(command);
-    }
-
-    // ---------- 2. Downsample chain ----------
-    for (uint32_t m = 1; m < BLOOM_MIP_COUNT; ++m) {
-        uint32_t setIdx = m; // [1..MIP-1]
-        WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m - 1], m_bloomSampler,
-                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        VkRenderPassBeginInfo rp{};
-        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rp.renderPass        = m_bloomRenderPass;
-        rp.framebuffer       = m_bloomMipFramebuffers[m];
-        rp.renderArea.offset = {0, 0};
-        rp.renderArea.extent = m_bloomMipExtents[m];
-        rp.clearValueCount   = 0;
-        vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
-        FillFullscreenViewportScissor(command, m_bloomMipExtents[m]);
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomDownsamplePipeline);
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_bloomFilterPipelineLayout, 0, 1, &setArray[setIdx], 0, nullptr);
-
-        struct { float tsx, tsy, karis, p; } pc;
-        pc.tsx   = 1.0f / float(m_bloomMipExtents[m - 1].width);
-        pc.tsy   = 1.0f / float(m_bloomMipExtents[m - 1].height);
-        pc.karis = (m == 1) ? 1.0f : 0.0f;   // Karis only on first downsample (firefly kill).
-        pc.p     = 0.0f;
-        vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
-                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
-        vkCmdDraw(command, 3, 1, 0, 0);
-        vkCmdEndRenderPass(command);
-    }
-
-    // ---------- 3. Upsample chain (additive blend onto next-larger mip) ----------
-    for (uint32_t m = BLOOM_MIP_COUNT - 1; m > 0; --m) {
-        uint32_t setIdx = BLOOM_MIP_COUNT + (BLOOM_MIP_COUNT - 1 - m); // [MIP..MIP*2-2]
-        WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m], m_bloomSampler,
-                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        VkRenderPassBeginInfo rp{};
-        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rp.renderPass        = m_bloomAddRenderPass;
-        rp.framebuffer       = m_bloomMipFramebuffers[m - 1];
-        rp.renderArea.offset = {0, 0};
-        rp.renderArea.extent = m_bloomMipExtents[m - 1];
-        rp.clearValueCount   = 0;
-        vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
-        FillFullscreenViewportScissor(command, m_bloomMipExtents[m - 1]);
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomUpsamplePipeline);
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_bloomFilterPipelineLayout, 0, 1, &setArray[setIdx], 0, nullptr);
-
-        struct { float tsx, tsy, radius, intensity; } pc;
-        pc.tsx       = 1.0f / float(m_bloomMipExtents[m].width);
-        pc.tsy       = 1.0f / float(m_bloomMipExtents[m].height);
-        pc.radius    = 1.0f;
-        pc.intensity = 1.0f;
-        vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
-                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
-        vkCmdDraw(command, 3, 1, 0, 0);
-        vkCmdEndRenderPass(command);
-    }
+    m_postGraph.Execute(command, kPostPhaseBloom);
 }
 
 /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
@@ -712,7 +615,8 @@ void VulkanRenderer::RenderBloomCompositePass() {
     infos[0].sampler     = m_bloomSampler;
 
     infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    infos[1].imageView   = m_bloomMipViews[0];
+    const VkImageView bloomView = m_postGraph.GetView({m_bloomTarget, 0});
+    infos[1].imageView = bloomView;
     infos[1].sampler     = m_bloomSampler;
 
     // RenderSSRPass() guarantees m_ssrImage ends in SHADER_READ_ONLY_OPTIMAL
@@ -724,7 +628,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
         infos[2].imageView = m_ssrView;
         infos[2].sampler   = m_ssrSampler ? m_ssrSampler : m_bloomSampler;
     } else {
-        infos[2].imageView = m_bloomMipViews[0];
+        infos[2].imageView = bloomView;
         infos[2].sampler   = m_bloomSampler;
     }
 

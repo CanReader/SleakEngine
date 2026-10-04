@@ -1725,8 +1725,13 @@ bool VulkanRenderer::CreateGBufferResources() {
     // and BEFORE CreateGBufferDescriptorSets — the lighting pass framebuffers
     // reference m_hdrSceneView (created by CreateBloomResources) and the
     // GBuffer sampler set 0 binding 7 samples the SSAO blur result.
+    m_postGraph.Init(device, VulkanBuffer::GetAllocator());
     if (!CreateSSAOResources())           { SLEAK_ERROR("GBuffer: SSAO resources failed!");        return false; }
     if (!CreateBloomResources())          { SLEAK_ERROR("GBuffer: bloom/HDR resources failed!");   return false; }
+    if (!m_postGraph.Build(scExtent)) {
+        SLEAK_ERROR("GBuffer: post graph targets failed!");
+        return false;
+    }
     // SSR needs the HDR scene view (created by CreateBloomResources), so it
     // must come after that. The bloom composite pass later samples SSR.
     if (!CreateSSRResources())            { SLEAK_ERROR("GBuffer: SSR resources failed!");         return false; }
