@@ -270,68 +270,68 @@ namespace Sleak {
                 eventHandlers;
             static inline int dispatchDepth = 0;
             static inline bool needsCompaction = false;
-        };
+    };
 
-        /// Move-only owner of one handler registration; unregisters it on
-        /// destruction or Reset().
-        /// @ingroup events
-        class EventSubscription {
-           public:
-            EventSubscription() = default;
-            EventSubscription(EventType type, std::string id)
-                : m_type(type), m_id(std::move(id)) {}
+    /// Move-only owner of one handler registration; unregisters it on
+    /// destruction or Reset().
+    /// @ingroup events
+    class EventSubscription {
+       public:
+        EventSubscription() = default;
+        EventSubscription(EventType type, std::string id)
+            : m_type(type), m_id(std::move(id)) {}
 
-            EventSubscription(EventSubscription&& other) noexcept
-                : m_type(other.m_type), m_id(std::move(other.m_id)) {
+        EventSubscription(EventSubscription&& other) noexcept
+            : m_type(other.m_type), m_id(std::move(other.m_id)) {
+            other.m_id.clear();
+        }
+
+        EventSubscription& operator=(EventSubscription&& other) noexcept {
+            if (this != &other) {
+                Reset();
+                m_type = other.m_type;
+                m_id = std::move(other.m_id);
                 other.m_id.clear();
             }
-
-            EventSubscription& operator=(EventSubscription&& other) noexcept {
-                if (this != &other) {
-                    Reset();
-                    m_type = other.m_type;
-                    m_id = std::move(other.m_id);
-                    other.m_id.clear();
-                }
-                return *this;
-            }
-
-            EventSubscription(const EventSubscription&) = delete;
-            EventSubscription& operator=(const EventSubscription&) = delete;
-
-            ~EventSubscription() { Reset(); }
-
-            /// Unregisters the handler now; safe to call more than once.
-            void Reset() {
-                if (m_id.empty()) return;
-                EventDispatcher::UnregisterEvent(m_type, m_id);
-                m_id.clear();
-            }
-
-            bool IsActive() const { return !m_id.empty(); }
-            EventType GetType() const { return m_type; }
-            const std::string& GetID() const { return m_id; }
-
-           private:
-            EventType m_type = EventType::Unknown;
-            std::string m_id;
-        };
-
-        template <typename EventT>
-        EventSubscription EventDispatcher::Subscribe(
-            std::function<void(const EventT&)> callback) {
-            return EventSubscription(
-                EventT::GetStaticType(),
-                RegisterEventCallback<EventT>(std::move(callback)));
+            return *this;
         }
 
-        template <typename T, typename EventT>
-        EventSubscription EventDispatcher::Subscribe(
-            T* instance, void (T::*memberFunction)(const EventT&)) {
-            return EventSubscription(
-                EventT::GetStaticType(),
-                RegisterEventHandler(instance, memberFunction));
+        EventSubscription(const EventSubscription&) = delete;
+        EventSubscription& operator=(const EventSubscription&) = delete;
+
+        ~EventSubscription() { Reset(); }
+
+        /// Unregisters the handler now; safe to call more than once.
+        void Reset() {
+            if (m_id.empty()) return;
+            EventDispatcher::UnregisterEvent(m_type, m_id);
+            m_id.clear();
         }
+
+        bool IsActive() const { return !m_id.empty(); }
+        EventType GetType() const { return m_type; }
+        const std::string& GetID() const { return m_id; }
+
+       private:
+        EventType m_type = EventType::Unknown;
+        std::string m_id;
+    };
+
+    template <typename EventT>
+    EventSubscription EventDispatcher::Subscribe(
+        std::function<void(const EventT&)> callback) {
+        return EventSubscription(
+            EventT::GetStaticType(),
+            RegisterEventCallback<EventT>(std::move(callback)));
+    }
+
+    template <typename T, typename EventT>
+    EventSubscription EventDispatcher::Subscribe(
+        T* instance, void (T::*memberFunction)(const EventT&)) {
+        return EventSubscription(
+            EventT::GetStaticType(),
+            RegisterEventHandler(instance, memberFunction));
+    }
 
         // Helper function for easier event dispatching
         /// Constructs a T from args and dispatches it through EventDispatcher.
