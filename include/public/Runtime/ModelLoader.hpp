@@ -2,9 +2,10 @@
 #define _MODELLOADER_HPP_
 
 #include <Core/OSDef.hpp>
-#include <Math/Vector.hpp>
 #include <Math/Matrix.hpp>
 #include <Math/Quaternion.hpp>
+#include <Math/Vector.hpp>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,7 +38,11 @@ namespace Sleak {
     };
 
     /// Per-load texture cache to avoid loading the same texture file multiple times.
-    using TextureCache = std::unordered_map<std::string, ::Sleak::Texture*>;
+    using TextureCache =
+        std::unordered_map<std::string, RefPtr<::Sleak::Texture>>;
+
+    /// Per-load cache so meshes sharing an Assimp material share one Material.
+    using MaterialCache = std::unordered_map<uint64_t, RefPtr<Material>>;
 
     /// Assimp-backed importer that builds a GameObject hierarchy (meshes, materials, optionally a skeleton) from a model file.
     ///
@@ -106,13 +111,15 @@ namespace Sleak {
         static void ProcessNode(aiNode* node, const aiScene* scene,
                                 GameObject* parent, const std::string& directory,
                                 const ModelLoadOptions& options,
-                                TextureCache& textureCache);
+                                TextureCache& textureCache,
+                                MaterialCache& materialCache);
 
         /// Animated mesh path (without PreTransformVertices).
         static void ProcessNodeAnimated(aiNode* node, const aiScene* scene,
                                         GameObject* parent, const std::string& directory,
                                         const ModelLoadOptions& options,
                                         TextureCache& textureCache,
+                                        MaterialCache& materialCache,
                                         Skeleton* skeleton,
                                         std::vector<AnimationClip*>& clips);
 
@@ -128,10 +135,9 @@ namespace Sleak {
                                                 bool skinned = false);
 
         /// Resolves and loads a single texture slot off an Assimp material, reusing textureCache when possible.
-        static ::Sleak::Texture* LoadMaterialTexture(aiMaterial* mat, int type,
-                                                     const aiScene* scene,
-                                                     const std::string& directory,
-                                                     TextureCache& textureCache);
+        static RefPtr<::Sleak::Texture> LoadMaterialTexture(
+            aiMaterial* mat, int type, const aiScene* scene,
+            const std::string& directory, TextureCache& textureCache);
 
         /// Builds a Skeleton from the scene's bone hierarchy.
         static Skeleton* ExtractSkeleton(const aiScene* scene);

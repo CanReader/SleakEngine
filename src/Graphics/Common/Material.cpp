@@ -5,6 +5,12 @@
 
 namespace Sleak {
 
+    namespace {
+        void AdoptTexture(RefPtr<Texture>& slot, Texture* texture) {
+            if (slot.get() != texture) slot = RefPtr<Texture>(texture);
+        }
+    }  // namespace
+
     Material::Material() : Object("Material") {}
 
     Material::~Material() = default;
@@ -137,128 +143,145 @@ namespace Sleak {
         return m_shader.IsValid() ? m_shader.operator->() : nullptr;
     }
 
+    void Material::SetDiffuseTexture(const RefPtr<Texture>& texture) {
+        m_diffuseTexture = texture;
+    }
+
     void Material::SetDiffuseTexture(Texture* texture) {
-        m_diffuseTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_diffuseTexture, texture);
     }
 
     void Material::SetDiffuseTexture(const std::string& path) {
-        m_diffuseTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_diffuseTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetDiffuseTexture() const {
-        return m_diffuseTexture.IsValid() ? m_diffuseTexture.operator->()
-                                          : nullptr;
+        return m_diffuseTexture.get();
     }
 
     bool Material::HasDiffuseTexture() const {
         return m_diffuseTexture.IsValid();
     }
 
+    void Material::SetNormalTexture(const RefPtr<Texture>& texture) {
+        m_normalTexture = texture;
+    }
+
     void Material::SetNormalTexture(Texture* texture) {
-        m_normalTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_normalTexture, texture);
     }
 
     void Material::SetNormalTexture(const std::string& path) {
-        m_normalTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_normalTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetNormalTexture() const {
-        return m_normalTexture.IsValid() ? m_normalTexture.operator->()
-                                         : nullptr;
+        return m_normalTexture.get();
     }
 
     bool Material::HasNormalTexture() const {
         return m_normalTexture.IsValid();
     }
 
+    void Material::SetSpecularTexture(const RefPtr<Texture>& texture) {
+        m_specularTexture = texture;
+    }
+
     void Material::SetSpecularTexture(Texture* texture) {
-        m_specularTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_specularTexture, texture);
     }
 
     void Material::SetSpecularTexture(const std::string& path) {
-        m_specularTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_specularTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetSpecularTexture() const {
-        return m_specularTexture.IsValid() ? m_specularTexture.operator->()
-                                           : nullptr;
+        return m_specularTexture.get();
     }
 
     bool Material::HasSpecularTexture() const {
         return m_specularTexture.IsValid();
     }
 
+    void Material::SetRoughnessTexture(const RefPtr<Texture>& texture) {
+        m_roughnessTexture = texture;
+    }
+
     void Material::SetRoughnessTexture(Texture* texture) {
-        m_roughnessTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_roughnessTexture, texture);
     }
 
     void Material::SetRoughnessTexture(const std::string& path) {
-        m_roughnessTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_roughnessTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetRoughnessTexture() const {
-        return m_roughnessTexture.IsValid()
-                   ? m_roughnessTexture.operator->()
-                   : nullptr;
+        return m_roughnessTexture.get();
     }
 
     bool Material::HasRoughnessTexture() const {
         return m_roughnessTexture.IsValid();
     }
 
+    void Material::SetMetallicTexture(const RefPtr<Texture>& texture) {
+        m_metallicTexture = texture;
+    }
+
     void Material::SetMetallicTexture(Texture* texture) {
-        m_metallicTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_metallicTexture, texture);
     }
 
     void Material::SetMetallicTexture(const std::string& path) {
-        m_metallicTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_metallicTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetMetallicTexture() const {
-        return m_metallicTexture.IsValid()
-                   ? m_metallicTexture.operator->()
-                   : nullptr;
+        return m_metallicTexture.get();
     }
 
     bool Material::HasMetallicTexture() const {
         return m_metallicTexture.IsValid();
     }
 
+    void Material::SetAOTexture(const RefPtr<Texture>& texture) {
+        m_aoTexture = texture;
+    }
+
     void Material::SetAOTexture(Texture* texture) {
-        m_aoTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_aoTexture, texture);
     }
 
     void Material::SetAOTexture(const std::string& path) {
-        m_aoTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_aoTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
-    Texture* Material::GetAOTexture() const {
-        return m_aoTexture.IsValid() ? m_aoTexture.operator->() : nullptr;
-    }
+    Texture* Material::GetAOTexture() const { return m_aoTexture.get(); }
 
     bool Material::HasAOTexture() const {
         return m_aoTexture.IsValid();
     }
 
+    void Material::SetEmissiveTexture(const RefPtr<Texture>& texture) {
+        m_emissiveTexture = texture;
+    }
+
     void Material::SetEmissiveTexture(Texture* texture) {
-        m_emissiveTexture = ObjectPtr<Texture>(texture);
+        AdoptTexture(m_emissiveTexture, texture);
     }
 
     void Material::SetEmissiveTexture(const std::string& path) {
-        m_emissiveTexture = ObjectPtr<Texture>(
-            RenderEngine::ResourceManager::CreateTexture(path));
+        m_emissiveTexture =
+            RefPtr<Texture>(RenderEngine::ResourceManager::CreateTexture(path));
     }
 
     Texture* Material::GetEmissiveTexture() const {
-        return m_emissiveTexture.IsValid()
-                   ? m_emissiveTexture.operator->()
-                   : nullptr;
+        return m_emissiveTexture.get();
     }
 
     bool Material::HasEmissiveTexture() const {
