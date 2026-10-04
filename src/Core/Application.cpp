@@ -3,6 +3,7 @@
 #include "../../include/private/Graphics/Common/RendererFactory.hpp" 
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp" 
 #include <Core/WindowHelper.hpp>
+#include <Audio/AudioSystem.hpp>
 #include <Graphics/Common/Renderer.hpp>
 #include <Core/Window.hpp>
 #include <algorithm>
@@ -71,6 +72,7 @@ namespace Sleak {
             }
         }
 
+        m_audioSystem = new AudioSystem();
         CoreWindow = new Window(width, height, Specification.Name);
 
         try {
@@ -119,6 +121,8 @@ namespace Sleak {
             renderer->Cleanup();
 
         delete renderer;
+        delete m_audioSystem;
+        m_audioSystem = nullptr;
         delete CoreWindow;
         SLEAK_LOG("The application has been successfully closed, have a good day sir");
     }
@@ -235,6 +239,11 @@ namespace Sleak {
                 // Per-frame game logic
                 if (Game)
                     Game->Loop(DeltaTime);
+                if (m_audioSystem) {
+                    SceneBase* scene = Game ? Game->GetActiveScene() : nullptr;
+                    m_audioSystem->Update(scene ? scene->GetActiveCamera()
+                                                : nullptr);
+                }
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
 

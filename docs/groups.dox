@@ -41,6 +41,12 @@
  */
 
 /**
+ * @defgroup audio Audio
+ * @brief SDL3-backed software mixer, decoded clips, and the audio source
+ * component.
+ */
+
+/**
  * @defgroup physics Physics
  * @brief Collision shapes, broadphase structures, rigidbody simulation, and
  * the physics world that drives them.
