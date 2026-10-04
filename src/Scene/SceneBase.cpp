@@ -10,6 +10,7 @@
 #include <Physics/ColliderComponent.hpp>
 #include <Debug/DebugLineRenderer.hpp>
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include <cmath>
 
 namespace Sleak {
 
@@ -170,8 +171,7 @@ void SceneBase::Update(float deltaTime) {
     if (m_skybox)
         m_skybox->Render();
 
-    if (m_physicsWorld)
-        m_physicsWorld->Step(deltaTime);
+    RunFixedSteps(deltaTime);
 
     if (DebugLineRenderer::IsEnabled()) {
         auto drawColliderShape = [](ColliderComponent* collider, const Math::Vector3D& worldPos, const Math::Vector3D& worldScale) {
@@ -227,6 +227,31 @@ void SceneBase::FixedUpdate(float fixedDeltaTime) {
             Objects[i]->FixedUpdate(fixedDeltaTime);
         }
     }
+
+    if (m_physicsWorld) m_physicsWorld->Step(fixedDeltaTime);
+}
+
+void SceneBase::SetFixedTimestep(float seconds) {
+    if (!(seconds > 0.0f) || !std::isfinite(seconds)) return;
+    m_fixedTimestep = seconds;
+    m_fixedAccumulator = std::fmod(m_fixedAccumulator, m_fixedTimestep);
+}
+
+void SceneBase::RunFixedSteps(float deltaTime) {
+    if (!(deltaTime > 0.0f) || !std::isfinite(deltaTime)) return;
+
+    m_fixedAccumulator += deltaTime;
+
+    int steps = 0;
+    while (m_fixedAccumulator >= m_fixedTimestep && steps < m_maxFixedSteps) {
+        FixedUpdate(m_fixedTimestep);
+        m_fixedAccumulator -= m_fixedTimestep;
+        ++steps;
+    }
+
+    // Behind by more than the cap: drop the backlog instead of spiraling
+    if (m_fixedAccumulator >= m_fixedTimestep)
+        m_fixedAccumulator = std::fmod(m_fixedAccumulator, m_fixedTimestep);
 }
 
 void SceneBase::LateUpdate(float deltaTime) {

@@ -17,8 +17,12 @@ namespace Sleak {
             /// Seconds since construction or the last Reset().
             float Elapsed() const;
 
+            /// Same as Elapsed() in double precision, for subtracting two
+            /// readings that are hours into a session.
+            double ElapsedSeconds() const;
+
         private:
-            std::chrono::time_point<std::chrono::high_resolution_clock> startPoint;
+            std::chrono::time_point<std::chrono::steady_clock> startPoint;
     };
 };
 

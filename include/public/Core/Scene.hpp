@@ -22,6 +22,7 @@ namespace Sleak {
     ///
     /// Call SetFixedUpdateEnabled(false) on scenes that do not simulate
     /// anything, such as menus, to skip the fixed-timestep pass entirely.
+    /// That pass is also where physics steps, so it stops physics too.
     ///
     /// @code{.cpp}
     /// class WorldScene : public Sleak::Scene {

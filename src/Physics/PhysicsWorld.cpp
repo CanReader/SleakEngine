@@ -6,6 +6,7 @@
 #include <ECS/Components/TransformComponent.hpp>
 #include <Core/Logger.hpp>
 #include <algorithm>
+#include <cmath>
 
 namespace Sleak {
 namespace Physics {
@@ -39,6 +40,8 @@ void PhysicsWorld::UnregisterCollider(ColliderComponent* collider) {
 }
 
 void PhysicsWorld::Step(float dt) {
+    if (!(dt > 0.0f) || !std::isfinite(dt)) return;
+
     // We need wasGrounded BEFORE clearing, so gravity doesn't apply while standing
     for (auto* collider : m_colliders) {
         if (auto* owner = collider->GetOwner()) {

@@ -6,13 +6,16 @@ namespace Sleak {
     }
 
     void Timer::Reset() {
-        startPoint = std::chrono::high_resolution_clock::now();
+        startPoint = std::chrono::steady_clock::now();
     }
 
-    // Outputs elaosed time as seconds
     float Timer::Elapsed() const {
-        auto now = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<float> elapsed = now - startPoint;
+        return static_cast<float>(ElapsedSeconds());
+    }
+
+    double Timer::ElapsedSeconds() const {
+        std::chrono::duration<double> elapsed =
+            std::chrono::steady_clock::now() - startPoint;
         return elapsed.count();
     }
 };

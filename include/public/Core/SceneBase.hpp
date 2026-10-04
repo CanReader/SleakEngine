@@ -94,9 +94,11 @@ namespace Sleak {
         virtual void Begin() = 0;
 
         // Update loops
-        /// Advances all active, root-level objects by deltaTime, then steps lighting and physics.
+        /// Advances all active, root-level objects by deltaTime, then runs
+        /// as many FixedUpdate() steps as the accumulated time allows.
         virtual void Update(float deltaTime) = 0;
-        /// Advances all active, root-level objects on the fixed timestep.
+        /// Advances all active, root-level objects on the fixed timestep, then
+        /// steps physics.
         virtual void FixedUpdate(float fixedDeltaTime);
         /// Advances all active, root-level objects after the main Update pass.
         virtual void LateUpdate(float deltaTime);
@@ -140,6 +142,21 @@ namespace Sleak {
         List<GameObject*> FindObjectsByTag(const std::string& tag);
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
+        /// Length of one FixedUpdate() step in seconds; defaults to 1/60.
+        float GetFixedTimestep() const { return m_fixedTimestep; }
+        void SetFixedTimestep(float seconds);
+        /// Most FixedUpdate() steps one frame may run; leftover time is
+        /// dropped.
+        int GetMaxFixedSteps() const { return m_maxFixedSteps; }
+        void SetMaxFixedSteps(int steps) {
+            m_maxFixedSteps = steps > 0 ? steps : 1;
+        }
+        /// How far the current frame sits between the last fixed step and
+        /// the next one, in [0, 1). Use it to interpolate rendered poses.
+        float GetFixedStepAlpha() const {
+            return static_cast<float>(m_fixedAccumulator / m_fixedTimestep);
+        }
+
         Camera* GetActiveCamera() const { return m_activeCamera; }
         void SetActiveCamera(Camera* cam) { m_activeCamera = cam; }
 
@@ -169,6 +186,14 @@ namespace Sleak {
         LightManager* m_lightManager = nullptr;
         Physics::PhysicsWorld* m_physicsWorld = nullptr;
         Skybox* m_skybox = nullptr;
+
+        double m_fixedAccumulator = 0.0;
+        float m_fixedTimestep = 1.0f / 60.0f;
+        int m_maxFixedSteps = 5;
+
+        /// Adds deltaTime to the accumulator and runs the FixedUpdate() steps
+        /// it covers.
+        void RunFixedSteps(float deltaTime);
 
         /// Actually deletes objects queued by DestroyObject().
         void ProcessPendingDestroy();

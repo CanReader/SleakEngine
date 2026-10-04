@@ -41,14 +41,15 @@ namespace Sleak {
             float distance = 0.0f;
         };
 
-        /// Owns the broadphase tree and every registered collider; drives collision detection and resolution each step.
+        /// Owns the broadphase tree and every registered collider; drives
+        /// collision detection and resolution each step.
         ///
         /// Each Scene creates one PhysicsWorld and steps it from its
-        /// update, so you normally reach it with
-        /// SceneBase::GetPhysicsWorld() rather than constructing one. You
-        /// also rarely call RegisterCollider() by hand: adding a
-        /// GameObject that carries a ColliderComponent registers it (and
-        /// its children) automatically.
+        /// FixedUpdate() on the scene's fixed timestep, so you normally reach
+        /// it with SceneBase::GetPhysicsWorld() rather than constructing one.
+        /// You also rarely call RegisterCollider() by hand: adding a GameObject
+        /// that carries a ColliderComponent registers it (and its children)
+        /// automatically.
         ///
         /// Step() integrates every dynamic RigidbodyComponent using that
         /// body's own gravity setting, refreshes the DynamicAABBTree
@@ -88,9 +89,10 @@ namespace Sleak {
             PhysicsWorld() = default;
             ~PhysicsWorld() = default;
 
-            /// Advances the simulation by dt: integrates each dynamic rigidbody's
-            /// velocity, including its own gravity setting, into position, then
-            /// updates the broadphase and resolves collisions.
+            /// Advances the simulation by dt: integrates each dynamic
+            /// rigidbody's velocity, including its own gravity setting, into
+            /// position, then updates the broadphase and resolves collisions.
+            /// Ignores dt <= 0.
             void Step(float dt);
 
             void RegisterCollider(ColliderComponent* collider);
