@@ -11,12 +11,16 @@
 #include "Graphics/DirectX12/DirectX12Buffer.hpp"
 #include "Graphics/DirectX12/DirectX12Shader.hpp"
 #include "Graphics/DirectX12/DirectX12Texture.hpp"
+#include "Graphics/DirectX12/DirectX12UploadContext.hpp"
 #include "Graphics/DirectX12/DirectX12UploadRing.hpp"
 #include <Core/Window.hpp>
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
+#include <cstdint>
+#include <utility>
+#include <vector>
 #include <imgui.h>
 #include <backends/imgui_impl_dx12.h>
 
@@ -95,7 +99,39 @@ public:
     virtual void BeginDebugLinePass() override;
     virtual void EndDebugLinePass() override;
 
+    /// Sets a shader's PSO unless a skybox or debug line pass owns it.
+    void BindShaderPipeline(ID3D12PipelineState* pso);
+
 private:
+    /// Fixed-function state that, with the shader bytecode, identifies a PSO.
+    struct PipelineKey {
+        uint64_t vsHash = 0;
+        uint64_t psHash = 0;
+        uint32_t vertexFormat = 0;
+        D3D12_CULL_MODE cullMode = D3D12_CULL_MODE_FRONT;
+        BOOL depthClip = TRUE;
+        INT depthBias = 0;
+        float depthBiasClamp = 0.0f;
+        float slopeScaledDepthBias = 0.0f;
+        D3D12_DEPTH_WRITE_MASK depthWrite = D3D12_DEPTH_WRITE_MASK_ALL;
+        D3D12_COMPARISON_FUNC depthFunc = D3D12_COMPARISON_FUNC_LESS;
+        BOOL blendEnable = FALSE;
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE topology =
+            D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        DXGI_FORMAT rtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        DXGI_FORMAT dsvFormat = DXGI_FORMAT_D32_FLOAT;
+
+        bool operator==(const PipelineKey&) const = default;
+    };
+
+    /// Returns the cached PSO for the key, building it on a miss.
+    ID3D12PipelineState* GetPipeline(const PipelineKey& key, ID3DBlob* vs,
+                                     ID3DBlob* ps);
+    /// Reapplies the last shader PSO after a pass override ends.
+    void RestoreShaderPipeline();
+    /// Copies the light/fog constants into the ring and binds them at b2.
+    void BindLightConstants();
+
     /// Creates the DXGI factory, enumerates adapters, and creates the D3D12 device.
     bool CreateDevice();
     bool CreateCommandQueue();
@@ -108,11 +144,6 @@ private:
     bool CreateDepthStencilView();
     bool CreateFence();
     bool CreateRootSignature();
-    /// Builds the default opaque-geometry pipeline state object.
-    bool CreatePipelineState();
-    /// Builds a pipeline state object from precompiled vertex/pixel shader bytecode.
-    bool CreatePipelineStateFromShader(ID3DBlob* vertexShaderBlob,
-                                       ID3DBlob* pixelShaderBlob);
 
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
@@ -143,14 +174,23 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> renderTargets[FrameCount];
     Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilBuffer;
 
-    // Pipeline state
+    // Pipeline state (PSOs are owned by the cache)
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState;
+    std::vector<std::pair<PipelineKey,
+                          Microsoft::WRL::ComPtr<ID3D12PipelineState>>>
+        m_pipelineCache;
+    ID3D12PipelineState* m_defaultPipelineState = nullptr;
+    ID3D12PipelineState* m_shaderPipeline = nullptr;
+    ID3D12PipelineState* m_passPipeline = nullptr;
 
-    // Synchronization (per-frame fence values for non-blocking overlap)
+    // Synchronization: one monotonically increasing fence, and the value
+    // that marks the end of the last frame recorded into each slot
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     HANDLE fenceEvent = nullptr;
+    UINT64 m_fenceValue = 0;
     UINT64 fenceValues[FrameCount] = {};
+    uint64_t m_frameSerial = 0;
+    bool m_frameActive = false;
 
     // Descriptor sizes
     UINT rtvDescriptorSize = 0;
@@ -169,24 +209,24 @@ private:
     DirectX12Texture* m_defaultTexture = nullptr;
 
     // Skybox PSO (depth write off, LEQUAL, no cull)
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_skyboxPipelineState;
+    ID3D12PipelineState* m_skyboxPipelineState = nullptr;
+    bool m_skyboxPipelineFailed = false;
     /// Builds the skybox PSO (depth write disabled, LEQUAL compare, no culling).
     bool CreateSkyboxPipelineState();
 
     // Debug line PSO (line topology)
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_debugLinePipelineState;
+    ID3D12PipelineState* m_debugLinePipelineState = nullptr;
+    bool m_debugLinePipelineFailed = false;
     /// Builds the line-topology PSO used for debug line rendering.
     bool CreateDebugLinePipelineState();
 
-    // Transient per-frame constant data (per-draw shadow transforms)
+    // Transient per-frame constant data (constant buffers, light/fog)
     DirectX12UploadRing m_uploadRing;
+    // Batched init-time and dynamic buffer/texture uploads
+    DirectX12UploadContext m_uploader;
 
-    // Light/fog constant buffer (persistently-mapped upload heap)
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_lightUBO;
-    void* m_lightUBOMapped = nullptr;
-    bool m_lightUBOCreated = false;
-    /// Allocates the persistently-mapped upload-heap buffer backing the light/fog UBO.
-    bool CreateLightUBO();
+    // Latest light/fog constants, copied into the ring when bound
+    std::vector<uint8_t> m_lightData;
 
     // Shadow mapping
     Microsoft::WRL::ComPtr<ID3D12Resource>         m_shadowDepthBuffer;
@@ -199,8 +239,11 @@ private:
     bool                                           m_hasPendingLightVP = false;
     bool                                           m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
-    Microsoft::WRL::ComPtr<ID3D12PipelineState>    m_shadowPassPSO;
-    Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob; // saved for shadow PSO
+    ID3D12PipelineState*                           m_shadowPassPSO = nullptr;
+    Microsoft::WRL::ComPtr<ID3DBlob>               m_shadowVSBlob;
+    bool                                           m_shadowVSCompiled = false;
+    // First shader VS, fallback for the shadow PSO
+    Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob;
     void SetLightVP(const float* mat) override;
     /// Allocates the shadow-pass depth buffer, DSV, and shared-heap SRV slot.
     bool CreateShadowMapResources();

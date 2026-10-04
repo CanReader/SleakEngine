@@ -14,12 +14,15 @@
 
 namespace Sleak {
 namespace RenderEngine {
+class DirectX12UploadContext;
 
 /// D3D12 cubemap texture, loadable from six face images or a single equirectangular panorama.
 class ENGINE_API DirectX12CubemapTexture : public ::Sleak::Texture {
 public:
+    /// Uploads go through the shared uploader when given, else they block.
     DirectX12CubemapTexture(ID3D12Device* device,
-                            ID3D12CommandQueue* commandQueue);
+                            ID3D12CommandQueue* commandQueue,
+                            DirectX12UploadContext* uploader = nullptr);
     ~DirectX12CubemapTexture() override;
 
     /// Loads and uploads 6 face images: +X, -X, +Y, -Y, +Z, -Z.
@@ -60,14 +63,12 @@ private:
     /// Builds the cubemap texture array and shader resource view from decoded face pixels.
     bool CreateCubemapFromFaces(const std::vector<unsigned char*>& faceData,
                                 uint32_t faceSize);
-    /// Blocks until the upload-heap copy to the GPU-resident cubemap resource completes.
-    void WaitForUpload();
 
     ID3D12Device* m_device = nullptr;
     ID3D12CommandQueue* m_commandQueue = nullptr;
+    DirectX12UploadContext* m_uploader = nullptr;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> m_texture;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap; // fallback
     D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHandle = {};
     bool m_usesSharedHeap = false;

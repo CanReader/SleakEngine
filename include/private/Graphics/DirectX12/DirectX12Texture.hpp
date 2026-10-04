@@ -11,13 +11,16 @@
 
 namespace Sleak {
 namespace RenderEngine {
+class DirectX12UploadContext;
 
 /// D3D12 2D texture: default-heap resource with an upload-heap staging path and shared-SRV-heap support.
 class ENGINE_API DirectX12Texture : public Texture {
 public:
+    /// Uploads go through the shared uploader when given, else they block.
     DirectX12Texture(ID3D12Device* device,
                      ID3D12CommandQueue* commandQueue,
-                     ID3D12GraphicsCommandList* commandList = nullptr);
+                     ID3D12GraphicsCommandList* commandList = nullptr,
+                     DirectX12UploadContext* uploader = nullptr);
     ~DirectX12Texture() override;
 
     /// Uploads raw pixel data as a new D3D12 texture resource.
@@ -56,28 +59,27 @@ private:
     /// Allocates the default-heap 2D texture resource at the given size/format.
     bool CreateTextureResource(uint32_t width, uint32_t height,
                                DXGI_FORMAT format);
-    /// Stages pixel data through the upload heap and copies it into the GPU resource.
+    /// Stages the pixels plus a box filtered mip chain and copies them in.
     bool UploadTextureData(const void* data, uint32_t width,
                            uint32_t height);
     /// Creates the shader resource view into either the shared heap or a per-texture fallback heap.
     bool CreateSRV(DXGI_FORMAT format);
     /// Maps the engine's TextureFormat to the matching DXGI_FORMAT.
     DXGI_FORMAT GetDXGIFormat(TextureFormat format) const;
-    /// Blocks until the upload-heap copy to the GPU-resident texture completes.
-    void WaitForUpload();
 
     ID3D12Device* m_device = nullptr;
     ID3D12CommandQueue* m_commandQueue = nullptr;
     ID3D12GraphicsCommandList* m_commandList = nullptr;
+    DirectX12UploadContext* m_uploader = nullptr;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> m_texture;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadBuffer;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap; // fallback per-texture heap
     D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHandle = {};
     bool m_usesSharedHeap = false;
 
     uint32_t m_width = 0;
     uint32_t m_height = 0;
+    uint32_t m_mipLevels = 1;
     TextureFormat m_format = TextureFormat::RGBA8;
     TextureFilter m_filter = TextureFilter::Linear;
     TextureWrapMode m_wrapMode = TextureWrapMode::Repeat;
