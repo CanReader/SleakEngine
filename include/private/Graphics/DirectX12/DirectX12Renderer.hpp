@@ -5,24 +5,27 @@
 #ifndef _DIRECTX12RENDERER_H
 #define _DIRECTX12RENDERER_H
 
-#include "Graphics/Common/Renderer.hpp"
+#include <backends/imgui_impl_dx12.h>
+#include <d3d12.h>
+#include <d3dcompiler.h>
+#include <dxgi1_4.h>
+#include <imgui.h>
+#include <wrl/client.h>
+
+#include <cstdint>
+#include <utility>
+#include <vector>
+
+#include <Core/Window.hpp>
+
 #include "Graphics/Common/RenderContext.hpp"
+#include "Graphics/Common/Renderer.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
 #include "Graphics/DirectX12/DirectX12Buffer.hpp"
 #include "Graphics/DirectX12/DirectX12Shader.hpp"
 #include "Graphics/DirectX12/DirectX12Texture.hpp"
 #include "Graphics/DirectX12/DirectX12UploadContext.hpp"
 #include "Graphics/DirectX12/DirectX12UploadRing.hpp"
-#include <Core/Window.hpp>
-#include <d3d12.h>
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
-#include <wrl/client.h>
-#include <cstdint>
-#include <utility>
-#include <vector>
-#include <imgui.h>
-#include <backends/imgui_impl_dx12.h>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -237,7 +240,7 @@ private:
     float                                          m_lightVP[16] = {};
     float                                          m_pendingLightVP[16] = {};
     bool                                           m_hasPendingLightVP = false;
-    bool                                           m_inShadowPass = false;
+    bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
     ID3D12PipelineState*                           m_shadowPassPSO = nullptr;
     Microsoft::WRL::ComPtr<ID3DBlob>               m_shadowVSBlob;
