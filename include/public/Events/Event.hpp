@@ -55,21 +55,14 @@ enum class EventCategory {
     Gamepad = (1 << 6)
 };
 
-#define EVENT_CLASS_TYPE(type) \
-    static EventType GetStaticType() \
-    { \
-        return EventType::type;\
-    }\
-    virtual EventType GetEventType() const override \
-    {\
-        return GetStaticType();\
-    }\
-    virtual const char* GetName() const override \
-    {\
-        return #type;\
-    }
+#define EVENT_CLASS_TYPE(type)                                   \
+    static EventType GetStaticType() { return EventType::type; } \
+    virtual EventType GetEventType() const override {            \
+        return GetStaticType();                                  \
+    }                                                            \
+    virtual const char* GetName() const override { return #type; }
 
-    #define EVENT_CLASS_CATEGORY(category)\
+#define EVENT_CLASS_CATEGORY(category)\
     virtual int GetCategoryFlags() const override \
      { return static_cast<int>(category); }
 

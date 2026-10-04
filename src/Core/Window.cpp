@@ -214,7 +214,7 @@ void Window::Update() {
                 break;
             }
         }
-  }
+    }
 }
 
 void Window::SetFullScreen(bool isFullscreen) {
