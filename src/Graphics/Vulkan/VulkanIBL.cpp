@@ -96,54 +96,27 @@ bool VulkanRenderer::CreateIBLResources() {
 
     // Transition stub images to SHADER_READ_ONLY_OPTIMAL so they can be sampled
     {
-        VkCommandBufferAllocateInfo cmdAlloc{};
-        cmdAlloc.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAlloc.commandPool        = commands;
-        cmdAlloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAlloc.commandBufferCount = 1;
-        VkCommandBuffer cmd;
-        vkAllocateCommandBuffers(device, &cmdAlloc, &cmd);
-
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &begin);
-
-        auto transitionImage = [&](VkImage img, uint32_t layers) {
-            VkImageMemoryBarrier bar{};
-            bar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            bar.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-            bar.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.image               = img;
-            bar.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers};
-            bar.srcAccessMask       = 0;
-            bar.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-            vkCmdPipelineBarrier(cmd,
-                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                0, 0, nullptr, 0, nullptr, 1, &bar);
-        };
-        transitionImage(m_iblIrradianceImage, 6);
-        transitionImage(m_iblPrefilterImage,  6);
-        transitionImage(m_iblBrdfLutImage,    1);
-
-        vkEndCommandBuffer(cmd);
-
-        VkSubmitInfo submit{};
-        submit.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers    = &cmd;
-
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence fence;
-        vkCreateFence(device, &fenceInfo, nullptr, &fence);
-        vkQueueSubmit(graphicsQueue, 1, &submit, fence);
-        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(device, fence, nullptr);
-        vkFreeCommandBuffers(device, commands, 1, &cmd);
+        VulkanImmediateSubmit::Run([&](VkCommandBuffer cmd) {
+            auto transitionImage = [&](VkImage img, uint32_t layers) {
+                VkImageMemoryBarrier bar{};
+                bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.image = img;
+                bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+                                        layers};
+                bar.srcAccessMask = 0;
+                bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                                     0, nullptr, 0, nullptr, 1, &bar);
+            };
+            transitionImage(m_iblIrradianceImage, 6);
+            transitionImage(m_iblPrefilterImage, 6);
+            transitionImage(m_iblBrdfLutImage, 1);
+        });
     }
 
     // --- Descriptor Set Layout: 3 samplerCubes + 1 sampler2D + 1 UBO ---

@@ -50,9 +50,9 @@ private:
     uint32_t FindMemoryType(uint32_t typeFilter,
                             VkMemoryPropertyFlags properties);
     /// Records a pipeline barrier moving all 6 cube faces between image layouts.
-    void TransitionImageLayout(VkImage image, VkImageLayout oldLayout,
-                               VkImageLayout newLayout,
-                               uint32_t layerCount);
+    void RecordLayoutTransition(VkCommandBuffer cmdBuffer, VkImage image,
+                                VkImageLayout oldLayout,
+                                VkImageLayout newLayout, uint32_t layerCount);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;

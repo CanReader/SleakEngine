@@ -1,4 +1,5 @@
 #include "../../include/private/Graphics/Vulkan/VulkanCubemapTexture.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 #include <Core/Logger.hpp>
 #include <stb_image.h>
 #include <cstring>
@@ -164,27 +165,10 @@ bool VulkanCubemapTexture::LoadCubemap(
 
     vkBindImageMemory(m_device, m_image, m_imageMemory, 0);
 
-    // 4. Transition to transfer dst, copy all 6 faces, transition to
-    // shader read
-    TransitionImageLayout(m_image, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
-
-    // Copy staging buffer to image (one region per face)
-    {
-        VkCommandBufferAllocateInfo cmdAllocInfo{};
-        cmdAllocInfo.sType =
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAllocInfo.commandPool = m_commandPool;
-        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAllocInfo.commandBufferCount = 1;
-
-        VkCommandBuffer cmdBuffer;
-        vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
-
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    // Transition, copy all 6 faces (one region each), transition back.
+    VulkanImmediateSubmit::Run([&](VkCommandBuffer cmdBuffer) {
+        RecordLayoutTransition(cmdBuffer, m_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
 
         std::array<VkBufferImageCopy, 6> regions{};
         for (uint32_t i = 0; i < 6; i++) {
@@ -204,25 +188,10 @@ bool VulkanCubemapTexture::LoadCubemap(
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6,
                                regions.data());
 
-        vkEndCommandBuffer(cmdBuffer);
-
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmdBuffer;
-
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence copyFence;
-        vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
-        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
-        vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(m_device, copyFence, nullptr);
-        vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
-    }
-
-    TransitionImageLayout(m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+        RecordLayoutTransition(cmdBuffer, m_image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+    });
 
     // 5. Cleanup staging
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -435,25 +404,10 @@ bool VulkanCubemapTexture::LoadEquirectangular(const std::string& path,
 
     vkBindImageMemory(m_device, m_image, m_imageMemory, 0);
 
-    TransitionImageLayout(m_image, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
-
-    // Copy staging buffer to image (one region per face)
-    {
-        VkCommandBufferAllocateInfo cmdAllocInfo{};
-        cmdAllocInfo.sType =
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAllocInfo.commandPool = m_commandPool;
-        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAllocInfo.commandBufferCount = 1;
-
-        VkCommandBuffer cmdBuffer;
-        vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
-
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    // Transition, copy all 6 faces (one region each), transition back.
+    VulkanImmediateSubmit::Run([&](VkCommandBuffer cmdBuffer) {
+        RecordLayoutTransition(cmdBuffer, m_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
 
         std::array<VkBufferImageCopy, 6> regions{};
         for (uint32_t i = 0; i < 6; i++) {
@@ -473,25 +427,10 @@ bool VulkanCubemapTexture::LoadEquirectangular(const std::string& path,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6,
                                regions.data());
 
-        vkEndCommandBuffer(cmdBuffer);
-
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmdBuffer;
-
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence copyFence;
-        vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
-        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
-        vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(m_device, copyFence, nullptr);
-        vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
-    }
-
-    TransitionImageLayout(m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+        RecordLayoutTransition(cmdBuffer, m_image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+    });
 
     // Cleanup staging
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -612,24 +551,11 @@ uint32_t VulkanCubemapTexture::FindMemoryType(
     return 0;
 }
 
-void VulkanCubemapTexture::TransitionImageLayout(VkImage image,
+void VulkanCubemapTexture::RecordLayoutTransition(VkCommandBuffer cmdBuffer,
+                                                  VkImage image,
                                                   VkImageLayout oldLayout,
                                                   VkImageLayout newLayout,
                                                   uint32_t layerCount) {
-    VkCommandBufferAllocateInfo cmdAllocInfo{};
-    cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdAllocInfo.commandPool = m_commandPool;
-    cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdAllocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmdBuffer;
-    vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmdBuffer, &beginInfo);
-
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = oldLayout;
@@ -667,22 +593,6 @@ void VulkanCubemapTexture::TransitionImageLayout(VkImage image,
 
     vkCmdPipelineBarrier(cmdBuffer, srcStage, dstStage, 0, 0, nullptr, 0,
                          nullptr, 1, &barrier);
-
-    vkEndCommandBuffer(cmdBuffer);
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence copyFence;
-    vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
-    vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(m_device, copyFence, nullptr);
-    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
 }
 
 }  // namespace RenderEngine

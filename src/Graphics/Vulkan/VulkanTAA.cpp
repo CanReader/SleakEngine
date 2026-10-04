@@ -58,63 +58,45 @@ bool VulkanRenderer::CreateTAAResources() {
 
     // ---- 2. Initialize both images to SHADER_READ_ONLY (cleared black) ----
     {
-        VkCommandBufferAllocateInfo ca{};
-        ca.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        ca.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        ca.commandPool        = commands;
-        ca.commandBufferCount = 1;
-        VkCommandBuffer initCmd;
-        vkAllocateCommandBuffers(device, &ca, &initCmd);
-
-        VkCommandBufferBeginInfo bi{};
-        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(initCmd, &bi);
-
-        VkImageSubresourceRange sr = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        for (int i = 0; i < 2; ++i) {
-            VkImageMemoryBarrier bar{};
-            bar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            bar.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-            bar.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.srcAccessMask       = 0;
-            bar.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-            bar.image               = m_taaImages[i];
-            bar.subresourceRange    = sr;
-            vkCmdPipelineBarrier(initCmd,
-                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, 0, nullptr, 0, nullptr, 1, &bar);
-        }
-        VkClearColorValue black{};
-        for (int i = 0; i < 2; ++i)
-            vkCmdClearColorImage(initCmd, m_taaImages[i],
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &sr);
-        for (int i = 0; i < 2; ++i) {
-            VkImageMemoryBarrier bar{};
-            bar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            bar.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            bar.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bar.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-            bar.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-            bar.image               = m_taaImages[i];
-            bar.subresourceRange    = sr;
-            vkCmdPipelineBarrier(initCmd,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                0, 0, nullptr, 0, nullptr, 1, &bar);
-        }
-        vkEndCommandBuffer(initCmd);
-
-        VkSubmitInfo sub{};
-        sub.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        sub.commandBufferCount = 1;
-        sub.pCommandBuffers    = &initCmd;
-        vkQueueSubmit(graphicsQueue, 1, &sub, VK_NULL_HANDLE);
-        vkQueueWaitIdle(graphicsQueue);
-        vkFreeCommandBuffers(device, commands, 1, &initCmd);
+        VulkanImmediateSubmit::Run([&](VkCommandBuffer initCmd) {
+            VkImageSubresourceRange sr = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+                                          1};
+            for (int i = 0; i < 2; ++i) {
+                VkImageMemoryBarrier bar{};
+                bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.srcAccessMask = 0;
+                bar.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                bar.image = m_taaImages[i];
+                bar.subresourceRange = sr;
+                vkCmdPipelineBarrier(initCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                                     nullptr, 0, nullptr, 1, &bar);
+            }
+            VkClearColorValue black{};
+            for (int i = 0; i < 2; ++i)
+                vkCmdClearColorImage(initCmd, m_taaImages[i],
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     &black, 1, &sr);
+            for (int i = 0; i < 2; ++i) {
+                VkImageMemoryBarrier bar{};
+                bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                bar.image = m_taaImages[i];
+                bar.subresourceRange = sr;
+                vkCmdPipelineBarrier(initCmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                                     0, nullptr, 0, nullptr, 1, &bar);
+            }
+        });
     }
 
     // ---- 3. Linear-clamp sampler ----

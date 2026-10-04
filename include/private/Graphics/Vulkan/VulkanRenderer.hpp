@@ -8,6 +8,7 @@
 #include "Core/Logger.hpp"
 #include <vulkan/vulkan.h>
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
+#include "Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 #include <Runtime/Material.hpp>
 #include <cstdint>
 #include <vector>

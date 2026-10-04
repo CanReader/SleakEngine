@@ -1,4 +1,6 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 #include <backends/imgui_impl_vulkan.h>
 #include <Core/Logger.hpp>
 #include <stb_image.h>
@@ -34,48 +36,13 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
 
     VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * 4;
 
-    // 1. Create staging buffer
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
-
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = imageSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(m_device, &bufferInfo, nullptr, &stagingBuffer) !=
-        VK_SUCCESS) {
+    VulkanBuffer::PendingStagingCleanup staging;
+    if (!VulkanBuffer::CreateStagingBuffer(data, imageSize, staging)) {
         SLEAK_ERROR("VulkanTexture: Failed to create staging buffer");
         return false;
     }
 
-    VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memReqs.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(
-        memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory) !=
-        VK_SUCCESS) {
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        SLEAK_ERROR("VulkanTexture: Failed to allocate staging memory");
-        return false;
-    }
-
-    vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
-
-    // 2. Copy pixel data to staging buffer
-    void* mapped;
-    vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &mapped);
-    memcpy(mapped, data, static_cast<size_t>(imageSize));
-    vkUnmapMemory(m_device, stagingMemory);
-
-    // 3. Create VkImage with a full mip chain
+    // Create VkImage with a full mip chain
     VkFormat vkFormat = VK_FORMAT_R8G8B8A8_UNORM;
     if (format == TextureFormat::BGRA8)
         vkFormat = VK_FORMAT_B8G8R8A8_UNORM;
@@ -99,89 +66,69 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                          VK_IMAGE_USAGE_SAMPLED_BIT,
                      mipLevels)) {
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingMemory, nullptr);
+        VulkanBuffer::DestroyStagingBuffer(staging);
         return false;
     }
 
-    // 4. Single command buffer: barrier all mips -> DST, copy mip0, gen mips.
-    VkCommandBufferAllocateInfo cmdAllocInfo{};
-    cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdAllocInfo.commandPool = m_commandPool;
-    cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdAllocInfo.commandBufferCount = 1;
-    VkCommandBuffer cmdBuffer;
-    vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
+    // Barrier all mips -> DST, copy mip0, then generate mips.
+    auto record = [&](VkCommandBuffer cmdBuffer) {
+        VkImageMemoryBarrier toDst{};
+        toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.image = m_image;
+        toDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        toDst.subresourceRange.baseMipLevel = 0;
+        toDst.subresourceRange.levelCount = mipLevels;
+        toDst.subresourceRange.baseArrayLayer = 0;
+        toDst.subresourceRange.layerCount = 1;
+        toDst.srcAccessMask = 0;
+        toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &toDst);
 
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+        VkBufferImageCopy region{};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {width, height, 1};
+        vkCmdCopyBufferToImage(cmdBuffer, staging.buffer, m_image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &region);
 
-    VkImageMemoryBarrier toDst{};
-    toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toDst.image = m_image;
-    toDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    toDst.subresourceRange.baseMipLevel = 0;
-    toDst.subresourceRange.levelCount = mipLevels;
-    toDst.subresourceRange.baseArrayLayer = 0;
-    toDst.subresourceRange.layerCount = 1;
-    toDst.srcAccessMask = 0;
-    toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &toDst);
+        if (mipLevels > 1) {
+            GenerateMipmaps(cmdBuffer, static_cast<int32_t>(width),
+                            static_cast<int32_t>(height));
+        } else {
+            // Single level: mip0 DST -> SHADER_READ
+            VkImageMemoryBarrier toRead = toDst;
+            toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            toRead.subresourceRange.levelCount = 1;
+            vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                                 nullptr, 0, nullptr, 1, &toRead);
+        }
+    };
 
-    VkBufferImageCopy region{};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = {width, height, 1};
-    vkCmdCopyBufferToImage(cmdBuffer, stagingBuffer, m_image,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    if (mipLevels > 1) {
-        GenerateMipmaps(cmdBuffer, static_cast<int32_t>(width),
-                        static_cast<int32_t>(height));
+    VkCommandBuffer batch = VulkanBuffer::GetImageUploadBatch(
+        m_device, m_commandPool, m_graphicsQueue);
+    if (batch != VK_NULL_HANDLE) {
+        record(batch);
+        VulkanBuffer::ReleaseStagingAfterBatch(staging);
+        m_uploadBatchSerial = VulkanBuffer::GetBatchSerial();
     } else {
-        // Single level: mip0 DST -> SHADER_READ
-        VkImageMemoryBarrier toRead = toDst;
-        toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        toRead.subresourceRange.levelCount = 1;
-        vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &toRead);
+        VulkanImmediateSubmit::Run(record);
+        VulkanBuffer::DestroyStagingBuffer(staging);
     }
 
-    vkEndCommandBuffer(cmdBuffer);
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence uploadFence;
-    vkCreateFence(m_device, &fenceInfo, nullptr, &uploadFence);
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, uploadFence);
-    vkWaitForFences(m_device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(m_device, uploadFence, nullptr);
-    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
-
-    // 5. Cleanup staging resources
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
-
-    // 6. Create image view and sampler
     if (!CreateImageView(vkFormat)) return false;
     if (!CreateSampler()) return false;
 
@@ -276,6 +223,10 @@ uint64_t VulkanTexture::GetImGuiTextureID() const {
 
 void VulkanTexture::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
+
+    if (VulkanBuffer::IsBatchPending(m_uploadBatchSerial))
+        VulkanBuffer::FlushPendingCopies();
+    m_uploadBatchSerial = 0;
 
     if (m_imguiDescriptorSet != VK_NULL_HANDLE) {
         ImGui_ImplVulkan_RemoveTexture(m_imguiDescriptorSet);
@@ -537,78 +488,6 @@ bool VulkanTexture::CreateSampler() {
         return false;
     }
     return true;
-}
-
-void VulkanTexture::TransitionImageLayout(VkImage image,
-                                           VkImageLayout oldLayout,
-                                           VkImageLayout newLayout) {
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = m_commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmdBuffer;
-    vkAllocateCommandBuffers(m_device, &allocInfo, &cmdBuffer);
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmdBuffer, &beginInfo);
-
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = oldLayout;
-    barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-
-    VkPipelineStageFlags srcStage;
-    VkPipelineStageFlags dstStage;
-
-    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-        newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-               newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    } else {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = 0;
-        srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    }
-
-    vkCmdPipelineBarrier(cmdBuffer, srcStage, dstStage, 0, 0, nullptr, 0,
-                         nullptr, 1, &barrier);
-
-    vkEndCommandBuffer(cmdBuffer);
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence copyFence;
-    vkCreateFence(m_device, &fenceInfo, nullptr, &copyFence);
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, copyFence);
-    vkWaitForFences(m_device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(m_device, copyFence, nullptr);
-    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
 }
 
 }  // namespace RenderEngine

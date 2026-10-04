@@ -299,6 +299,7 @@ bool VulkanRenderer::CreateDevice() {
 
     // VMA allocator — backs all VulkanBuffer allocations.
     VulkanBuffer::InitAllocator(instance, physicalDevice, device);
+    VulkanImmediateSubmit::Init(device, QueueIDs.GraphicsIndex, graphicsQueue);
 
     return true;
 }

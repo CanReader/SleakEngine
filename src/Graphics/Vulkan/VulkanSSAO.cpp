@@ -365,60 +365,41 @@ bool VulkanRenderer::CreateSSAONoiseTexture() {
     vkUnmapMemory(device, stagingMemory);
 
     // Single-shot command buffer for upload.
-    VkCommandBufferAllocateInfo cbAlloc{};
-    cbAlloc.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cbAlloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbAlloc.commandPool        = commands;
-    cbAlloc.commandBufferCount = 1;
-    VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device, &cbAlloc, &cmd);
+    VulkanImmediateSubmit::Run([&](VkCommandBuffer cmd) {
+        VkImageMemoryBarrier b0{};
+        b0.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b0.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b0.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        b0.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b0.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b0.image = m_ssaoNoiseImage;
+        b0.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b0.srcAccessMask = 0;
+        b0.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &b0);
 
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin);
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {SSAO_NOISE_SIZE, SSAO_NOISE_SIZE, 1};
+        vkCmdCopyBufferToImage(cmd, staging, m_ssaoNoiseImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &region);
 
-    VkImageMemoryBarrier b0{};
-    b0.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    b0.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-    b0.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    b0.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b0.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b0.image               = m_ssaoNoiseImage;
-    b0.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    b0.srcAccessMask       = 0;
-    b0.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &b0);
-
-    VkBufferImageCopy region{};
-    region.bufferOffset      = 0;
-    region.bufferRowLength   = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource  = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageOffset       = {0, 0, 0};
-    region.imageExtent       = {SSAO_NOISE_SIZE, SSAO_NOISE_SIZE, 1};
-    vkCmdCopyBufferToImage(cmd, staging, m_ssaoNoiseImage,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    VkImageMemoryBarrier b1 = b0;
-    b1.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    b1.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    b1.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    b1.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &b1);
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submit{};
-    submit.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers    = &cmd;
-    vkQueueSubmit(graphicsQueue, 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
-
-    vkFreeCommandBuffers(device, commands, 1, &cmd);
+        VkImageMemoryBarrier b1 = b0;
+        b1.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        b1.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b1.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        b1.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &b1);
+    });
     vkDestroyBuffer(device, staging, nullptr);
     vkFreeMemory(device, stagingMemory, nullptr);
 
@@ -733,67 +714,56 @@ void VulkanRenderer::InitDisabledEffectFallbacks() {
         m_bloomImage == VK_NULL_HANDLE)
         return;
 
-    VkCommandBufferAllocateInfo ca{};
-    ca.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ca.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ca.commandPool        = commands;
-    ca.commandBufferCount = 1;
-    VkCommandBuffer initCmd;
-    if (vkAllocateCommandBuffers(device, &ca, &initCmd) != VK_SUCCESS) return;
+    const bool primed =
+        VulkanImmediateSubmit::Run([&](VkCommandBuffer initCmd) {
+            const VkImageSubresourceRange sr = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                                                0, 1};
 
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(initCmd, &bi);
+            struct Prime {
+                VkImage img;
+                VkClearColorValue clr;
+            };
+            VkClearColorValue white{};
+            white.float32[0] = 1.0f;
+            white.float32[1] = 1.0f;
+            white.float32[2] = 1.0f;
+            white.float32[3] = 1.0f;
+            VkClearColorValue black{};
+            Prime items[3] = {
+                {m_ssaoBlurImage, white},  // white = no occlusion
+                {m_ssrImage, black},       // black = no reflection
+                {m_bloomImage, black},     // black = no bloom (mip 0)
+            };
 
-    const VkImageSubresourceRange sr = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            for (auto& it : items) {
+                VkImageMemoryBarrier bar{};
+                bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bar.srcAccessMask = 0;
+                bar.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                bar.image = it.img;
+                bar.subresourceRange = sr;
+                vkCmdPipelineBarrier(initCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                                     nullptr, 0, nullptr, 1, &bar);
 
-    struct Prime { VkImage img; VkClearColorValue clr; };
-    VkClearColorValue white{}; white.float32[0] = 1.0f; white.float32[1] = 1.0f;
-                               white.float32[2] = 1.0f; white.float32[3] = 1.0f;
-    VkClearColorValue black{};
-    Prime items[3] = {
-        { m_ssaoBlurImage, white },   // white = no occlusion
-        { m_ssrImage,      black },   // black = no reflection
-        { m_bloomImage,    black },   // black = no bloom (mip 0)
-    };
+                vkCmdClearColorImage(initCmd, it.img,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     &it.clr, 1, &sr);
 
-    for (auto& it : items) {
-        VkImageMemoryBarrier bar{};
-        bar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        bar.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-        bar.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        bar.srcAccessMask       = 0;
-        bar.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        bar.image               = it.img;
-        bar.subresourceRange    = sr;
-        vkCmdPipelineBarrier(initCmd,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &bar);
-
-        vkCmdClearColorImage(initCmd, it.img,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &it.clr, 1, &sr);
-
-        bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(initCmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &bar);
-    }
-
-    vkEndCommandBuffer(initCmd);
-
-    VkSubmitInfo sub{};
-    sub.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    sub.commandBufferCount = 1;
-    sub.pCommandBuffers    = &initCmd;
-    vkQueueSubmit(graphicsQueue, 1, &sub, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
-    vkFreeCommandBuffers(device, commands, 1, &initCmd);
+                bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(initCmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                                     0, nullptr, 0, nullptr, 1, &bar);
+            }
+        });
+    if (!primed) return;
 
     m_ssaoFallbackPrimed  = true;
     m_ssrFallbackPrimed   = true;
