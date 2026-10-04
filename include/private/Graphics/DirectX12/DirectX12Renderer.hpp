@@ -199,7 +199,7 @@ private:
     float                                          m_lightVP[16] = {};
     float                                          m_pendingLightVP[16] = {};
     bool                                           m_hasPendingLightVP = false;
-    bool                                           m_inShadowPass = false;
+    bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
     Microsoft::WRL::ComPtr<ID3D12PipelineState>    m_shadowPassPSO;
     Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob; // saved for shadow PSO
