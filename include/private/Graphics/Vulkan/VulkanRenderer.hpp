@@ -95,14 +95,24 @@ public:
     // RenderContext interface
     /// Issues a non-indexed draw call and updates the vertex/triangle counters.
     virtual void Draw(uint32_t vertexCount) override;
+    /// Non-indexed draw starting at firstVertex.
+    virtual void Draw(uint32_t vertexCount, uint32_t firstVertex) override;
     /// Issues an indexed draw call and updates the vertex/triangle counters.
     virtual void DrawIndexed(uint32_t indexCount) override;
+    /// Indexed draw starting at firstIndex with a base vertex offset.
+    virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                             int32_t baseVertex) override;
     /// Issues an instanced, non-indexed draw call.
     virtual void DrawInstance(uint32_t instanceCount,
                               uint32_t vertexPerInstance) override;
     /// Issues an instanced, indexed draw call.
     virtual void DrawIndexedInstance(uint32_t instanceCount,
                                      uint32_t indexPerInstance) override;
+    /// Instanced indexed draw starting at firstIndex with a base vertex offset.
+    virtual void DrawIndexedInstance(uint32_t instanceCount,
+                                     uint32_t indexPerInstance,
+                                     uint32_t firstIndex,
+                                     int32_t baseVertex) override;
 
     /// Stores the cull face for the next pipeline rebuild (Vulkan state is baked).
     virtual void SetRenderFace(RenderFace face) override;

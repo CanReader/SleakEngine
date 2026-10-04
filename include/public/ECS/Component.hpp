@@ -80,11 +80,11 @@ namespace Sleak {
             /// True once Initialize() has run and succeeded.
             bool IsInitialized() const { return bIsInitialized; }
 
-        protected:
+           protected:
             GameObject* owner;
             bool bIsInitialized;
 
-        private:
+           private:
             friend class GameObject;
     };
 }
