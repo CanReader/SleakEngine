@@ -152,6 +152,7 @@ set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanIBL.cpp
     src/Graphics/Vulkan/VulkanImmediateSubmit.cpp
     src/Graphics/Vulkan/VulkanPipelines.cpp
+    src/Graphics/Vulkan/VulkanPostGraph.cpp
     src/Graphics/Vulkan/VulkanRenderer.cpp
     src/Graphics/Vulkan/VulkanShader.cpp
     src/Graphics/Vulkan/VulkanShadow.cpp
