@@ -41,7 +41,8 @@ rewrites into its own variant. See @ref shader_authoring.
 
 ### Staging assets next to the binary
 
-The engine's CMake stages nothing but its own compiled SPIR-V. Building the
+The engine's CMake stages nothing but its own compiled SPIR-V (into
+`assets/shaders` next to each executable that links `Engine`). Building the
 runtime asset tree is the consuming project's job, and the shape that works
 is per-file dependency tracking rather than a post-build directory copy:
 
