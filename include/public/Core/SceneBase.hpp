@@ -140,6 +140,7 @@ namespace Sleak {
         List<GameObject*> FindObjectsByTag(const std::string& tag);
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
+        /// Null once the camera object has been removed or destroyed.
         Camera* GetActiveCamera() const { return m_activeCamera; }
         void SetActiveCamera(Camera* cam) { m_activeCamera = cam; }
 

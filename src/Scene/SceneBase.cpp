@@ -37,6 +37,16 @@ static void UnregisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld*
     }
 }
 
+/// True if target is root or one of its descendants.
+static bool IsInHierarchy(GameObject* root, const GameObject* target) {
+    if (!root || !target) return false;
+    if (root == target) return true;
+    for (size_t i = 0; i < root->GetChildren().GetSize(); ++i) {
+        if (IsInHierarchy(root->GetChildren()[i], target)) return true;
+    }
+    return false;
+}
+
 SceneBase::~SceneBase() {
     if (state != SceneState::Unloaded) {
         SLEAK_ERROR(
@@ -277,6 +287,8 @@ void SceneBase::RemoveObject(GameObject* object) {
         m_pendingDestroy.erase(pending);
     }
 
+    if (IsInHierarchy(object, m_activeCamera)) m_activeCamera = nullptr;
+
     Objects.erase(index);
     delete object;
 }
@@ -345,6 +357,8 @@ void SceneBase::ProcessPendingDestroy() {
             Objects.erase(index);
         }
 
+        if (IsInHierarchy(obj, m_activeCamera)) m_activeCamera = nullptr;
+
         delete obj;
     }
     m_pendingDestroy.clear();
@@ -358,6 +372,7 @@ void SceneBase::DestroyAllObjects() {
         delete Objects[i];
     }
     Objects.clear();
+    m_activeCamera = nullptr;
 }
 
 void SceneBase::SetSkybox(Skybox* skybox) {
