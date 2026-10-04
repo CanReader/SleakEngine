@@ -121,11 +121,14 @@ void OpenGLRenderer::BeginRender() {
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
+    if (m_shadowResChangeRequested) ApplyShadowResolutionChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
     if (m_hasPendingLightVP) {
         memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
     }
+    memcpy(m_cascadeVP, m_pendingCascadeVP, sizeof(m_cascadeVP));
+    m_cascadeCount = m_pendingCascadeCount;
 
     // Shadow pass before main rendering
     if (m_shadowPassEnabled) {
@@ -192,9 +195,7 @@ void OpenGLRenderer::Cleanup() {
         CleanupGBufferResources();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
-        if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
-        if (m_shadowFBO) { glDeleteFramebuffers(1, &m_shadowFBO); m_shadowFBO = 0; }
-        m_shadowMapCreated = false;
+        DestroyShadowMapResources();
         m_shadowUBOCreated = false;
         CleanupMSAAFramebuffer();
         if (bImInitialized) {
@@ -652,6 +653,23 @@ void OpenGLRenderer::SetLightVP(const float* mat) {
     }
 }
 
+void OpenGLRenderer::SetShadowCascades(const float* viewProj, uint32_t count) {
+    count = std::min(count, MAX_SHADOW_CASCADES);
+    if (count > 0 && viewProj)
+        memcpy(m_pendingCascadeVP, viewProj, sizeof(float) * 16 * count);
+    m_pendingCascadeCount = count;
+}
+
+void OpenGLRenderer::ApplyShadowResolutionChange() {
+    m_shadowResChangeRequested = false;
+    if (m_pendingShadowMapResolution == m_shadowMapResolution &&
+        m_pendingShadowCascadeCount == m_shadowCascadeCount)
+        return;
+    DestroyShadowMapResources();
+    m_shadowMapResolution = m_pendingShadowMapResolution;
+    m_shadowCascadeCount = m_pendingShadowCascadeCount;
+}
+
 bool OpenGLRenderer::CreateShadowUBO() {
     if (m_shadowUBOCreated) return true;
     glGenBuffers(1, &m_shadowUBO);
@@ -677,6 +695,11 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     shadowData.ShadowLightSize = ubo->LightSize;
     shadowData.PCSSEnabled = m_pcssEnabled ? 1 : 0;
     shadowData.ShadowMapEnabled = m_shadowPassEnabled ? 1 : 0;
+    memcpy(shadowData.CascadeVP, ubo->CascadeVP, sizeof(shadowData.CascadeVP));
+    memcpy(shadowData.CascadeSplits, ubo->CascadeSplits,
+           sizeof(shadowData.CascadeSplits));
+    shadowData.CascadeCount = ubo->CascadeCount;
+    shadowData.CascadeBlend = ubo->CascadeBlend;
 
     glBindBuffer(GL_UNIFORM_BUFFER, m_shadowUBO);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(shadowData), &shadowData);
@@ -689,39 +712,97 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
 bool OpenGLRenderer::CreateShadowMapResources() {
     if (m_shadowMapCreated) return true;
 
-    // Create depth texture
+    const GLsizei layers = static_cast<GLsizei>(m_shadowCascadeCount);
+    const float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
     glGenTextures(1, &m_shadowDepthTex);
-    glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
-                 m_shadowMapResolution, m_shadowMapResolution, 0,
-                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_shadowDepthTex);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT32F,
+                   m_shadowMapResolution, m_shadowMapResolution, layers);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    // 2D view of the last cascade, compared in hardware, for shaders that
+    // still declare a single sampler2DShadow at unit 3.
+    glGenTextures(1, &m_shadowLegacyView);
+    glTextureView(m_shadowLegacyView, GL_TEXTURE_2D, m_shadowDepthTex,
+                  GL_DEPTH_COMPONENT32F, 0, 1, layers - 1, 1);
+    glBindTexture(GL_TEXTURE_2D, m_shadowLegacyView);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    // Create FBO
+    // The array is read through sampler objects: one compares (PCF), the
+    // other returns raw depth for the PCSS blocker search.
+    glGenSamplers(1, &m_shadowCompareSampler);
+    glGenSamplers(1, &m_shadowRawSampler);
+    for (GLuint sampler : {m_shadowCompareSampler, m_shadowRawSampler}) {
+        glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        glSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, borderColor);
+    }
+    const GLuint cmp = m_shadowCompareSampler;
+    glSamplerParameteri(cmp, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(cmp, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glSamplerParameteri(cmp, GL_TEXTURE_COMPARE_MODE,
+                        GL_COMPARE_REF_TO_TEXTURE);
+    glSamplerParameteri(cmp, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    const GLuint raw = m_shadowRawSampler;
+    glSamplerParameteri(raw, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(raw, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glSamplerParameteri(raw, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+
     glGenFramebuffers(1, &m_shadowFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_shadowDepthTex, 0);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              m_shadowDepthTex, 0, 0);
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL shadow FBO is not complete!");
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        DestroyShadowMapResources();
         return false;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     m_shadowMapCreated = true;
     m_shadowResourcesCreated = true;
-    SLEAK_INFO("OpenGL shadow map resources created ({}x{})", m_shadowMapResolution, m_shadowMapResolution);
+    SLEAK_INFO("OpenGL shadow map resources created ({}x{}, {} cascades)",
+               m_shadowMapResolution, m_shadowMapResolution, layers);
     return true;
+}
+
+void OpenGLRenderer::DestroyShadowMapResources() {
+    for (GLuint* tex : {&m_shadowLegacyView, &m_shadowDepthTex}) {
+        if (*tex) glDeleteTextures(1, tex);
+        *tex = 0;
+    }
+    for (GLuint* sampler : {&m_shadowCompareSampler, &m_shadowRawSampler}) {
+        if (*sampler) glDeleteSamplers(1, sampler);
+        *sampler = 0;
+    }
+    if (m_shadowFBO) glDeleteFramebuffers(1, &m_shadowFBO);
+    m_shadowFBO = 0;
+    m_shadowMapCreated = false;
+    m_shadowResourcesCreated = false;
+}
+
+void OpenGLRenderer::BindShadowMapTextures() {
+    if (!m_shadowMapCreated) return;
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_shadowLegacyView);
+    glActiveTexture(GL_TEXTURE17);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_shadowDepthTex);
+    glBindSampler(17, m_shadowCompareSampler);
+    glActiveTexture(GL_TEXTURE18);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_shadowDepthTex);
+    glBindSampler(18, m_shadowRawSampler);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void OpenGLRenderer::RenderShadowPass() {
@@ -737,14 +818,13 @@ void OpenGLRenderer::RenderShadowPass() {
     GLint savedViewport[4];
     glGetIntegerv(GL_VIEWPORT, savedViewport);
 
-    // Bind shadow FBO
     glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
     glViewport(0, 0, m_shadowMapResolution, m_shadowMapResolution);
-    glClear(GL_DEPTH_BUFFER_BIT);
 
     // Enable polygon offset for slope-scale depth bias
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(2.0f, 4.0f);
+    glPolygonOffset(2.0f * m_shadowDepthBiasScale,
+                    4.0f * m_shadowDepthBiasScale);
 
     // Back-face cull: closed solid volumes always have the light-facing
     // surface win — same depth result, half the raster.
@@ -755,9 +835,15 @@ void OpenGLRenderer::RenderShadowPass() {
     // Ensure VAO is bound for shadow pass draws
     glBindVertexArray(m_VAO);
 
-    // Execute shadow draw commands
+    // One layer per cascade; BindConstantBuffer builds the caster transform
+    // from m_lightVP, so it carries the cascade being drawn.
+    const uint32_t cascades = std::min(m_cascadeCount, m_shadowCascadeCount);
     m_inShadowPass = true;
-    if (queue) {
+    for (uint32_t c = 0; c < cascades; ++c) {
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  m_shadowDepthTex, 0, static_cast<GLint>(c));
+        glClear(GL_DEPTH_BUFFER_BIT);
+        memcpy(m_lightVP, m_cascadeVP[c], sizeof(m_lightVP));
         queue->ExecuteShadowPass(this);
     }
     m_inShadowPass = false;
@@ -775,10 +861,7 @@ void OpenGLRenderer::RenderShadowPass() {
 
     glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
 
-    // Bind shadow map texture at unit 3
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
-    glActiveTexture(GL_TEXTURE0);
+    BindShadowMapTextures();
 }
 
 // ============================================================
@@ -1087,11 +1170,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
 
     // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid
     // sampler2DShadow/sampler2D conflict during the geometry pass.
-    if (m_shadowMapCreated) {
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
-        glActiveTexture(GL_TEXTURE0);
-    }
+    BindShadowMapTextures();
 
     // IBL — bind irradiance/prefilter/BRDF at units 14/15/16 and upload the
     // settings UBO at slot 10. Disabled if precompute hasn't completed.

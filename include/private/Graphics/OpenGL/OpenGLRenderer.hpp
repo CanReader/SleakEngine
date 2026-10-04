@@ -107,9 +107,17 @@ private:
     /// Configures the shared VAO's vertex attribute layout for the standard mesh format.
     void SetupVertexLayout();
 
-    // Shadow mapping
+    // Shadow mapping: one depth array layer per cascade, plus a 2D view of
+    // the last cascade for shaders that only know the single map.
     GLuint m_shadowFBO = 0;
     GLuint m_shadowDepthTex = 0;
+    GLuint m_shadowLegacyView = 0;
+    GLuint m_shadowCompareSampler = 0;
+    GLuint m_shadowRawSampler = 0;
+    float m_cascadeVP[MAX_SHADOW_CASCADES][16] = {};
+    float m_pendingCascadeVP[MAX_SHADOW_CASCADES][16] = {};
+    uint32_t m_cascadeCount = 0;
+    uint32_t m_pendingCascadeCount = 0;
     GLuint m_shadowUBO = 0;
     bool m_shadowMapCreated = false;
     bool m_shadowUBOCreated = false;
@@ -119,9 +127,17 @@ private:
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
     void SetLightVP(const float* mat) override;
+    /// Stages the per-cascade light view-projections for the next BeginRender.
+    void SetShadowCascades(const float* viewProj, uint32_t count) override;
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
-    /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
+    /// Drops the shadow map so it is rebuilt with the queued settings.
+    void ApplyShadowResolutionChange() override;
+    /// Allocates the shadow-pass depth FBO and cascade array texture.
     bool CreateShadowMapResources();
+    /// Deletes the shadow array texture, its view, samplers, and FBO.
+    void DestroyShadowMapResources();
+    /// Binds the last cascade at unit 3 and the whole array at 17/18.
+    void BindShadowMapTextures();
     /// Allocates the UBO backing ShadowLightUBO.
     bool CreateShadowUBO();
     /// Replays cached shadow-caster draws into the depth-only shadow FBO.

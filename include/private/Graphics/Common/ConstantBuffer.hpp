@@ -1,8 +1,9 @@
 #ifndef _CONSTANTBUFFER_H_
 #define _CONSTANTBUFFER_H_
 
-#include <Math/Matrix.hpp>
 #include <Math/Color.hpp>
+#include <Math/Matrix.hpp>
+#include <cstddef>
 #include <cstdint>
 
 namespace Sleak {
@@ -42,6 +43,9 @@ namespace Sleak {
         // Lights[] array so that older shader UBO declarations (which stop at
         // Lights[]) still read a valid prefix. Don't reorder.
         static constexpr uint32_t MAX_LIGHTS = 16;
+
+        /// Upper bound on directional shadow cascades (array layers).
+        static constexpr uint32_t MAX_SHADOW_CASCADES = 4;
 
         /// Full per-frame lighting UBO: camera, ambient, fog, and the packed light array.
         struct alignas(16) LightCBData {
@@ -204,7 +208,18 @@ namespace Sleak {
             // Shadow coords must use this — a per-fragment round trip
             // through reconstructed world position shimmers under rotation.
             float NdcToShadow[16];
+
+            // Cascades. LightVP above is the last cascade so shaders that
+            // only know the single map keep working.
+            float CascadeVP[MAX_SHADOW_CASCADES][16];
+            float CascadeSplits[MAX_SHADOW_CASCADES];  // radius around camera
+            uint32_t CascadeCount;
+            float CascadeBlend;  // blend band, fraction of the cascade radius
+            float _cascadePad[2];
         };
+        static_assert(offsetof(ShadowLightUBO, CascadeVP) == 384 &&
+                          offsetof(ShadowLightUBO, CascadeCount) == 656,
+                      "ShadowLightUBO must match the std140 shader block");
 
         // GPU-aligned POD struct for post-process settings constant buffer.
         // Total: 16 bytes (1 x 16-byte row).
@@ -263,7 +278,17 @@ namespace Sleak {
 
             // Row 6-9: NDC -> shadow clip (see ShadowLightUBO::NdcToShadow)
             float NdcToShadow[16];
+
+            // Rows 10-27: cascades (see ShadowLightUBO)
+            float CascadeVP[MAX_SHADOW_CASCADES][16];
+            float CascadeSplits[MAX_SHADOW_CASCADES];
+            uint32_t CascadeCount;
+            float CascadeBlend;
+            float _cascadePad[2];
         };
+        static_assert(offsetof(PCSSShadowGPUData, CascadeVP) == 160 &&
+                          offsetof(PCSSShadowGPUData, CascadeCount) == 432,
+                      "PCSSShadowGPUData must match the std140 shader block");
 
         // GPU-aligned POD struct for SSAO composite settings (used in PBR shader).
         // Total: 16 bytes (1 x 16-byte row).

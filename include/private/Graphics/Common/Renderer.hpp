@@ -1,9 +1,10 @@
 #pragma once
 
-
-#include "RenderContext.hpp"
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
+
+#include "ConstantBuffer.hpp"
+#include "RenderContext.hpp"
 
 namespace Sleak {
 
@@ -134,6 +135,11 @@ public:
     // Shadow mapping support (overridden by VulkanRenderer)
     virtual void UpdateShadowLightUBO(const void* data, uint32_t size) { (void)data; (void)size; }
     virtual void SetLightVP(const float* lightVP) { (void)lightVP; }
+    /// Stages one light view-projection per cascade for the next shadow pass.
+    virtual void SetShadowCascades(const float* viewProj, uint32_t count) {
+        (void)viewProj;
+        (void)count;
+    }
     void SetShadowPassEnabled(bool enabled) { m_shadowPassEnabled = enabled; }
     bool IsShadowPassEnabled() const { return m_shadowPassEnabled; }
 
@@ -193,15 +199,31 @@ public:
     /// Requests a new shadow map size, clamped to [256, 8192] and queued if resources already exist.
     void SetShadowMapResolution(uint32_t res) {
         if (res < 256 || res > 8192) return;
-        if (res == m_shadowMapResolution) return;
         if (m_shadowResourcesCreated) {
+            QueueShadowResourceChange();
             m_pendingShadowMapResolution = res;
-            m_shadowResChangeRequested = true;
             return;
         }
         m_shadowMapResolution = res;
     }
     uint32_t GetShadowMapResolution() const { return m_shadowMapResolution; }
+
+    /// Requests a shadow cascade (array layer) count, queued like the size.
+    void SetShadowCascadeCount(uint32_t count) {
+        if (count < 1 || count > MAX_SHADOW_CASCADES) return;
+        if (m_shadowResourcesCreated) {
+            QueueShadowResourceChange();
+            m_pendingShadowCascadeCount = count;
+            return;
+        }
+        m_shadowCascadeCount = count;
+    }
+    uint32_t GetShadowCascadeCount() const { return m_shadowCascadeCount; }
+
+    /// Scales each backend's tuned shadow-pass raster depth bias.
+    void SetShadowDepthBiasScale(float scale) {
+        m_shadowDepthBiasScale = scale > 0.0f ? scale : 0.0f;
+    }
     virtual void ApplyShadowResolutionChange() {}
 
     // Deferred rendering mode (default: enabled)
@@ -307,11 +329,22 @@ public:
     // PCSS
     bool m_pcssEnabled = true;
 
-    // Shadow map resolution
+    // Shadow map resolution and cascade (layer) count
     uint32_t m_shadowMapResolution = 2048;
     uint32_t m_pendingShadowMapResolution = 2048;
+    uint32_t m_shadowCascadeCount = 1;
+    uint32_t m_pendingShadowCascadeCount = 1;
     bool m_shadowResourcesCreated = false;
     bool m_shadowResChangeRequested = false;
+    float m_shadowDepthBiasScale = 1.0f;
+
+    /// Seeds the pending shadow settings from the live ones.
+    void QueueShadowResourceChange() {
+        if (m_shadowResChangeRequested) return;
+        m_pendingShadowMapResolution = m_shadowMapResolution;
+        m_pendingShadowCascadeCount = m_shadowCascadeCount;
+        m_shadowResChangeRequested = true;
+    }
 
     // Deferred rendering
     bool m_deferredEnabled = true;

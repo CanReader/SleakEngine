@@ -897,6 +897,16 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
         } else {
             VkPipelineShaderStageCreateInfo shaderStage = shadowShader->GetVertexInfo();
 
+            const std::array<VkDynamicState, 3> shadowDynamicStates = {
+                VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                VK_DYNAMIC_STATE_DEPTH_BIAS};
+            VkPipelineDynamicStateCreateInfo shadowDynamicState{};
+            shadowDynamicState.sType =
+                VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+            shadowDynamicState.dynamicStateCount =
+                static_cast<uint32_t>(shadowDynamicStates.size());
+            shadowDynamicState.pDynamicStates = shadowDynamicStates.data();
+
             VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
             inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
             inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -915,10 +925,7 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
             rasterizer.lineWidth = 1.0f;
             rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
             rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-            rasterizer.depthBiasEnable = VK_TRUE;
-            rasterizer.depthBiasConstantFactor = 1.25f;
-            rasterizer.depthBiasSlopeFactor = 1.75f;
-            rasterizer.depthBiasClamp = 0.0f;
+            rasterizer.depthBiasEnable = VK_TRUE;  // factors set per pass
 
             VkPipelineMultisampleStateCreateInfo msaa{};
             msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -949,7 +956,7 @@ bool VulkanRenderer::CreateCustomFormatPipelines(VertexFormatHandle format) {
             pipelineInfo.pMultisampleState = &msaa;
             pipelineInfo.pDepthStencilState = &depthStencil;
             pipelineInfo.pColorBlendState = &colorBlendInfo;
-            pipelineInfo.pDynamicState = &dynamicState;
+            pipelineInfo.pDynamicState = &shadowDynamicState;
             pipelineInfo.layout = pipelineLay;
             pipelineInfo.renderPass = m_shadowRenderPass;
             pipelineInfo.subpass = 0;

@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) uniform sampler2D gAlbedoAO;       // albedo.rgb + 
 layout(set = 0, binding = 1) uniform sampler2D gNormalRough;    // normal.xyz (encoded) + roughness.a
 layout(set = 0, binding = 2) uniform sampler2D gMetalEmit;      // metallic.r + emissive.gba
 layout(set = 0, binding = 3) uniform sampler2D gDepth;          // world pos reconstructed from this
-layout(set = 0, binding = 4) uniform sampler2DShadow gShadow;   // hardware PCF
+layout(set = 0, binding = 4) uniform sampler2DArrayShadow gShadow;  // cascades, hardware PCF
 layout(set = 0, binding = 5) uniform sampler2D gShadowRaw;      // PCSS blocker search
 layout(set = 0, binding = 6) uniform sampler2D gSSAO;           // screen-space AO (R8, 1=clear, 0=occluded)
 
@@ -56,6 +56,10 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     // no pad member: std140 aligns the mat4 to 320, matching the C++ struct
     // (a vec3 pad here pushed uNdcToShadow to 336 -> garbage shadow matrix)
     mat4  uNdcToShadow;      // NDC -> shadow clip, CPU-composed (no shimmer)
+    mat4  uCascadeVP[4];
+    vec4  uCascadeSplits;    // cascade radius around uCameraPos
+    uint  uCascadeCount;
+    float uCascadeBlend;     // blend band, fraction of the radius
 };
 
 // -- Set 3: IBL -----------------------------------------------------
@@ -92,43 +96,61 @@ vec2 VogelDisk(int i, int count, float phi) {
 // (gShadow) does a 2x2 lerp per tap, so 12 rotated taps read smooth and crisp.
 const int PCF_SAMPLES = 16;
 
-float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
+float PCFFilter(vec2 uv, float layer, float zRef, float filterRadius,
+                float phi) {
     float shadow = 0.0;
     for (int i = 0; i < PCF_SAMPLES; ++i) {
         vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
-        shadow  += texture(gShadow, vec3(uv + off, zRef));
+        shadow  += texture(gShadow, vec4(uv + off, layer, zRef));
     }
     return shadow / float(PCF_SAMPLES);
 }
 
-// World-space shadow projection — same math as the GL lighting pass and the
-// water shader (uLightVP is texel-snapped; the NdcToShadow composition
-// shimmered under camera motion from float error at large world coords).
-float CalcShadow(vec3 worldPos, vec3 N) {
-    float normalBias  = uLightDir.w;
-    vec4  sc          = uLightVP * vec4(worldPos + N * normalBias, 1.0);
-    vec3  projCoords  = sc.xyz / sc.w;
-    projCoords.xy     = projCoords.xy * 0.5 + 0.5;
+// World-space shadow projection into one cascade. The normal offset scales
+// with the cascade radius so it stays the same number of texels everywhere.
+float CascadeShadow(uint c, vec3 worldPos, vec3 N) {
+    float normalBias = uLightDir.w * uCascadeSplits[c] /
+                       uCascadeSplits[uCascadeCount - 1u];
+    vec4  sc         = uCascadeVP[c] * vec4(worldPos + N * normalBias, 1.0);
+    vec3  projCoords = sc.xyz / sc.w;
+    projCoords.xy    = projCoords.xy * 0.5 + 0.5;
 
     if (any(lessThan(projCoords, vec3(0.0))) ||
         any(greaterThan(projCoords, vec3(1.0)))) return 1.0;
 
-    vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), projCoords.xy)
-                   * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - projCoords.xy);
-    float zFade    = smoothstep(0.0, 0.05, projCoords.z)
-                   * smoothstep(0.0, 0.1,  1.0 - projCoords.z);
-    float edgeFade = fadeCoord.x * fadeCoord.y * zFade;
+    float zFade = smoothstep(0.0, 0.05, projCoords.z)
+                * smoothstep(0.0, 0.1,  1.0 - projCoords.z);
 
     float zRef = projCoords.z - uShadowBias;
     // Dither in shadow-texel space — world-stable, no boiling under motion
     float phi  = InterleavedGradientNoise(projCoords.xy / uShadowTexelSize) *
                  6.283185;
 
-    // ~5 texels (≈0.4m at 3072/256m): world-space penumbra wide enough that
-    // camera motion cannot flicker the edge — the stability-critical knob
+    // ~5 texels of penumbra keep the edge from flickering under camera
+    // motion; this is the stability-critical knob
     float filterRadius = uShadowTexelSize * 5.0;
-    float shadow = PCFFilter(projCoords.xy, zRef, filterRadius, phi);
-    return mix(1.0, shadow, uShadowStrength * edgeFade);
+    float shadow = PCFFilter(projCoords.xy, float(c), zRef, filterRadius, phi);
+    return mix(1.0, shadow, uShadowStrength * zFade);
+}
+
+// Picks the cascade by distance from the camera and blends into the next one
+// (or out to unshadowed after the last) across the band at its outer edge.
+float CalcShadow(vec3 worldPos, vec3 N) {
+    if (uCascadeCount == 0u) return 1.0;
+    float dist = length(worldPos - uCameraPos.xyz);
+    uint  c    = 0u;
+    while (c + 1u < uCascadeCount && dist > uCascadeSplits[c]) ++c;
+
+    float outer = uCascadeSplits[c];
+    if (dist >= outer) return 1.0;
+    float t      = smoothstep(outer * (1.0 - uCascadeBlend), outer, dist);
+    float shadow = CascadeShadow(c, worldPos, N);
+    if (t > 0.0) {
+        float next = (c + 1u < uCascadeCount)
+                   ? CascadeShadow(c + 1u, worldPos, N) : 1.0;
+        shadow = mix(shadow, next, t);
+    }
+    return shadow;
 }
 
 // ==================================================================

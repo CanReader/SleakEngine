@@ -165,10 +165,15 @@ layout(std140, binding = 5) uniform ShadowUBO {
     uint  PCSSEnabled;
     uint  ShadowMapEnabled;
     float _shadowPad0, _shadowPad1;
+    mat4  NdcToShadow;
+    mat4  CascadeVP[4];
+    vec4  CascadeSplits;   // cascade radius around CameraPos
+    uint  CascadeCount;
+    float CascadeBlend;    // blend band, fraction of the radius
 };
 
-layout(binding = 11) uniform sampler2DShadow shadowMapSampler;
-layout(binding = 12) uniform sampler2D       shadowMapDepth;
+layout(binding = 17) uniform sampler2DArrayShadow shadowMapSampler;
+layout(binding = 18) uniform sampler2DArray       shadowMapDepth;
 
 // ---- PCSS Shadow Functions ----
 
@@ -196,7 +201,8 @@ const vec2 poissonDisk[32] = vec2[](
     vec2(-0.5120,  0.0420), vec2( 0.4210,  0.5120)
 );
 
-float FindBlockerDepthGL(vec2 uv, float receiverDepth, float searchRadius) {
+float FindBlockerDepthGL(vec2 uv, float layer, float receiverDepth,
+                         float searchRadius) {
     float blockerSum = 0.0;
     int blockerCount = 0;
 
@@ -207,7 +213,7 @@ float FindBlockerDepthGL(vec2 uv, float receiverDepth, float searchRadius) {
 
     for (int i = 0; i < 16; i++) {
         vec2 offset = rotation * poissonDisk[i] * searchRadius;
-        float sampleDepth = texture(shadowMapDepth, uv + offset).r;
+        float sampleDepth = texture(shadowMapDepth, vec3(uv + offset, layer)).r;
         if (sampleDepth < receiverDepth) {
             blockerSum += sampleDepth;
             blockerCount++;
@@ -218,7 +224,8 @@ float FindBlockerDepthGL(vec2 uv, float receiverDepth, float searchRadius) {
     return blockerSum / float(blockerCount);
 }
 
-float PCSSFilterGL(vec2 uv, float receiverDepth, float filterRadius) {
+float PCSSFilterGL(vec2 uv, float layer, float receiverDepth,
+                   float filterRadius) {
     float angle = InterleavedGradientNoiseGL(gl_FragCoord.xy) * 6.283185;
     float sa = sin(angle);
     float ca = cos(angle);
@@ -227,32 +234,30 @@ float PCSSFilterGL(vec2 uv, float receiverDepth, float filterRadius) {
     float shadow = 0.0;
     for (int i = 0; i < 32; i++) {
         vec2 offset = rotation * poissonDisk[i] * filterRadius;
-        shadow += texture(shadowMapSampler, vec3(uv + offset, receiverDepth));
+        shadow += texture(shadowMapSampler, vec4(uv + offset, layer, receiverDepth));
     }
     return shadow / 32.0;
 }
 
-float CalcShadowPCSSGL(vec4 sc) {
+float CalcShadowPCSSGL(vec4 sc, float layer) {
     if (ShadowMapEnabled == 0u) return 1.0;
 
     vec3 proj = sc.xyz / sc.w;
     proj.xy = proj.xy * 0.5 + 0.5;
+    proj.z  = proj.z * 0.5 + 0.5;
 
     if (proj.x < 0.0 || proj.x > 1.0 ||
         proj.y < 0.0 || proj.y > 1.0 ||
         proj.z < 0.0 || proj.z > 1.0)
         return 1.0;
 
-    vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), proj.xy)
-                   * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - proj.xy);
-    float edgeFade = fadeCoord.x * fadeCoord.y;
-
     float biasedDepth = proj.z - ShadowBias;
     float shadow;
 
     if (PCSSEnabled != 0u) {
         float searchRadius = ShadowTexelSize * ShadowLightSize * 40.0;
-        float blockerDepth = FindBlockerDepthGL(proj.xy, biasedDepth, searchRadius);
+        float blockerDepth = FindBlockerDepthGL(proj.xy, layer, biasedDepth,
+                                                searchRadius);
 
         if (blockerDepth < 0.0) return 1.0;
 
@@ -260,7 +265,7 @@ float CalcShadowPCSSGL(vec4 sc) {
         float filterRadius = max(penumbra * ShadowTexelSize * 80.0, ShadowTexelSize * 8.0);
         filterRadius = min(filterRadius, ShadowTexelSize * ShadowLightSize * 30.0);
 
-        shadow = PCSSFilterGL(proj.xy, biasedDepth, filterRadius);
+        shadow = PCSSFilterGL(proj.xy, layer, biasedDepth, filterRadius);
     } else {
         // Standard 3x3 PCF
         shadow = 0.0;
@@ -268,13 +273,36 @@ float CalcShadowPCSSGL(vec4 sc) {
         for (int x = -1; x <= 1; x++) {
             for (int y = -1; y <= 1; y++) {
                 vec2 offset = vec2(float(x), float(y)) * radius;
-                shadow += texture(shadowMapSampler, vec3(proj.xy + offset, biasedDepth));
+                shadow += texture(shadowMapSampler,
+                                  vec4(proj.xy + offset, layer, biasedDepth));
             }
         }
         shadow /= 9.0;
     }
 
-    return mix(1.0, shadow, ShadowStrength * edgeFade);
+    return mix(1.0, shadow, ShadowStrength);
+}
+
+// Picks the cascade by distance from the camera and blends into the next one
+// (or out to unshadowed after the last) across the band at its outer edge.
+float CalcCascadedShadowGL(vec3 worldPos) {
+    if (ShadowMapEnabled == 0u || CascadeCount == 0u) return 1.0;
+    float dist = length(worldPos - CameraPos);
+    uint  c    = 0u;
+    while (c + 1u < CascadeCount && dist > CascadeSplits[c]) ++c;
+
+    float outer = CascadeSplits[c];
+    if (dist >= outer) return 1.0;
+    float t      = smoothstep(outer * (1.0 - CascadeBlend), outer, dist);
+    float shadow = CalcShadowPCSSGL(CascadeVP[c] * vec4(worldPos, 1.0), float(c));
+    if (t > 0.0) {
+        float next = 1.0;
+        if (c + 1u < CascadeCount)
+            next = CalcShadowPCSSGL(CascadeVP[c + 1u] * vec4(worldPos, 1.0),
+                                    float(c + 1u));
+        shadow = mix(shadow, next, t);
+    }
+    return shadow;
 }
 
 // ---- End PCSS Shadow Functions ----
@@ -372,7 +400,7 @@ void main() {
             L = normalize(-light.Direction);
             // Apply PCSS shadow to first directional light
             if (i == 0u) {
-                float shadow = CalcShadowPCSSGL(fragShadowCoord);
+                float shadow = CalcCascadedShadowGL(fragWorldPos);
                 attenuation *= shadow;
             }
         }

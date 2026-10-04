@@ -175,6 +175,8 @@ void VulkanRenderer::BeginRender() {
     if (m_hasPendingLightVP) {
         memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
     }
+    memcpy(m_cascadeVP, m_pendingCascadeVP, sizeof(m_cascadeVP));
+    m_cascadeCount = m_pendingCascadeCount;
 
     // Apply pending changes between frames
     if (m_vsyncChangeRequested)
@@ -260,60 +262,8 @@ void VulkanRenderer::BeginRender() {
     bFrameStarted = true;
     m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
 
-    // Skip shadow pass if no cached draws — preserve previous frame's shadow map
-    auto* shadowQueue = RenderCommandQueue::GetInstance();
-    bool hasShadowDraws = shadowQueue && shadowQueue->HasCachedShadowDraws();
-
-    if (m_shadowResourcesCreated && m_shadowPassEnabled && hasShadowDraws) {
-        VkClearValue shadowClear{};
-        shadowClear.depthStencil = {1.0f, 0};
-
-        VkRenderPassBeginInfo shadowPassInfo{};
-        shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        shadowPassInfo.renderPass = m_shadowRenderPass;
-        shadowPassInfo.framebuffer = m_shadowFramebuffer;
-        shadowPassInfo.renderArea.offset = {0, 0};
-        shadowPassInfo.renderArea.extent = {m_shadowMapResolution, m_shadowMapResolution};
-        shadowPassInfo.clearValueCount = 1;
-        shadowPassInfo.pClearValues = &shadowClear;
-
-        vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
-
-        // shadow_depth.vert statically declares `layout(set = 1, binding = 0) uniform BoneUBO`
-        // (skinning conditioned on boneWeights). The shader must have set 1 bound even for
-        // non-skinned casters, otherwise vkCmdDrawIndexed fires VUID-vkCmdDrawIndexed-None-08600.
-        // Bind the bone UBO once at pass start so all shadow draws (skinned or static) are legal.
-        if (m_boneUBOCreated) {
-            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipelineLay, 1, 1,
-                                    &boneDescriptorSets[currentFrame], 0, nullptr);
-        }
-
-        VkViewport shadowViewport{};
-        shadowViewport.x = 0.0f;
-        shadowViewport.y = 0.0f;
-        shadowViewport.width = static_cast<float>(m_shadowMapResolution);
-        shadowViewport.height = static_cast<float>(m_shadowMapResolution);
-        shadowViewport.minDepth = 0.0f;
-        shadowViewport.maxDepth = 1.0f;
-        vkCmdSetViewport(command, 0, 1, &shadowViewport);
-
-        VkRect2D shadowScissor{};
-        shadowScissor.offset = {0, 0};
-        shadowScissor.extent = {m_shadowMapResolution, m_shadowMapResolution};
-        vkCmdSetScissor(command, 0, 1, &shadowScissor);
-
-        m_shadowPassActive = true;
-        m_shadowPCCacheValid = false;
-        auto* queue = RenderCommandQueue::GetInstance();
-        if (queue) {
-            queue->ExecuteShadowPass(this);
-        }
-        m_shadowPassActive = false;
-
-        vkCmdEndRenderPass(command);
-    }
+    // No cached draws keeps the previous frame's shadow map
+    RecordShadowPass();
 
     // ---- Deferred path: begin GBuffer render pass ----
     if (m_gbufferResourcesCreated && m_deferredEnabled) {
@@ -1494,190 +1444,32 @@ bool VulkanRenderer::CreateSyncObjects() {
     return true;
 }
 
-/// Recreates the extent-dependent shadow map objects (image, view,
-/// framebuffer) at the queued resolution. Keep in sync with
-/// CreateShadowResources; samplers, render pass, and pipeline are extent-independent.
+/// Recreates the shadow image, views, and framebuffers at the queued
+/// resolution and cascade count; samplers, render pass, and pipeline stay.
 void VulkanRenderer::ApplyShadowResolutionChange() {
     if (!m_shadowResChangeRequested) return;
     m_shadowResChangeRequested = false;
     if (!m_shadowResourcesCreated) return;
-    if (m_pendingShadowMapResolution == m_shadowMapResolution) return;
+    if (m_pendingShadowMapResolution == m_shadowMapResolution &&
+        m_pendingShadowCascadeCount == m_shadowCascadeCount)
+        return;
 
     vkDeviceWaitIdle(device);
-
-    vkDestroyFramebuffer(device, m_shadowFramebuffer, nullptr);
-    m_shadowFramebuffer = VK_NULL_HANDLE;
-    vkDestroyImageView(device, m_shadowImageView, nullptr);
-    m_shadowImageView = VK_NULL_HANDLE;
-    vkDestroyImage(device, m_shadowImage, nullptr);
-    m_shadowImage = VK_NULL_HANDLE;
-    vkFreeMemory(device, m_shadowImageMemory, nullptr);
-    m_shadowImageMemory = VK_NULL_HANDLE;
+    DestroyShadowMapImage();
 
     m_shadowMapResolution = m_pendingShadowMapResolution;
-
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent = {m_shadowMapResolution, m_shadowMapResolution, 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_D32_SFLOAT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                      VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateImage(device, &imageInfo, nullptr, &m_shadowImage) !=
-        VK_SUCCESS) {
-        SLEAK_ERROR("Shadow resolution change: image creation failed");
+    m_shadowCascadeCount = m_pendingShadowCascadeCount;
+    if (!CreateShadowMapImage() || !CreateShadowFramebuffers()) {
+        SLEAK_ERROR("Shadow map recreation failed");
+        DestroyShadowMapImage();
         m_shadowResourcesCreated = false;
         return;
     }
+    WriteShadowSamplerDescriptors();
 
-    VkMemoryRequirements memReqs;
-    vkGetImageMemoryRequirements(device, m_shadowImage, &memReqs);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memReqs.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(
-        memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_shadowImageMemory) !=
-        VK_SUCCESS) {
-        SLEAK_ERROR("Shadow resolution change: memory allocation failed");
-        m_shadowResourcesCreated = false;
-        return;
-    }
-    vkBindImageMemory(device, m_shadowImage, m_shadowImageMemory, 0);
-
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = m_shadowImage;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_D32_SFLOAT;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    if (vkCreateImageView(device, &viewInfo, nullptr, &m_shadowImageView) !=
-        VK_SUCCESS) {
-        SLEAK_ERROR("Shadow resolution change: image view creation failed");
-        m_shadowResourcesCreated = false;
-        return;
-    }
-
-    VkFramebufferCreateInfo fbInfo{};
-    fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbInfo.renderPass = m_shadowRenderPass;
-    fbInfo.attachmentCount = 1;
-    fbInfo.pAttachments = &m_shadowImageView;
-    fbInfo.width = m_shadowMapResolution;
-    fbInfo.height = m_shadowMapResolution;
-    fbInfo.layers = 1;
-
-    if (vkCreateFramebuffer(device, &fbInfo, nullptr, &m_shadowFramebuffer) !=
-        VK_SUCCESS) {
-        SLEAK_ERROR("Shadow resolution change: framebuffer creation failed");
-        m_shadowResourcesCreated = false;
-        return;
-    }
-
-    // Initial layout transition — descriptor must be valid pre-first-pass
-    {
-        VkCommandBufferAllocateInfo cmdAllocInfo{};
-        cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAllocInfo.commandPool = commands;
-        cmdAllocInfo.commandBufferCount = 1;
-
-        VkCommandBuffer cmdBuf;
-        vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmdBuf);
-
-        VkCommandBufferBeginInfo cmdBeginInfo{};
-        cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuf, &cmdBeginInfo);
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_shadowImage;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &barrier);
-
-        vkEndCommandBuffer(cmdBuf);
-
-        VkSubmitInfo layoutSubmit{};
-        layoutSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        layoutSubmit.commandBufferCount = 1;
-        layoutSubmit.pCommandBuffers = &cmdBuf;
-
-        VkFenceCreateInfo layoutFenceInfo{};
-        layoutFenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence layoutFence;
-        vkCreateFence(device, &layoutFenceInfo, nullptr, &layoutFence);
-        vkQueueSubmit(graphicsQueue, 1, &layoutSubmit, layoutFence);
-        vkWaitForFences(device, 1, &layoutFence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(device, layoutFence, nullptr);
-        vkFreeCommandBuffers(device, commands, 1, &cmdBuf);
-    }
-
-    // Point set-3 descriptors at the new image view
-    if (m_lightUBOCreated && m_shadowImageView && m_shadowSampler &&
-        m_shadowRawSampler) {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            VkDescriptorImageInfo compareInfo{};
-            compareInfo.imageLayout =
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            compareInfo.imageView = m_shadowImageView;
-            compareInfo.sampler = m_shadowSampler;
-
-            VkDescriptorImageInfo rawInfo{};
-            rawInfo.imageLayout =
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            rawInfo.imageView = m_shadowImageView;
-            rawInfo.sampler = m_shadowRawSampler;
-
-            std::array<VkWriteDescriptorSet, 2> writes{};
-            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = m_shadowSamplerDescriptorSets[i];
-            writes[0].dstBinding = 0;
-            writes[0].dstArrayElement = 0;
-            writes[0].descriptorType =
-                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[0].descriptorCount = 1;
-            writes[0].pImageInfo = &compareInfo;
-
-            writes[1] = writes[0];
-            writes[1].dstBinding = 1;
-            writes[1].pImageInfo = &rawInfo;
-
-            vkUpdateDescriptorSets(device,
-                                   static_cast<uint32_t>(writes.size()),
-                                   writes.data(), 0, nullptr);
-        }
-    }
-
-    SLEAK_INFO("VulkanRenderer: Shadow map resized to {}x{}",
-               m_shadowMapResolution, m_shadowMapResolution);
+    SLEAK_INFO("VulkanRenderer: Shadow map resized to {}x{}, {} cascades",
+               m_shadowMapResolution, m_shadowMapResolution,
+               m_shadowCascadeCount);
 }
 
 /// Top-level orchestrator for deferred rendering: creates the GBuffer color

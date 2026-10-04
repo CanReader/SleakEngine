@@ -23,6 +23,7 @@ namespace Sleak {
     /// player can actually see multiplies your effective texel density.
     /// The default covers a very large area, which is right for open
     /// terrain and far too coarse for a single figure on a small floor.
+
     ///
     /// @code{.cpp}
     /// auto* key = new Sleak::DirectionalLight("KeyLight");
@@ -62,6 +63,22 @@ namespace Sleak {
         }
         Math::Vector3D GetDirection() const { return m_direction; }
 
+        /// Number of shadow cascades, clamped to 1-4 when the shadow is built.
+        void SetShadowCascadeCount(uint32_t count) {
+            m_shadowCascadeCount = count;
+        }
+        uint32_t GetShadowCascadeCount() const { return m_shadowCascadeCount; }
+
+        /// Split scheme blend: 0 is uniform, 1 is logarithmic.
+        void SetShadowSplitLambda(float lambda) {
+            m_shadowSplitLambda = lambda;
+        }
+        float GetShadowSplitLambda() const { return m_shadowSplitLambda; }
+
+        /// Radius the cascades cover around the camera; 0 uses frustum size.
+        void SetShadowMaxDistance(float dist) { m_shadowMaxDistance = dist; }
+        float GetShadowMaxDistance() const { return m_shadowMaxDistance; }
+
         // Shadow frustum configuration
         void SetShadowFrustumSize(float size) { m_shadowFrustumSize = size; }
         float GetShadowFrustumSize() const { return m_shadowFrustumSize; }
@@ -81,6 +98,9 @@ namespace Sleak {
         float m_shadowDistance = 160.0f;
         float m_shadowNear = 0.1f;
         float m_shadowFar = 500.0f;
+        uint32_t m_shadowCascadeCount = 1;
+        float m_shadowSplitLambda = 0.6f;
+        float m_shadowMaxDistance = 0.0f;
     };
 
 }  // namespace Sleak
