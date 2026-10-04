@@ -1,15 +1,15 @@
 #ifndef _DELEGATE_H_
 #define _DELEGATE_H_
 
+#include <Utility/Container/List.hpp>
+#include <atomic>
+#include <cstdint>
 #include <functional>
-#include <vector>
 #include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
-
-#include <random>
-#include <sstream>
-#include <Utility/Container/List.hpp>
+#include <vector>
 
 namespace Sleak {
     /// Type-erased callable interface storable in a homogeneous handler list.
@@ -54,8 +54,28 @@ namespace Sleak {
         /// @ingroup events
         class EventDelegateBase : public IDelegate {
         public:
-            virtual ~EventDelegateBase() = default;
-            virtual std::string GetID() = 0;
+         EventDelegateBase() { GenerateID(); }
+         virtual ~EventDelegateBase() = default;
+
+         /// Assigns a fresh process-unique ID, used to identify this delegate
+         /// for unregistration.
+         std::string GenerateID() {
+             static std::atomic<uint64_t> nextHandle{0};
+             handle = nextHandle.fetch_add(1, std::memory_order_relaxed) + 1;
+             id = std::to_string(handle);
+             return id;
+         }
+
+         std::string GetID() override { return id; }
+         /// Numeric form of GetID().
+         uint64_t GetHandle() const { return handle; }
+
+        private:
+         friend class EventDispatcher;
+
+         uint64_t handle = 0;
+         std::string id;
+         bool removed = false;
         };
 
         /// Delegate bound to a single EventT callback; holds a non-owning pointer
@@ -66,9 +86,7 @@ namespace Sleak {
         public:
             using FunctionType = std::function<void(const EventT&)>;
 
-            EventDelegate(FunctionType func) : function(func) {
-                GenerateID();
-            }
+            EventDelegate(FunctionType func) : function(std::move(func)) {}
 
             void SetEvent(const EventT& event) {
                 eventPtr = &event;
@@ -80,29 +98,14 @@ namespace Sleak {
                 }
             }
 
-            /// Assigns a fresh random 32-character ID, used to identify this delegate for unregistration.
-            std::string GenerateID() {
-                uuid = "";
-                std::string str =
-                    "0123456789!^#%&=*?+-_/"
-                    "[]{}()"
-                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-                std::random_device dev;
-                std::mt19937 rand(dev());
-                std::uniform_int_distribution<> dist(0,str.size() - 1);
-
-                for(int i = 0; i < 32; i++)
-                    uuid += str[dist(rand)];
-
-                return uuid;
+            /// Calls the handler with event directly.
+            void Invoke(const EventT& event) {
+                if (function) function(event);
             }
 
-            std::string GetID() override { return uuid; }
-    
         private:
             FunctionType function;
             const EventT* eventPtr = nullptr;  // Store a pointer to avoid copying
-            std::string uuid;
         };
         
         /// Fan-out list of Delegate<Args...> instances, all invoked together via Broadcast.
