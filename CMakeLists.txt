@@ -202,12 +202,14 @@ set(PHYSICS_SOURCES
 
 set(SCENE_SOURCES
     src/Scene/Camera.cpp
+    src/Scene/ComponentRegistry.cpp
     src/Scene/FirstPersonController.cpp
     src/Scene/FreeLookCameraControllerComponent.cpp
     src/Scene/GameObject.cpp
     src/Scene/MaterialComponent.cpp
     src/Scene/MeshComponent.cpp
     src/Scene/SceneBase.cpp
+    src/Scene/SceneSerializer.cpp
     src/Scene/Scene.cpp
     src/Scene/TransformComponent.cpp
 )

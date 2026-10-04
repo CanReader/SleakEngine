@@ -7,6 +7,7 @@
 
 namespace Sleak {
     class GameObject;
+    class ISerializationContext;
     /// Base for behavior attached to a GameObject. Owner deletes it via
     /// GameObject::RemoveComponent(), never directly.
     ///
@@ -72,6 +73,11 @@ namespace Sleak {
             virtual void OnDestroy() {}
             virtual void OnEnable() {}
             virtual void OnDisable() {}
+
+            /// Writes state for SceneSerializer. Saves nothing by default.
+            virtual void Serialize(ISerializationContext& context) const {}
+            /// Restores what Serialize wrote. Does nothing by default.
+            virtual void Deserialize(const ISerializationContext& context) {}
 
             GameObject* GetOwner() {
                 return owner;

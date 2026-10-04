@@ -96,6 +96,8 @@ namespace Sleak {
         void SetShader(RenderEngine::Shader* shader);
         void SetShader(const std::string& shaderPath);
         RenderEngine::Shader* GetShader() const;
+        /// Path given to SetShader(path), empty when set from a Shader pointer.
+        const std::string& GetShaderPath() const { return m_shaderPath; }
 
         // Texture slots: each pair of Set overloads takes either an owned Texture* or loads by path
         void SetDiffuseTexture(Texture* texture);
@@ -203,6 +205,7 @@ namespace Sleak {
 
         // Shader
         ObjectPtr<RenderEngine::Shader> m_shader;
+        std::string m_shaderPath;
 
         // GPU constant buffer (slot 1)
         ObjectPtr<RenderEngine::BufferBase> m_materialBuffer;

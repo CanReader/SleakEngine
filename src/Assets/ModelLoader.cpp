@@ -5,6 +5,7 @@
 #include <ECS/Components/TransformComponent.hpp>
 #include <ECS/Components/MaterialComponent.hpp>
 #include <ECS/Components/AnimatorComponent.hpp>
+#include <ECS/Components/ModelSourceComponent.hpp>
 #include <Runtime/Material.hpp>
 #include <Runtime/Texture.hpp>
 #include <Runtime/Skeleton.hpp>
@@ -107,6 +108,7 @@ GameObject* ModelLoader::Load(const std::string& filePath,
                             options, textureCache, skeleton, clips);
     }
 
+    root->AddComponent<ModelSourceComponent>(filePath, options);
     InitializeRecursive(root);
     return root;
 }

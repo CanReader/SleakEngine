@@ -117,6 +117,11 @@ namespace Sleak {
             return GetComponent<T>() != nullptr;
         }
 
+        /// Every attached component, in the order they were added.
+        const List<RefPtr<Component>>& GetComponents() const {
+            return Components;
+        }
+
         /// Initializes the object and its components; called once before the first Update.
         virtual void Initialize();
         virtual void Update(float deltaTime);

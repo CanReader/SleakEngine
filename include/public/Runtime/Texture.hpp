@@ -105,6 +105,13 @@ public:
     virtual float GetLodBias() const { return 0.0f; }
 
     virtual uint64_t GetImGuiTextureID() const { return 0; }
+
+    /// File the texture was loaded from, empty for textures built in memory.
+    const std::string& GetSourcePath() const { return m_sourcePath; }
+    void SetSourcePath(const std::string& path) { m_sourcePath = path; }
+
+private:
+    std::string m_sourcePath;
 };
 
 } // namespace Sleak

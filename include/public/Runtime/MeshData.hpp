@@ -4,6 +4,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <Utility/Container/List.hpp>
 
 namespace Sleak {
@@ -98,11 +100,20 @@ namespace Sleak {
         Sleak::List<Vertex> vertices;
     };
 
+    /// Names the built-in primitive a mesh was generated from, so it can be
+    /// rebuilt on load. Empty for imported and hand-built meshes.
+    /// @ingroup rendering
+    struct MeshSource {
+        std::string primitive;
+        std::vector<float> params;
+    };
+
     /// CPU-side vertex and index buffers for one mesh, ready for upload.
     /// @ingroup rendering
     struct MeshData {
         VertexGroup vertices;
         IndexGroup indices;
+        MeshSource source;
     };
 
 }

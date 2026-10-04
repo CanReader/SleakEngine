@@ -6,6 +6,7 @@
 #include <Math/AABB.hpp>
 #include <Memory/ObjectPtr.hpp>
 #include <Memory/RefPtr.hpp>
+#include <Runtime/MeshData.hpp>
 
 namespace Sleak {
     class MeshData;
@@ -49,6 +50,10 @@ namespace Sleak {
         // Local-space bounds, transformed by the owner each Update.
         void SetCullBoundsLocal(const Math::AABB& bounds);
 
+        /// Primitive this mesh was generated from, empty when it was not.
+        const MeshSource& GetSource() const { return m_source; }
+        void SetSource(const MeshSource& source) { m_source = source; }
+
     private:
         RefPtr<RenderEngine::BufferBase> VertexBuffer{};
         RefPtr<RenderEngine::BufferBase> IndexBuffer{};
@@ -61,6 +66,7 @@ namespace Sleak {
        bool m_hasCullBounds = false;
        Math::AABB m_localBounds{};
        bool m_hasLocalBounds = false;
+       MeshSource m_source;
 
     };
 }
