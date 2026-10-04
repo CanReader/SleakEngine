@@ -37,6 +37,7 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
 
             VertexCount = data.vertices.GetSize();
             IndexCount = data.indices.GetSize();
+            m_source = data.source;
     }
 
     bool MeshComponent::Initialize() {

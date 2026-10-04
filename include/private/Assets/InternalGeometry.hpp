@@ -50,6 +50,8 @@ inline Sleak::MeshData GetPlaneMesh(float width, float height, int subdivisionsX
         }
     }
 
+    mesh.source = {"Plane", {width, height, float(subdivisionsX),
+                            float(subdivisionsY)}};
     return mesh;
 }
 
@@ -109,6 +111,7 @@ inline Sleak::MeshData GetCubeMesh() {
                     16, 17, 18, 16, 18, 19,
                     // Bottom face
                     20, 21, 22, 20, 22, 23};
+    mesh.source = {"Cube", {}};
     return mesh;
 }
 
@@ -143,6 +146,7 @@ inline Sleak::MeshData GetSphereMesh(int stacks = 16, int slices = 16) {
             mesh.indices.add(first + 1);
         }
     }
+    mesh.source = {"Sphere", {float(stacks), float(slices)}};
     return mesh;
 }
 
@@ -207,6 +211,7 @@ inline Sleak::MeshData GetCylinderMesh(int segments, float height, float radius)
         mesh.indices.add(base + 3);
     }
 
+    mesh.source = {"Cylinder", {float(segments), height, radius}};
     return mesh;
 }
 
@@ -263,6 +268,8 @@ inline Sleak::MeshData GetCapsuleMesh(int segments, int rings, float height, flo
         }
     }
 
+    mesh.source = {"Capsule",
+                   {float(segments), float(rings), height, radius}};
     return mesh;
 }
 
@@ -309,6 +316,8 @@ inline Sleak::MeshData GetTorusMesh(int segments, int rings, float innerRadius, 
         }
     }
 
+    mesh.source = {"Torus", {float(segments), float(rings), innerRadius,
+                            outerRadius}};
     return mesh;
 }
 
@@ -349,5 +358,6 @@ inline Sleak::MeshData GetPyramidMesh() {
     mesh.indices.add(4);
     mesh.indices.add(1);
 
+    mesh.source = {"Pyramid", {}};
     return mesh;
 }

@@ -124,9 +124,11 @@ namespace Sleak {
 
     void Material::SetShader(RenderEngine::Shader* shader) {
         m_shader = ObjectPtr<RenderEngine::Shader>(shader);
+        m_shaderPath.clear();
     }
 
     void Material::SetShader(const std::string& shaderPath) {
+        m_shaderPath = shaderPath;
         auto* shader =
             RenderEngine::ResourceManager::CreateShader(shaderPath);
         if (shader)

@@ -49,6 +49,7 @@ namespace Sleak {
                 try {
                     if (result.has_value()) {
                         Texture* texture = std::any_cast<Texture*>(result);
+                        if (texture) texture->SetSourcePath(TexturePath);
                         return texture;
                     }
                 } catch (const std::exception& e) {
