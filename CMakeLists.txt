@@ -175,6 +175,7 @@ set(GRAPHICS_DIRECTX12_SOURCES
     src/Graphics/DirectX12/DirectX12Renderer.cpp
     src/Graphics/DirectX12/DirectX12Shader.cpp
     src/Graphics/DirectX12/DirectX12Texture.cpp
+    src/Graphics/DirectX12/DirectX12UploadRing.cpp
 )
 
 set(LIGHTING_SOURCES
