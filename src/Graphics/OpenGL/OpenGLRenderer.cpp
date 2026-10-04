@@ -10,7 +10,7 @@
 #include "Graphics/Common/ConstantBuffer.hpp"
 #include "Graphics/Common/RenderCommandQueue.hpp"
 #include "Graphics/Common/SSAOKernel.hpp"
-#include <Camera/Camera.hpp>
+#include <Camera/RenderView.hpp>
 #include <Core/Application.hpp>
 #include <Core/SceneBase.hpp>
 #include <Runtime/Skybox.hpp>
@@ -1293,8 +1293,8 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s), &s);
 
     // ---- Upload Camera UBO (Projection, View, InvViewProj) ----
-    const Math::Matrix4& V = Camera::GetMainViewMatrix();
-    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    const Math::Matrix4& V = RenderView::GetCurrent().view;
+    const Math::Matrix4& P = RenderView::GetCurrent().projection;
     float camData[16 * 3];
     std::memcpy(camData,       &P(0,0), sizeof(float) * 16);
     std::memcpy(camData + 16,  &V(0,0), sizeof(float) * 16);

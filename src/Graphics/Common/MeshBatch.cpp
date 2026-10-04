@@ -3,7 +3,7 @@
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
 #include "../../include/private/Graphics/Common/ConstantBuffer.hpp"
 #include "../../include/private/Graphics/Common/BufferBase.hpp"
-#include <Camera/Camera.hpp>
+#include <Camera/RenderView.hpp>
 #include <Runtime/Material.hpp>
 
 namespace Sleak {
@@ -73,9 +73,8 @@ void MeshBatch::BeginBatch(Material* material) {
 
     // Build identity world matrix — batch vertices are already in world space
     auto world = Math::Matrix4::Identity();
-    RenderEngine::TransformBuffer tb(world,
-                                     Camera::GetMainViewMatrix(),
-                                     Camera::GetMainProjectionMatrix());
+    const RenderView& view = RenderView::GetCurrent();
+    RenderEngine::TransformBuffer tb(world, view.view, view.projection);
 
     if (!s_batchTransformBuffer) {
         s_batchTransformBuffer = RefPtr<RenderEngine::BufferBase>(

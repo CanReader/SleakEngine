@@ -5,7 +5,7 @@
 #include <Graphics/Common/RenderContext.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
 #include <Runtime/MeshData.hpp>
-#include <Camera/Camera.hpp>
+#include <Camera/RenderView.hpp>
 #include <Core/Logger.hpp>
 
 #include <vector>
@@ -120,17 +120,19 @@ void Skybox::Initialize() {
                m_mode == SkyboxMode::Gradient ? "gradient" : "default");
 }
 
-void Skybox::Render() {
+void Skybox::Render() { Render(RenderView::GetCurrent()); }
+
+void Skybox::Render(const RenderView& renderView) {
     if (!m_initialized) return;
     if (!m_shader.IsValid()) return;
 
     // Build view-projection matrix with translation zeroed out
-    Math::Matrix4 view = Camera::GetMainViewMatrix();
+    Math::Matrix4 view = renderView.view;
     view(3, 0) = 0.0f;
     view(3, 1) = 0.0f;
     view(3, 2) = 0.0f;
 
-    Math::Matrix4 proj = Camera::GetMainProjectionMatrix();
+    const Math::Matrix4& proj = renderView.projection;
     Math::Matrix4 viewProj = view * proj;
 
     // Update constant buffer data

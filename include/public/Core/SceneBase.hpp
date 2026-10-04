@@ -5,6 +5,7 @@
 #include <Memory/RefPtr.hpp>
 #include <Core/OSDef.hpp>
 #include <Utility/Container/List.hpp>
+#include <Camera/RenderView.hpp>
 
 
 namespace Sleak {
@@ -94,7 +95,8 @@ namespace Sleak {
         virtual void Begin() = 0;
 
         // Update loops
-        /// Advances all active, root-level objects by deltaTime, then steps lighting and physics.
+        /// Advances all active, root-level objects and physics, builds the
+        /// frame's RenderView from the active camera, then submits rendering.
         virtual void Update(float deltaTime) = 0;
         /// Advances all active, root-level objects on the fixed timestep.
         virtual void FixedUpdate(float fixedDeltaTime);
@@ -141,7 +143,11 @@ namespace Sleak {
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
         Camera* GetActiveCamera() const { return m_activeCamera; }
+        /// Picks the camera the scene renders and culls from.
         void SetActiveCamera(Camera* cam) { m_activeCamera = cam; }
+        /// The view this frame was submitted with, built from the active
+        /// camera.
+        const RenderView& GetRenderView() const { return m_renderView; }
 
         LightManager* GetLightManager() const {
             return m_lightManager;
@@ -165,11 +171,15 @@ namespace Sleak {
         List<GameObject*> m_pendingDestroy;
 
         Camera* m_activeCamera = nullptr;
+        RenderView m_renderView;
 
         LightManager* m_lightManager = nullptr;
         Physics::PhysicsWorld* m_physicsWorld = nullptr;
         Skybox* m_skybox = nullptr;
 
+        /// Queues draw work for every active object, lights, skybox and
+        /// debug lines, seen from view.
+        void SubmitRender(const RenderView& view);
         /// Actually deletes objects queued by DestroyObject().
         void ProcessPendingDestroy();
         /// Destroys every object still owned by the scene, e.g. during Unload().

@@ -7,6 +7,7 @@
 
 namespace Sleak {
     class GameObject;
+    struct RenderView;
     /// Base for behavior attached to a GameObject. Owner deletes it via
     /// GameObject::RemoveComponent(), never directly.
     ///
@@ -24,7 +25,9 @@ namespace Sleak {
     /// Lifecycle: the object calls Initialize() once (immediately if the
     /// object is already initialized when the component is attached, and
     /// otherwise during the object's own Initialize()), then OnEnable() if
-    /// the object is active, then Update() every frame.
+    /// the object is active, then Update() every frame. Components that
+    /// draw override SubmitRender(), which the scene calls once per frame
+    /// with the active camera's RenderView after all updates have run.
     ///
     /// @code{.cpp}
     /// class SpinComponent : public Sleak::Component {
@@ -67,6 +70,9 @@ namespace Sleak {
             virtual void Update(float deltaTime) = 0;
             virtual void FixedUpdate(float fixedDeltaTime) {}
             virtual void LateUpdate(float deltaTime) {}
+            /// Queues this component's draw work for view; runs after every
+            /// Update of the frame.
+            virtual void SubmitRender(const RenderView& view) {}
 
             /// Called when the component is detached or the owner is destroyed.
             virtual void OnDestroy() {}

@@ -3,7 +3,7 @@
 #include <Graphics/Common/ResourceManager.hpp>
 #include <Graphics/Common/RenderCommandQueue.hpp>
 #include <Graphics/Common/RenderContext.hpp>
-#include <Camera/Camera.hpp>
+#include <Camera/RenderView.hpp>
 #include <Core/Logger.hpp>
 #include <cmath>
 
@@ -205,7 +205,7 @@ void DebugLineRenderer::Flush(Camera* camera) {
 
     // Update constant buffer with ViewProjection
     DebugLineCBData cbData;
-    cbData.ViewProjection = Camera::GetMainViewMatrix() * Camera::GetMainProjectionMatrix();
+    cbData.ViewProjection = RenderView::GetCurrent().viewProjection;
     s_constantBuffer->Update(&cbData, sizeof(DebugLineCBData));
 
     // Update vertex buffer

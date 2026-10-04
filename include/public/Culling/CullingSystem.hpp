@@ -15,15 +15,15 @@ namespace Sleak {
 /// game-submitted occluder volumes. Backend-agnostic (no GPU work).
 ///
 /// Frame protocol:
-///   1. BeginFrame(...)              once per frame after camera update
-///      (the engine calls this automatically from the main camera)
+///   1. BeginFrame(...)              once per frame after the update pass
+///      (SceneBase calls this with the active camera's RenderView)
 ///   2. SubmitOccluderBox/Triangles  any number of world-space occluders
 ///   3. FinalizeOccluders()          sort by distance, rasterize budget
 ///   4. IsVisible(aabb)              frustum + occlusion query
 /// Steps 2-3 are optional; IsVisible degrades to frustum-only.
 ///
-/// Everything here is static and lives for the process. The main camera
-/// calls BeginFrame() for you during its update, so a game that only wants
+/// Everything here is static and lives for the process. The scene calls
+/// BeginFrame() for you from its active camera, so a game that only wants
 /// frustum culling can call IsVisible() and stop reading here.
 ///
 /// Occlusion culling is the part you opt into. Submit occluder volumes

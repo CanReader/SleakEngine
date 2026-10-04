@@ -1,6 +1,6 @@
 #include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 
-#include <Camera/Camera.hpp>
+#include <Camera/RenderView.hpp>
 #include <array>
 #include <cstring>
 #include <vector>
@@ -454,7 +454,7 @@ void VulkanRenderer::UpdateSSRUBO() {
     memcpy(p.Projection,  m_cachedProjection,  sizeof(p.Projection));
     memcpy(p.InvViewProj, m_cachedInvViewProj, sizeof(p.InvViewProj));
 
-    const auto& camPos = Camera::GetMainCameraPosition();
+    const auto& camPos = RenderView::GetCurrent().position;
     p.CameraPos[0] = camPos.GetX();
     p.CameraPos[1] = camPos.GetY();
     p.CameraPos[2] = camPos.GetZ();

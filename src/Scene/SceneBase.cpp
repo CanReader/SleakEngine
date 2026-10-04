@@ -2,6 +2,7 @@
 #include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
 #include <Camera/Camera.hpp>
+#include <Culling/CullingSystem.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
@@ -151,27 +152,40 @@ void SceneBase::Begin() {
 void SceneBase::Update(float deltaTime) {
     if (!bActive) return;
 
-    // Update objects FIRST so Camera::View/Projection reflect this frame's
-    // rotation/position before any render-side UBO computes InvViewProj.
-    // Why: LightManager::UpdateDeferredCB reads the static Camera matrices
-    //      to build InvViewProj for the deferred lighting pass. If it ran
-    //      before the camera object updated, InvViewProj was one frame stale
-    //      and the lighting pass reconstructed wrong world positions on any
-    //      camera rotation, causing whole-terrain shadow flicker.
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
         if (Objects[i] && Objects[i]->IsActive() && !Objects[i]->HasParent()) {
             Objects[i]->Update(deltaTime);
         }
     }
 
-    if (m_lightManager)
-        m_lightManager->UpdateAndBind();
-
-    if (m_skybox)
-        m_skybox->Render();
-
     if (m_physicsWorld)
         m_physicsWorld->Step(deltaTime);
+
+    if (m_activeCamera) {
+        m_renderView = m_activeCamera->BuildRenderView();
+        RenderView::SetCurrent(m_renderView);
+        CullingSystem::BeginFrame(m_renderView.frustum,
+                                  m_renderView.viewProjection,
+                                  m_renderView.position);
+    }
+
+    SubmitRender(RenderView::GetCurrent());
+
+    ProcessPendingDestroy();
+}
+
+void SceneBase::SubmitRender(const RenderView& view) {
+    for (size_t i = 0; i < Objects.GetSize(); ++i) {
+        if (Objects[i] && Objects[i]->IsActive() && !Objects[i]->HasParent()) {
+            Objects[i]->SubmitRender(view);
+        }
+    }
+
+    if (m_lightManager)
+        m_lightManager->UpdateAndBind(view);
+
+    if (m_skybox)
+        m_skybox->Render(view);
 
     if (DebugLineRenderer::IsEnabled()) {
         auto drawColliderShape = [](ColliderComponent* collider, const Math::Vector3D& worldPos, const Math::Vector3D& worldScale) {
@@ -215,8 +229,6 @@ void SceneBase::Update(float deltaTime) {
     }
 
     DebugLineRenderer::Flush(m_activeCamera);
-
-    ProcessPendingDestroy();
 }
 
 void SceneBase::FixedUpdate(float fixedDeltaTime) {

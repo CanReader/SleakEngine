@@ -8,7 +8,7 @@
 
 namespace Sleak {
     /// Owns and binds a Material for rendering; submits it into the draw
-    /// command queue each Update while enabled.
+    /// command queue each frame from SubmitRender while enabled.
     /// @ingroup scene
     class ENGINE_API MaterialComponent : public Component {
     public:
@@ -32,8 +32,10 @@ namespace Sleak {
 
         /// Initializes the owned material's GPU resources.
         bool Initialize() override;
-        /// Submits the material to the render command queue for this frame.
+        /// Nothing per frame; binding happens in SubmitRender.
         void Update(float DeltaTime) override;
+        /// Submits the material to the render command queue for this frame.
+        void SubmitRender(const RenderView& view) override;
         void OnEnable() override;
         void OnDisable() override;
 

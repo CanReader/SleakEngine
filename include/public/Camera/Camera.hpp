@@ -3,6 +3,7 @@
 
 #include <Utility/Exception.hpp>
 #include <Core/GameObject.hpp>
+#include <Camera/RenderView.hpp>
 #include <Camera/ViewFrustum.hpp>
 #include <Math/Matrix.hpp>
 #include <Math/Vector.hpp>
@@ -12,8 +13,8 @@ namespace Sleak {
     /// @ingroup camera
     enum class ProjectionType {Perspective, Orthographic};
 
-    /// GameObject that owns the engine's single active view/projection
-    /// matrices and view frustum. Position/orientation come from CameraController subclasses.
+    /// GameObject that describes a view: position, look target, and
+    /// projection. Position/orientation come from CameraController subclasses.
     ///
     /// Create one, add it to the scene, and call
     /// SceneBase::SetActiveCamera() so the renderer knows which view to
@@ -23,12 +24,11 @@ namespace Sleak {
     /// ColliderComponent and RigidbodyComponent for a player character
     /// that collides with the world.
     ///
-    /// The view and projection matrices are static, shared state. The
-    /// active camera rewrites them each Update() through
-    /// GetMainViewMatrix(), GetMainProjectionMatrix(),
-    /// GetMainCameraPosition(), and GetMainViewFrustum(), which is how the
-    /// renderer and CullingSystem read the current view. Only one camera
-    /// should be active at a time.
+    /// Each camera keeps its own view and projection matrices. Only the
+    /// scene's active camera drives rendering: after the update pass the
+    /// scene turns it into a RenderView through BuildRenderView() and
+    /// submits the frame with that. Other cameras in the scene can move
+    /// freely without affecting what is drawn or culled.
     ///
     /// Orientation is expressed as a look target rather than a rotation.
     /// SetLookTarget() aims at a world point and SetDirection() aims along
@@ -63,7 +63,7 @@ namespace Sleak {
                float fov = 60, float near = 1.0f, float far = 1000.0f);
 
         void Initialize() override;
-        /// Recalculates the view/projection matrices and frustum while active.
+        /// Recalculates this camera's view/projection matrices while active.
         void Update(float DeltaTime) override;
 
         void SetFieldOfView(float fov) {fieldOfView = fov;}
@@ -100,27 +100,46 @@ namespace Sleak {
         /// Updates the viewport dimensions and recomputes the projection matrix.
         void OnResize(uint32_t width, uint32_t height);
 
+        const Math::Matrix4& GetViewMatrix() const { return m_view; }
+        const Math::Matrix4& GetProjectionMatrix() const {
+            return m_projection;
+        }
+
+        /// Builds a RenderView from the camera's current position, target
+        /// and projection.
+        RenderView BuildRenderView() const;
+
+        /// @deprecated Use RenderView::GetCurrent().view.
         static const Math::Matrix4& GetMainViewMatrix() {
-            return Camera::View;
+            return RenderView::GetCurrent().view;
         }
 
+        /// @deprecated Use RenderView::GetCurrent().projection.
         static const Math::Matrix4& GetMainProjectionMatrix() {
-            return Camera::Projection;
+            return RenderView::GetCurrent().projection;
         }
 
+        /// @deprecated Use RenderView::GetCurrent().position.
         static const Math::Vector3D& GetMainCameraPosition() {
-            return Camera::MainPosition;
+            return RenderView::GetCurrent().position;
         }
 
+        /// @deprecated Use RenderView::GetCurrent().frustum.
         static const ViewFrustum& GetMainViewFrustum() {
-            return Camera::s_frustum;
+            return RenderView::GetCurrent().frustum;
         }
 
     protected:
-        /// Rebuilds the static view matrix and view frustum from position/target/up, and begins culling for the frame.
+        /// Rebuilds this camera's view matrix from position/target/up.
         void RecalculateViewMatrix();
-        /// Rebuilds the static projection matrix from FOV/aspect/near/far or the orthographic extents.
+        /// Rebuilds this camera's projection matrix from FOV/aspect/near/far
+        /// or the orthographic extents.
         void RecalculateProjectionMatrix();
+
+        /// LookAt matrix for the current position, target and up vector.
+        Math::Matrix4 ComputeViewMatrix() const;
+        /// Perspective or orthographic matrix for the current settings.
+        Math::Matrix4 ComputeProjectionMatrix() const;
 
         float fieldOfView;
         float nearPlane;
@@ -133,11 +152,9 @@ namespace Sleak {
         Math::Vector3D Position;
         Math::Vector3D LookTarget;
         Math::Vector3D Up = Math::Vector3D::Up();
-        
-        static Math::Matrix4 View;
-        static Math::Matrix4 Projection;
-        static Math::Vector3D MainPosition;
-        static ViewFrustum s_frustum;
+
+        Math::Matrix4 m_view = Math::Matrix4::Identity();
+        Math::Matrix4 m_projection = Math::Matrix4::Identity();
     };
 }
 

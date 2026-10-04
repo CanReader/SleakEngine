@@ -9,6 +9,7 @@
 namespace Sleak {
 
     class Light;
+    struct RenderView;
 
     namespace RenderEngine {
         class BufferBase;
@@ -66,10 +67,16 @@ namespace Sleak {
         void UnregisterLight(Light* light);
 
         /// Packs every registered light and the fog/ambient parameters into the light buffer and binds it.
+        void UpdateAndBind(const RenderView& view);
+        /// Same as UpdateAndBind(view) using RenderView::GetCurrent().
         void UpdateAndBind();
         /// Picks the active shadow-casting light and refreshes its shadow-space matrices.
+        void UpdateShadowData(const RenderView& view);
+        /// Same as UpdateShadowData(view) using RenderView::GetCurrent().
         void UpdateShadowData();
         /// Refreshes the deferred-pass constant buffer (fog, ambient) independent of the per-light data.
+        void UpdateDeferredCB(const RenderView& view);
+        /// Same as UpdateDeferredCB(view) using RenderView::GetCurrent().
         void UpdateDeferredCB();
 
         void SetAmbientColor(float r, float g, float b);

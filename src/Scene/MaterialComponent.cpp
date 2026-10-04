@@ -40,7 +40,9 @@ namespace Sleak {
         return true;
     }
 
-    void MaterialComponent::Update(float DeltaTime) {
+    void MaterialComponent::Update(float DeltaTime) {}
+
+    void MaterialComponent::SubmitRender(const RenderView& view) {
         if (!m_enabled || !m_material)
             return;
 

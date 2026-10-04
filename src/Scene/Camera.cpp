@@ -1,15 +1,9 @@
 #include <Camera/Camera.hpp>
-#include <Culling/CullingSystem.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Math/Math.hpp>
 #include <Core/Window.hpp>
 
 namespace Sleak {
-
-    Math::Matrix4 Camera::View = Math::Matrix4::Identity();
-    Math::Matrix4 Camera::Projection = Math::Matrix4::Identity();
-    Math::Vector3D Camera::MainPosition = Math::Vector3D(0, 0, 0);
-    ViewFrustum Camera::s_frustum;
 
     Camera::Camera(std::string Name, Math::Vector3D Position, float Fov, float Near, float Far) : GameObject(Name) {
         this->Position = Position;
@@ -49,29 +43,30 @@ namespace Sleak {
         RecalculateProjectionMatrix();
     }
 
-    void Camera::RecalculateViewMatrix() {
-        MainPosition = Position;
-
-        View = Matrix4::LookAt(Position.BaseVector(),   // Position
-                               LookTarget.BaseVector(), // Target
-                               Up.BaseVector());        // Up
-
-        // Update view frustum from VP = View * Projection (row-vector convention)
-        Math::Matrix4 VP = View * Projection;
-        s_frustum.ExtractFromVP(VP);
-
-        CullingSystem::BeginFrame(s_frustum, VP, Position);
+    RenderView Camera::BuildRenderView() const {
+        return RenderView::Create(ComputeViewMatrix(),
+                                  ComputeProjectionMatrix(), Position);
     }
 
+    void Camera::RecalculateViewMatrix() { m_view = ComputeViewMatrix(); }
+
     void Camera::RecalculateProjectionMatrix() {
-        if(type == ProjectionType::Perspective)
-            Projection = Matrix4::Perspective(fieldOfView * D2R, // Fov
-                                              width/height,      // Aspect Ratio
-                                              nearPlane,         // Near Plane
-                                              farPlane);         // Far Plane
-        else
-            Projection = Matrix4::Orthographic(-width / 2.0f, width / 2.0f, 
-                                               -height / 2.0f, height / 2.0f, 
-                                                nearPlane, farPlane);
+        m_projection = ComputeProjectionMatrix();
+    }
+
+    Math::Matrix4 Camera::ComputeViewMatrix() const {
+        Math::Vector3D eye = Position, target = LookTarget, up = Up;
+        return Matrix4::LookAt(eye.BaseVector(), target.BaseVector(),
+                               up.BaseVector());
+    }
+
+    Math::Matrix4 Camera::ComputeProjectionMatrix() const {
+        if (type == ProjectionType::Perspective)
+            return Matrix4::Perspective(fieldOfView * D2R, width / height,
+                                        nearPlane, farPlane);
+
+        return Matrix4::Orthographic(-width / 2.0f, width / 2.0f,
+                                     -height / 2.0f, height / 2.0f, nearPlane,
+                                     farPlane);
     }
 }
