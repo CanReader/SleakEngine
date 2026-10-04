@@ -1,4 +1,3 @@
-#include <Camera/Camera.hpp>
 #include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
 #include <ECS/Components/TransformComponent.hpp>
@@ -10,6 +9,65 @@
 
 namespace Sleak {
 namespace Physics {
+
+namespace {
+
+enum class ContactCallback { Enter, Stay, Exit };
+
+uint64_t PairKey(int proxyA, int proxyB) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(proxyA)) << 32) |
+           static_cast<uint32_t>(proxyB);
+}
+
+bool IsMovable(const RigidbodyComponent* rb) {
+    return rb && rb->GetBodyType() != BodyType::Static;
+}
+
+/// Share of the separation each body takes; zero means it does not move.
+void SeparationShares(RigidbodyComponent* rbA, RigidbodyComponent* rbB,
+                      float& shareA, float& shareB) {
+    bool movA = IsMovable(rbA);
+    bool movB = IsMovable(rbB);
+    shareA = shareB = 0.0f;
+
+    if (movA && movB) {
+        bool dynA = rbA->GetBodyType() == BodyType::Dynamic;
+        bool dynB = rbB->GetBodyType() == BodyType::Dynamic;
+        if (dynA && dynB) {
+            float invA = 1.0f / rbA->GetMass();
+            float invB = 1.0f / rbB->GetMass();
+            shareA = invA / (invA + invB);
+            shareB = 1.0f - shareA;
+        } else if (dynA) {
+            shareA = 1.0f;
+        } else if (dynB) {
+            shareB = 1.0f;
+        } else {
+            shareA = shareB = 0.5f;
+        }
+    } else if (movA) {
+        shareA = 1.0f;
+    } else if (movB) {
+        shareB = 1.0f;
+    }
+}
+
+void Invoke(Component* c, bool trigger, ContactCallback kind,
+            const CollisionEvent& event) {
+    switch (kind) {
+        case ContactCallback::Enter:
+            trigger ? c->OnTriggerEnter(event) : c->OnCollisionEnter(event);
+            break;
+        case ContactCallback::Stay:
+            trigger ? c->OnTriggerStay(event) : c->OnCollisionStay(event);
+            break;
+        case ContactCallback::Exit:
+            trigger ? c->OnTriggerExit(event) : c->OnCollisionExit(event);
+            break;
+    }
+}
+
+}  // namespace
 
 void PhysicsWorld::RegisterCollider(ColliderComponent* collider) {
     if (!collider) return;
@@ -37,64 +95,71 @@ void PhysicsWorld::UnregisterCollider(ColliderComponent* collider) {
     m_colliders.erase(
         std::remove(m_colliders.begin(), m_colliders.end(), collider),
         m_colliders.end());
+
+    // A callback is walking the pair lists; DispatchEvents purges them after
+    if (m_dispatching) {
+        m_removedDuringDispatch.push_back(collider);
+        return;
+    }
+
+    auto involves = [collider](const TouchingPair& p) {
+        return p.a == collider || p.b == collider;
+    };
+    m_prevTouching.erase(
+        std::remove_if(m_prevTouching.begin(), m_prevTouching.end(), involves),
+        m_prevTouching.end());
 }
 
 void PhysicsWorld::Step(float dt) {
     if (!(dt > 0.0f) || !std::isfinite(dt)) return;
 
+    Integrate(dt);
+    UpdateBroadphase();
+    CollectPairs();
+    ResolvePairs();
+    DispatchEvents();
+}
+
+void PhysicsWorld::Integrate(float dt) {
     // We need wasGrounded BEFORE clearing, so gravity doesn't apply while standing
     for (auto* collider : m_colliders) {
-        if (auto* owner = collider->GetOwner()) {
-            auto* rb = owner->GetComponent<RigidbodyComponent>();
-            if (!rb) continue;
+        auto* rb = collider->GetRigidbody();
+        if (!rb) continue;
 
-            bool wasGrounded = rb->IsGrounded();
-            rb->ClearCollisionState();
+        bool wasGrounded = rb->IsGrounded();
+        rb->ClearCollisionState();
 
-            if (rb->GetBodyType() == BodyType::Dynamic) {
-                // Reset grounded — collision detection will re-set it if still touching ground
-                rb->SetGrounded(false);
+        if (rb->GetBodyType() != BodyType::Dynamic) continue;
 
-                if (rb->GetUseGravity()) {
-                    Math::Vector3D vel = rb->GetVelocity();
+        // Collision detection sets it again while still on the ground
+        rb->SetGrounded(false);
 
-                    if (!wasGrounded) {
-                        // Airborne: apply full gravity
-                        vel = vel + rb->GetGravity() * dt;
-                    } else {
-                        // Grounded: apply small downward force to maintain ground contact
-                        // This ensures collision detection keeps finding the floor
-                        // without causing visible jitter
-                        if (vel.GetY() <= 0.0f) {
-                            vel = Math::Vector3D(vel.GetX(), -0.5f, vel.GetZ());
-                        }
-                        // If vel.Y > 0 (jumping), don't override — let the jump happen
-                    }
+        if (rb->GetUseGravity()) {
+            Math::Vector3D vel = rb->GetVelocity();
 
-                    // Clamp to terminal velocity
-                    float termVel = rb->GetTerminalVelocity();
-                    if (vel.GetY() < -termVel) {
-                        vel = Math::Vector3D(vel.GetX(), -termVel, vel.GetZ());
-                    }
-
-                    rb->SetVelocity(vel);
+            if (!wasGrounded) {
+                // Airborne: apply full gravity
+                vel = vel + rb->GetGravity() * dt;
+            } else {
+                // Grounded: a small downward velocity keeps collision
+                // detection finding the floor without visible jitter
+                if (vel.GetY() <= 0.0f) {
+                    vel = Math::Vector3D(vel.GetX(), -0.5f, vel.GetZ());
                 }
-
-                Math::Vector3D vel = rb->GetVelocity();
-                Math::Vector3D delta = vel * dt;
-
-                auto* transform = owner->GetComponent<TransformComponent>();
-                if (transform) {
-                    transform->Translate(delta);
-                } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
-                    cam->AddPosition(delta);
-                }
+                // If vel.Y > 0 (jumping), leave it so the jump happens
             }
-        }
-    }
 
-    UpdateBroadphase();
-    FindPairsAndResolve();
+            // Clamp to terminal velocity
+            float termVel = rb->GetTerminalVelocity();
+            if (vel.GetY() < -termVel) {
+                vel = Math::Vector3D(vel.GetX(), -termVel, vel.GetZ());
+            }
+
+            rb->SetVelocity(vel);
+        }
+
+        collider->TranslateOwner(rb->GetVelocity() * dt);
+    }
 }
 
 void PhysicsWorld::UpdateBroadphase() {
@@ -107,107 +172,213 @@ void PhysicsWorld::UpdateBroadphase() {
     }
 }
 
-void PhysicsWorld::FindPairsAndResolve() {
-    for (size_t i = 0; i < m_colliders.size(); ++i) {
-        ColliderComponent* colliderA = m_colliders[i];
-        if (colliderA->GetProxyId() < 0) continue;
+void PhysicsWorld::CollectPairs() {
+    m_candidates.clear();
 
+    for (auto* colliderA : m_colliders) {
+        int proxyA = colliderA->GetProxyId();
+        if (proxyA < 0) continue;
+
+        bool movableA = IsMovable(colliderA->GetRigidbody());
         AABB worldA = colliderA->GetWorldAABB();
 
-        m_tree.Query(worldA, [&](int proxyId) -> bool {
-            auto* colliderB = static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
-            if (colliderB == colliderA) return true;
+        m_tree.Query(worldA, [&](int proxyB) -> bool {
+            if (proxyB <= proxyA) return true;
 
-            // Skip duplicate pairs: only process when A < B (pointer order)
-            if (colliderA > colliderB) return true;
+            auto* colliderB =
+                static_cast<ColliderComponent*>(m_tree.GetUserData(proxyB));
+            if (!movableA && !IsMovable(colliderB->GetRigidbody())) return true;
 
-            // Layer filtering
-            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0) return true;
-            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0) return true;
+            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0)
+                return true;
+            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0)
+                return true;
 
-            // Get transform data
-            auto* ownerA = colliderA->GetOwner();
-            auto* ownerB = colliderB->GetOwner();
-            if (!ownerA || !ownerB) return true;
-
-            Vector3D posA, posB;
-            Vector3D scaleA(1, 1, 1), scaleB(1, 1, 1);
-
-            auto* transformA = ownerA->GetComponent<TransformComponent>();
-            if (transformA) {
-                posA = transformA->GetWorldPosition() + colliderA->GetOffset();
-                scaleA = transformA->GetWorldScale();
-            } else if (auto* camA = dynamic_cast<Camera*>(ownerA)) {
-                posA = camA->GetPosition() + colliderA->GetOffset();
-            }
-
-            auto* transformB = ownerB->GetComponent<TransformComponent>();
-            if (transformB) {
-                posB = transformB->GetWorldPosition() + colliderB->GetOffset();
-                scaleB = transformB->GetWorldScale();
-            } else if (auto* camB = dynamic_cast<Camera*>(ownerB)) {
-                posB = camB->GetPosition() + colliderB->GetOffset();
-            }
-
-            CollisionManifold manifold = TestCollision(
-                colliderA->GetShape(), posA, scaleA,
-                colliderB->GetShape(), posB, scaleB);
-
-            if (!manifold.hasCollision) return true;
-
-            // Skip if both are triggers
-            if (colliderA->IsTrigger() && colliderB->IsTrigger()) return true;
-
-            // Resolve: push rigidbodies apart
-            auto* rbA = ownerA->GetComponent<RigidbodyComponent>();
-            auto* rbB = ownerB->GetComponent<RigidbodyComponent>();
-
-            if (rbA && rbA->GetBodyType() != BodyType::Static) {
-                rbA->ResolveCollision(manifold.contact.normal * -1.0f,
-                                      manifold.contact.penetration);
-            }
-            if (rbB && rbB->GetBodyType() != BodyType::Static) {
-                rbB->ResolveCollision(manifold.contact.normal,
-                                      manifold.contact.penetration);
-            }
-
+            TouchingPair pair;
+            pair.a = colliderA;
+            pair.b = colliderB;
+            pair.key = PairKey(proxyA, proxyB);
+            m_candidates.push_back(pair);
             return true;
         });
     }
+
+    std::sort(m_candidates.begin(), m_candidates.end(),
+              [](const TouchingPair& l, const TouchingPair& r) {
+                  return l.key < r.key;
+              });
 }
 
-std::vector<CollisionPair> PhysicsWorld::OverlapSphere(const Vector3D& center, float radius, uint32_t layerMask) const {
-    std::vector<CollisionPair> results;
+void PhysicsWorld::ResolvePairs() {
+    m_touching.clear();
+
+    for (TouchingPair& pair : m_candidates) {
+        ColliderComponent* colliderA = pair.a;
+        ColliderComponent* colliderB = pair.b;
+
+        // Fresh poses, so an earlier pair's correction is seen by this one
+        Vector3D posA, scaleA, posB, scaleB;
+        colliderA->GetWorldPose(posA, scaleA);
+        colliderB->GetWorldPose(posB, scaleB);
+
+        CollisionManifold manifold =
+            TestCollision(colliderA->GetShape(), posA, scaleA,
+                          colliderB->GetShape(), posB, scaleB);
+        if (!manifold.hasCollision) continue;
+
+        pair.trigger = colliderA->IsTrigger() || colliderB->IsTrigger();
+        pair.contact = manifold.contact;
+        m_touching.push_back(pair);
+
+        if (pair.trigger) continue;
+
+        auto* rbA = colliderA->GetRigidbody();
+        auto* rbB = colliderB->GetRigidbody();
+
+        float shareA = 0.0f, shareB = 0.0f;
+        SeparationShares(rbA, rbB, shareA, shareB);
+
+        const Vector3D& normal = manifold.contact.normal;
+        float penetration = manifold.contact.penetration;
+
+        if (IsMovable(rbA)) {
+            if (shareA > 0.0f)
+                colliderA->TranslateOwner(normal * (-penetration * shareA));
+            rbA->ApplyContactNormal(normal * -1.0f);
+        }
+        if (IsMovable(rbB)) {
+            if (shareB > 0.0f)
+                colliderB->TranslateOwner(normal * (penetration * shareB));
+            rbB->ApplyContactNormal(normal);
+        }
+    }
+}
+
+bool PhysicsWorld::RemovedDuringDispatch(
+    const ColliderComponent* collider) const {
+    return std::find(m_removedDuringDispatch.begin(),
+                     m_removedDuringDispatch.end(),
+                     collider) != m_removedDuringDispatch.end();
+}
+
+void PhysicsWorld::DispatchEvents() {
+    m_dispatching = true;
+    m_removedDuringDispatch.clear();
+
+    // Stops as soon as a callback removes self's object, which deletes it
+    auto notify = [this](ColliderComponent* self, bool trigger,
+                         ContactCallback kind, const CollisionEvent& event) {
+        GameObject* owner = self->GetOwner();
+        if (!owner) return;
+        const auto& components = owner->GetComponents();
+        for (size_t i = 0; i < components.GetSize(); ++i) {
+            if (Component* c = components[i].get())
+                Invoke(c, trigger, kind, event);
+            if (RemovedDuringDispatch(self)) return;
+        }
+    };
+
+    auto send = [&](const TouchingPair& pair, ContactCallback kind) {
+        if (RemovedDuringDispatch(pair.a) || RemovedDuringDispatch(pair.b))
+            return;
+
+        CollisionEvent forA;
+        forA.self = pair.a;
+        forA.other = pair.b;
+        CollisionEvent forB;
+        forB.self = pair.b;
+        forB.other = pair.a;
+        if (kind != ContactCallback::Exit) {
+            forA.point = forB.point = pair.contact.point;
+            forA.penetration = forB.penetration = pair.contact.penetration;
+            forA.normal = pair.contact.normal;
+            forB.normal = pair.contact.normal * -1.0f;
+        }
+
+        notify(pair.a, pair.trigger, kind, forA);
+        if (RemovedDuringDispatch(pair.a) || RemovedDuringDispatch(pair.b))
+            return;
+        notify(pair.b, pair.trigger, kind, forB);
+    };
+
+    // Both lists are sorted by key, so one merge pass finds enter/stay/exit
+    size_t prev = 0, cur = 0;
+    while (prev < m_prevTouching.size() || cur < m_touching.size()) {
+        if (cur == m_touching.size() ||
+            (prev < m_prevTouching.size() &&
+             m_prevTouching[prev].key < m_touching[cur].key)) {
+            send(m_prevTouching[prev++], ContactCallback::Exit);
+        } else if (prev == m_prevTouching.size() ||
+                   m_touching[cur].key < m_prevTouching[prev].key) {
+            send(m_touching[cur++], ContactCallback::Enter);
+        } else {
+            const TouchingPair& before = m_prevTouching[prev++];
+            const TouchingPair& now = m_touching[cur++];
+            if (before.trigger != now.trigger) {
+                send(before, ContactCallback::Exit);
+                send(now, ContactCallback::Enter);
+            } else {
+                send(now, ContactCallback::Stay);
+            }
+        }
+    }
+
+    m_dispatching = false;
+    std::swap(m_prevTouching, m_touching);
+    m_touching.clear();
+
+    for (const ColliderComponent* removed : m_removedDuringDispatch) {
+        m_prevTouching.erase(
+            std::remove_if(m_prevTouching.begin(), m_prevTouching.end(),
+                           [removed](const TouchingPair& p) {
+                               return p.a == removed || p.b == removed;
+                           }),
+            m_prevTouching.end());
+    }
+    m_removedDuringDispatch.clear();
+}
+
+std::vector<OverlapHit> PhysicsWorld::OverlapShape(const ColliderShape& query,
+                                                   const AABB& bounds,
+                                                   uint32_t layerMask) const {
+    std::vector<OverlapHit> results;
+    const Vector3D origin(0, 0, 0);
+    const Vector3D unitScale(1, 1, 1);
+
+    m_tree.Query(bounds, [&](int proxyId) -> bool {
+        auto* collider =
+            static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
+        if ((collider->GetLayer() & layerMask) == 0) return true;
+
+        Vector3D pos, scale;
+        collider->GetWorldPose(pos, scale);
+        CollisionManifold m = TestCollision(query, origin, unitScale,
+                                            collider->GetShape(), pos, scale);
+        if (!m.hasCollision) return true;
+
+        OverlapHit hit;
+        hit.collider = collider;
+        hit.point = m.contact.point;
+        hit.normal = m.contact.normal;
+        hit.penetration = m.contact.penetration;
+        results.push_back(hit);
+        return true;
+    });
+
+    return results;
+}
+
+std::vector<OverlapHit> PhysicsWorld::OverlapSphere(const Vector3D& center,
+                                                    float radius,
+                                                    uint32_t layerMask) const {
+    if (!(radius >= 0.0f)) return {};
     BoundingSphere sphere(center, radius);
-    AABB queryAABB = sphere.ToAABB();
-
-    m_tree.Query(queryAABB, [&](int proxyId) -> bool {
-        auto* collider = static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
-        if ((collider->GetLayer() & layerMask) == 0) return true;
-
-        CollisionPair pair;
-        pair.b = collider;
-        results.push_back(pair);
-        return true;
-    });
-
-    return results;
+    return OverlapShape(sphere, sphere.ToAABB(), layerMask);
 }
 
-std::vector<CollisionPair> PhysicsWorld::OverlapAABB(const AABB& aabb, uint32_t layerMask) const {
-    std::vector<CollisionPair> results;
-
-    m_tree.Query(aabb, [&](int proxyId) -> bool {
-        auto* collider = static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
-        if ((collider->GetLayer() & layerMask) == 0) return true;
-
-        CollisionPair pair;
-        pair.b = collider;
-        results.push_back(pair);
-        return true;
-    });
-
-    return results;
+std::vector<OverlapHit> PhysicsWorld::OverlapAABB(const AABB& aabb,
+                                                  uint32_t layerMask) const {
+    return OverlapShape(aabb, aabb, layerMask);
 }
 
 SweepResult PhysicsWorld::SphereSweep(const Vector3D& start, const Vector3D& direction,
@@ -299,14 +470,39 @@ SweepResult PhysicsWorld::SphereSweep(const Vector3D& start, const Vector3D& dir
 
 RayHit PhysicsWorld::Raycast(const Vector3D& origin, const Vector3D& direction,
                               float maxDist, uint32_t layerMask) const {
-    // Raycast is sphere sweep with radius 0, but use direct ray-AABB for better precision
-    SweepResult sweep = SphereSweep(origin, direction, 0.01f, maxDist, layerMask);
     RayHit result;
-    result.hit = sweep.hit;
-    result.collider = sweep.collider;
-    result.point = sweep.point;
-    result.normal = sweep.normal;
-    result.distance = sweep.distance;
+
+    float lenSq = direction.Dot(direction);
+    if (!(lenSq > 1e-12f) || !(maxDist > 0.0f)) return result;
+    Vector3D dir = direction * (1.0f / std::sqrt(lenSq));
+
+    float closest = maxDist;
+
+    m_tree.RayCast(origin, dir, maxDist, [&](int proxyId) -> bool {
+        auto* collider =
+            static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
+        if ((collider->GetLayer() & layerMask) == 0) return true;
+
+        Vector3D pos, scale;
+        collider->GetWorldPose(pos, scale);
+
+        float t = 0.0f;
+        Vector3D normal;
+        if (!RaycastShape(collider->GetShape(), pos, scale, origin, dir,
+                          closest, t, normal))
+            return true;
+
+        if (!result.hit || t < closest) {
+            closest = t;
+            result.hit = true;
+            result.collider = collider;
+            result.distance = t;
+            result.point = origin + dir * t;
+            result.normal = normal;
+        }
+        return true;
+    });
+
     return result;
 }
 

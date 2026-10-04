@@ -6,6 +6,7 @@
 #include <ECS/Component.hpp>
 #include <Utility/Container/List.hpp>
 #include <Memory/RefPtr.hpp>
+#include <cstdint>
 #include <type_traits>
 #include <string>
 
@@ -76,6 +77,7 @@ namespace Sleak {
             if (bIsInitialized) newComponent->Initialize();
             if (m_isActive && bIsInitialized) newComponent->OnEnable();
             Components.add(std::move(newComponent));
+            ++m_componentVersion;
         }
 
         /// Destroys and detaches the first component of type T, if present.
@@ -87,6 +89,7 @@ namespace Sleak {
                 if (dynamic_cast<T*>(Components[i].get()) != nullptr) {
                     Components[i]->OnDestroy();
                     Components.erase(i);
+                    ++m_componentVersion;
                     break;
                 }
             }
@@ -108,6 +111,15 @@ namespace Sleak {
 
             return nullptr;
         }
+
+        /// Every attached component, in the order they were added.
+        const List<RefPtr<Component>>& GetComponents() const {
+            return Components;
+        }
+
+        /// Changes whenever a component is added or removed, so callers can
+        /// cache GetComponent() results and know when to look again.
+        uint32_t GetComponentVersion() const { return m_componentVersion; }
 
         /// True if a component of type T is attached.
         template <typename T>
@@ -162,6 +174,7 @@ namespace Sleak {
         std::string m_tag = "Untagged";
 
         List<RefPtr<Component>> Components;
+        uint32_t m_componentVersion = 0;
 
         // Hierarchy
         GameObject* m_parent;

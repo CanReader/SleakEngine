@@ -373,5 +373,242 @@ CollisionManifold TestCollision(const ColliderShape& shapeA, const Vector3D& pos
     }, shapeA, shapeB);
 }
 
+/// Slab test for any ray direction length; reports the entry distance and axis.
+static bool RaySlab(const AABB& box, const Vector3D& origin,
+                    const Vector3D& dir, float maxDist, float& tEnter,
+                    int& enterAxis) {
+    float tmin = 0.0f;
+    float tmax = maxDist;
+    enterAxis = -1;
+
+    const float o[3] = {origin.GetX(), origin.GetY(), origin.GetZ()};
+    const float d[3] = {dir.GetX(), dir.GetY(), dir.GetZ()};
+    const float lo[3] = {box.min.GetX(), box.min.GetY(), box.min.GetZ()};
+    const float hi[3] = {box.max.GetX(), box.max.GetY(), box.max.GetZ()};
+
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(d[i]) < 1e-12f) {
+            if (o[i] < lo[i] || o[i] > hi[i]) return false;
+            continue;
+        }
+        float inv = 1.0f / d[i];
+        float t1 = (lo[i] - o[i]) * inv;
+        float t2 = (hi[i] - o[i]) * inv;
+        if (t1 > t2) std::swap(t1, t2);
+        if (t1 > tmin) {
+            tmin = t1;
+            enterAxis = i;
+        }
+        tmax = std::min(tmax, t2);
+        if (tmin > tmax) return false;
+    }
+
+    tEnter = tmin;
+    return true;
+}
+
+bool RaycastAABB(const AABB& box, const Vector3D& origin, const Vector3D& dir,
+                 float maxDist, float& t, Vector3D& normal) {
+    int axis = -1;
+    float tEnter = 0.0f;
+    if (!RaySlab(box, origin, dir, maxDist, tEnter, axis)) return false;
+    if (axis < 0) return false;  // origin inside the box
+
+    const float d[3] = {dir.GetX(), dir.GetY(), dir.GetZ()};
+    float n[3] = {0.0f, 0.0f, 0.0f};
+    n[axis] = d[axis] > 0.0f ? -1.0f : 1.0f;
+
+    t = tEnter;
+    normal = Vector3D(n[0], n[1], n[2]);
+    return true;
+}
+
+bool RaycastSphere(const BoundingSphere& sphere, const Vector3D& origin,
+                   const Vector3D& dir, float maxDist, float& t,
+                   Vector3D& normal) {
+    Vector3D m = origin - sphere.center;
+    float c = m.Dot(m) - sphere.radius * sphere.radius;
+    if (c <= 0.0f) return false;  // origin inside
+
+    float b = m.Dot(dir);
+    if (b > 0.0f) return false;
+
+    float disc = b * b - c;
+    if (disc < 0.0f) return false;
+
+    float hitT = -b - std::sqrt(disc);
+    if (hitT < 0.0f) hitT = 0.0f;
+    if (hitT > maxDist) return false;
+
+    t = hitT;
+    if (sphere.radius > 1e-8f) {
+        normal = (origin + dir * hitT - sphere.center) * (1.0f / sphere.radius);
+    } else {
+        normal = dir * -1.0f;
+    }
+    return true;
+}
+
+bool RaycastCapsule(const BoundingCapsule& capsule, const Vector3D& origin,
+                    const Vector3D& dir, float maxDist, float& t,
+                    Vector3D& normal) {
+    Vector3D pa = capsule.GetPointB();
+    Vector3D pb = capsule.GetPointA();
+    float r = capsule.radius;
+
+    Vector3D toOrigin = origin - ClosestPointOnSegment(origin, pa, pb);
+    if (toOrigin.Dot(toOrigin) <= r * r) return false;  // origin inside
+
+    float best = std::numeric_limits<float>::max();
+
+    Vector3D ba = pb - pa;
+    float baba = ba.Dot(ba);
+    if (baba > 1e-12f) {
+        Vector3D oa = origin - pa;
+        float bard = ba.Dot(dir);
+        float baoa = ba.Dot(oa);
+        float rdoa = dir.Dot(oa);
+        float oaoa = oa.Dot(oa);
+        float a = baba - bard * bard;
+        if (a > 1e-8f * baba) {
+            float b = baba * rdoa - baoa * bard;
+            float c = baba * oaoa - baoa * baoa - r * r * baba;
+            float h = b * b - a * c;
+            if (h >= 0.0f) {
+                float hitT = (-b - std::sqrt(h)) / a;
+                float y = baoa + hitT * bard;
+                if (hitT >= 0.0f && y > 0.0f && y < baba) best = hitT;
+            }
+        }
+    }
+
+    float capT = 0.0f;
+    Vector3D capN;
+    if (RaycastSphere(BoundingSphere(pa, r), origin, dir, maxDist, capT,
+                      capN) &&
+        capT < best) {
+        best = capT;
+    }
+    if (RaycastSphere(BoundingSphere(pb, r), origin, dir, maxDist, capT,
+                      capN) &&
+        capT < best) {
+        best = capT;
+    }
+
+    if (best > maxDist) return false;
+
+    Vector3D hit = origin + dir * best;
+    Vector3D out = hit - ClosestPointOnSegment(hit, pa, pb);
+    float len = out.Magnitude();
+    t = best;
+    normal = len > 1e-8f ? out * (1.0f / len) : dir * -1.0f;
+    return true;
+}
+
+bool RaycastTriangle(const Vector3D& v0, const Vector3D& v1, const Vector3D& v2,
+                     const Vector3D& origin, const Vector3D& dir, float maxDist,
+                     float& t, Vector3D& normal) {
+    Vector3D e1 = v1 - v0;
+    Vector3D e2 = v2 - v0;
+    Vector3D p = dir.Cross(e2);
+    float det = e1.Dot(p);
+    if (std::abs(det) < 1e-12f) return false;
+
+    float invDet = 1.0f / det;
+    Vector3D s = origin - v0;
+    float u = s.Dot(p) * invDet;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    Vector3D q = s.Cross(e1);
+    float v = dir.Dot(q) * invDet;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float hitT = e2.Dot(q) * invDet;
+    if (hitT < 0.0f || hitT > maxDist) return false;
+
+    Vector3D n = e1.Cross(e2);
+    if (n.Dot(dir) > 0.0f) n = n * -1.0f;
+    float len = n.Magnitude();
+    if (len < 1e-12f) return false;
+
+    t = hitT;
+    normal = n * (1.0f / len);
+    return true;
+}
+
+/// Ray against a mesh, done in the mesh's local space so scale needs no copy.
+static bool RaycastMesh(const TriangleMesh& mesh, const Vector3D& pos,
+                        const Vector3D& scale, const Vector3D& origin,
+                        const Vector3D& dir, float maxDist, float& t,
+                        Vector3D& normal) {
+    float sx = scale.GetX(), sy = scale.GetY(), sz = scale.GetZ();
+    if (std::abs(sx) < 1e-12f || std::abs(sy) < 1e-12f || std::abs(sz) < 1e-12f)
+        return false;
+
+    Vector3D rel = origin - pos;
+    Vector3D localOrigin(rel.GetX() / sx, rel.GetY() / sy, rel.GetZ() / sz);
+    Vector3D localDir(dir.GetX() / sx, dir.GetY() / sy, dir.GetZ() / sz);
+
+    // t is shared between spaces because the ray is mapped affinely
+    float boundsT = 0.0f;
+    int axis = -1;
+    if (!RaySlab(mesh.bounds, localOrigin, localDir, maxDist, boundsT, axis))
+        return false;
+
+    bool hit = false;
+    float best = maxDist;
+    Vector3D bestLocalN;
+    for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+        uint32_t i0 = mesh.indices[i], i1 = mesh.indices[i + 1],
+                 i2 = mesh.indices[i + 2];
+        if (i0 >= mesh.vertices.size() || i1 >= mesh.vertices.size() ||
+            i2 >= mesh.vertices.size())
+            continue;
+        float triT = 0.0f;
+        Vector3D triN;
+        if (RaycastTriangle(mesh.vertices[i0], mesh.vertices[i1],
+                            mesh.vertices[i2], localOrigin, localDir, best,
+                            triT, triN)) {
+            best = triT;
+            bestLocalN = triN;
+            hit = true;
+        }
+    }
+    if (!hit) return false;
+
+    Vector3D n(bestLocalN.GetX() / sx, bestLocalN.GetY() / sy,
+               bestLocalN.GetZ() / sz);
+    float len = n.Magnitude();
+    if (len < 1e-12f) return false;
+    n = n * (1.0f / len);
+    if (n.Dot(dir) > 0.0f) n = n * -1.0f;
+
+    t = best;
+    normal = n;
+    return true;
+}
+
+bool RaycastShape(const ColliderShape& shape, const Vector3D& pos,
+                  const Vector3D& scale, const Vector3D& origin,
+                  const Vector3D& dir, float maxDist, float& t,
+                  Vector3D& normal) {
+    if (auto* box = std::get_if<AABB>(&shape)) {
+        return RaycastAABB(TransformAABB(*box, pos, scale), origin, dir,
+                           maxDist, t, normal);
+    }
+    if (auto* sphere = std::get_if<BoundingSphere>(&shape)) {
+        return RaycastSphere(TransformSphere(*sphere, pos, scale), origin, dir,
+                             maxDist, t, normal);
+    }
+    if (auto* capsule = std::get_if<BoundingCapsule>(&shape)) {
+        return RaycastCapsule(TransformCapsule(*capsule, pos, scale), origin,
+                              dir, maxDist, t, normal);
+    }
+    if (auto* mesh = std::get_if<TriangleMesh>(&shape)) {
+        return RaycastMesh(*mesh, pos, scale, origin, dir, maxDist, t, normal);
+    }
+    return false;
+}
+
 } // namespace Physics
 } // namespace Sleak

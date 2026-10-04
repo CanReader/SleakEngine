@@ -73,6 +73,9 @@ namespace Sleak {
 
         /// Pushes the body out along normal by penetration and updates ground/wall collision state.
         void ResolveCollision(const Math::Vector3D& normal, float penetration);
+        /// Records a contact along normal and cancels velocity into it,
+        /// without moving the body. ResolveCollision() calls this after moving.
+        void ApplyContactNormal(const Math::Vector3D& normal);
 
         BodyType GetBodyType() const { return m_bodyType; }
         void SetBodyType(BodyType type) { m_bodyType = type; }

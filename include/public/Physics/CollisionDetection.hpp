@@ -44,6 +44,33 @@ namespace Physics {
     CollisionManifold TestSphereVsTriangle(const BoundingSphere& sphere,
                                            const Vector3D& v0, const Vector3D& v1, const Vector3D& v2);
 
+    /// Ray against a world-space box. dir must be unit length; a ray starting
+    /// inside the box reports no hit. On a hit, t is the distance along dir
+    /// and normal is the surface normal facing the ray.
+    bool RaycastAABB(const AABB& box, const Vector3D& origin,
+                     const Vector3D& dir, float maxDist, float& t,
+                     Vector3D& normal);
+    /// Ray against a world-space sphere, same contract as RaycastAABB().
+    bool RaycastSphere(const BoundingSphere& sphere, const Vector3D& origin,
+                       const Vector3D& dir, float maxDist, float& t,
+                       Vector3D& normal);
+    /// Ray against a world-space capsule, same contract as RaycastAABB().
+    bool RaycastCapsule(const BoundingCapsule& capsule, const Vector3D& origin,
+                        const Vector3D& dir, float maxDist, float& t,
+                        Vector3D& normal);
+    /// Two-sided ray against one triangle. dir need not be unit length; t is
+    /// in units of dir.
+    bool RaycastTriangle(const Vector3D& v0, const Vector3D& v1,
+                         const Vector3D& v2, const Vector3D& origin,
+                         const Vector3D& dir, float maxDist, float& t,
+                         Vector3D& normal);
+    /// Ray against a collider shape placed at pos with scale, the same way
+    /// TestCollision() places it. dir must be unit length.
+    bool RaycastShape(const ColliderShape& shape, const Vector3D& pos,
+                      const Vector3D& scale, const Vector3D& origin,
+                      const Vector3D& dir, float maxDist, float& t,
+                      Vector3D& normal);
+
 } // namespace Physics
 } // namespace Sleak
 

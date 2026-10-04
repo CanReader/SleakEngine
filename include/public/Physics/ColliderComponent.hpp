@@ -4,10 +4,15 @@
 #include <ECS/Component.hpp>
 #include <Core/OSDef.hpp>
 #include <Physics/Colliders.hpp>
+#include <cstdint>
 
 namespace Sleak {
 
     struct MeshData;
+    class Camera;
+    class RigidbodyComponent;
+    class TransformComponent;
+    namespace Physics { class PhysicsWorld; }
 
     /// Attaches a collision shape to a GameObject and registers it with PhysicsWorld's broadphase.
     ///
@@ -27,7 +32,8 @@ namespace Sleak {
     /// API, so put triggers, terrain, and characters on distinct layers and
     /// a raycast can ignore the ones it does not care about. Marking a
     /// collider as a trigger keeps it in the broadphase while skipping
-    /// physical response.
+    /// physical response; overlaps then arrive as OnTriggerEnter/Stay/Exit
+    /// on the components of both objects.
     ///
     /// @code{.cpp}
     /// // Static level geometry
@@ -81,6 +87,15 @@ namespace Sleak {
         /// Local shape transformed into world space by the owner's current transform.
         Physics::AABB GetWorldAABB() const;
 
+        /// Where the shape sits in the world: owner position plus offset,
+        /// and owner scale.
+        void GetWorldPose(Math::Vector3D& position,
+                          Math::Vector3D& scale) const;
+
+        /// Rigidbody on the same object, or null. Cached until the owner's
+        /// components change.
+        RigidbodyComponent* GetRigidbody() const;
+
         // Offset from owner's transform
         void SetOffset(const Math::Vector3D& offset) { m_offset = offset; }
         Math::Vector3D GetOffset() const { return m_offset; }
@@ -100,6 +115,12 @@ namespace Sleak {
         int GetProxyId() const { return m_proxyId; }
 
     private:
+        friend class Physics::PhysicsWorld;
+
+        void RefreshCache() const;
+        /// Moves the owner through its transform, or a camera's position.
+        void TranslateOwner(const Math::Vector3D& delta);
+
         Physics::ColliderShape m_shape;
         Physics::ColliderType m_type = Physics::ColliderType::AABB;
         Math::Vector3D m_offset;
@@ -107,6 +128,11 @@ namespace Sleak {
         uint32_t m_mask = 0xFFFFFFFF;
         bool m_isTrigger = false;
         int m_proxyId = -1;
+
+        mutable RigidbodyComponent* m_body = nullptr;
+        mutable TransformComponent* m_transform = nullptr;
+        mutable Camera* m_camera = nullptr;
+        mutable uint32_t m_cacheVersion = UINT32_MAX;
     };
 
 } // namespace Sleak

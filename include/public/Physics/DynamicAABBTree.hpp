@@ -1,6 +1,7 @@
 #ifndef _DYNAMIC_AABB_TREE_HPP_
 #define _DYNAMIC_AABB_TREE_HPP_
 
+#include <Core/OSDef.hpp>
 #include <Physics/Colliders.hpp>
 #include <functional>
 #include <vector>
@@ -26,7 +27,7 @@ namespace Physics {
 
     /// Broadphase AABB tree; PhysicsWorld inserts colliders as proxies and queries overlaps against it.
     /// @ingroup physics
-    class DynamicAABBTree {
+    class ENGINE_API DynamicAABBTree {
     public:
         DynamicAABBTree();
         ~DynamicAABBTree() = default;
