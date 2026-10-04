@@ -1,6 +1,7 @@
 #ifndef _PHYSICS_WORLD_HPP_
 #define _PHYSICS_WORLD_HPP_
 
+#include <Core/OSDef.hpp>
 #include <Physics/Colliders.hpp>
 #include <Physics/CollisionDetection.hpp>
 #include <Physics/DynamicAABBTree.hpp>
@@ -19,6 +20,29 @@ namespace Sleak {
             ColliderComponent* a = nullptr;
             ColliderComponent* b = nullptr;
             CollisionManifold manifold;
+        };
+
+        /// One collider found by OverlapSphere() or OverlapAABB().
+        /// @ingroup physics
+        struct OverlapHit {
+            ColliderComponent* collider = nullptr;
+            Vector3D point;
+            /// Points from the query shape toward the collider.
+            Vector3D normal;
+            float penetration = 0.0f;
+        };
+
+        /// What a component receives in OnCollision* and OnTrigger* callbacks.
+        /// Point, normal, and penetration are zero on Exit.
+        /// @ingroup physics
+        struct CollisionEvent {
+            /// The collider on the object receiving the callback.
+            ColliderComponent* self = nullptr;
+            ColliderComponent* other = nullptr;
+            Vector3D point;
+            /// Points from self toward other.
+            Vector3D normal;
+            float penetration = 0.0f;
         };
 
         /// Result of a single Raycast call.
@@ -53,7 +77,17 @@ namespace Sleak {
         ///
         /// Step() integrates every dynamic RigidbodyComponent using that
         /// body's own gravity setting, refreshes the DynamicAABBTree
-        /// broadphase, then finds and resolves overlapping pairs.
+        /// broadphase, then finds and resolves overlapping pairs. Only pairs
+        /// where at least one side has a non-static rigidbody are tested.
+        /// Two dynamic bodies split the correction by inverse mass, a
+        /// kinematic body pushes a dynamic one without being pushed, and a
+        /// trigger never pushes anything.
+        ///
+        /// After resolving, the world compares this step's touching pairs
+        /// with the last step's and calls OnCollisionEnter/Stay/Exit, or
+        /// OnTriggerEnter/Stay/Exit when either side is a trigger, on every
+        /// component of both objects. Pairs involving a collider that gets
+        /// unregistered (its object removed or destroyed) end without an Exit.
         ///
         /// The part you will use directly is the query API. Raycast(),
         /// SphereSweep(), OverlapSphere(), and OverlapAABB() all take an
@@ -76,15 +110,15 @@ namespace Sleak {
         /// // Everything inside a blast radius
         /// auto caught = world->OverlapSphere(
         ///     Sleak::Math::Vector3D(0.0f, 1.0f, 0.0f), 4.0f);
-        /// for (const auto& pair : caught) {
-        ///     ApplyDamage(pair.b->GetOwner());
+        /// for (const auto& hit : caught) {
+        ///     ApplyDamage(hit.collider->GetOwner());
         /// }
         /// @endcode
         ///
         /// @see ColliderComponent, RigidbodyComponent, DynamicAABBTree,
-        ///      RayHit, SweepResult, CollisionPair
+        ///      RayHit, SweepResult, OverlapHit, CollisionEvent
         /// @ingroup physics
-        class PhysicsWorld {
+        class ENGINE_API PhysicsWorld {
         public:
             PhysicsWorld() = default;
             ~PhysicsWorld() = default;
@@ -98,23 +132,50 @@ namespace Sleak {
             void RegisterCollider(ColliderComponent* collider);
             void UnregisterCollider(ColliderComponent* collider);
 
-            /// Query API: colliders overlapping a sphere, filtered by layerMask.
-            std::vector<CollisionPair> OverlapSphere(const Vector3D& center, float radius, uint32_t layerMask = 0xFFFFFFFF) const;
-            /// Colliders overlapping an AABB, filtered by layerMask.
-            std::vector<CollisionPair> OverlapAABB(const AABB& aabb, uint32_t layerMask = 0xFFFFFFFF) const;
+            /// Query API: colliders whose shape overlaps a sphere, filtered
+            /// by layerMask.
+            std::vector<OverlapHit> OverlapSphere(
+                const Vector3D& center, float radius,
+                uint32_t layerMask = 0xFFFFFFFF) const;
+            /// Colliders whose shape overlaps an AABB, filtered by layerMask.
+            std::vector<OverlapHit> OverlapAABB(
+                const AABB& aabb, uint32_t layerMask = 0xFFFFFFFF) const;
             /// Sweeps a sphere from start along direction and returns the first collider it hits within maxDist.
             SweepResult SphereSweep(const Vector3D& start, const Vector3D& direction,
                                     float radius, float maxDist, uint32_t layerMask = 0xFFFFFFFF) const;
-            /// Casts a ray and returns the closest collider hit within maxDist.
+            /// Casts a ray against the collider shapes and returns the closest
+            /// hit within maxDist. direction need not be normalized, distance
+            /// is in world units, and colliders containing origin are skipped.
             RayHit Raycast(const Vector3D& origin, const Vector3D& direction,
                            float maxDist, uint32_t layerMask = 0xFFFFFFFF) const;
 
         private:
+            struct TouchingPair {
+                ColliderComponent* a = nullptr;
+                ColliderComponent* b = nullptr;
+                uint64_t key = 0;
+                bool trigger = false;
+                ContactPoint contact;
+            };
+
+            std::vector<OverlapHit> OverlapShape(const ColliderShape& query,
+                                                 const AABB& bounds,
+                                                 uint32_t layerMask) const;
+            void Integrate(float dt);
             void UpdateBroadphase();
-            void FindPairsAndResolve();
+            void CollectPairs();
+            void ResolvePairs();
+            void DispatchEvents();
+            bool RemovedDuringDispatch(const ColliderComponent* collider) const;
 
             DynamicAABBTree m_tree;
             std::vector<ColliderComponent*> m_colliders;
+
+            std::vector<TouchingPair> m_candidates;
+            std::vector<TouchingPair> m_touching;
+            std::vector<TouchingPair> m_prevTouching;
+            std::vector<const ColliderComponent*> m_removedDuringDispatch;
+            bool m_dispatching = false;
         };
 
     } // namespace Physics

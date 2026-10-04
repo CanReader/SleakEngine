@@ -7,6 +7,7 @@
 
 namespace Sleak {
     class GameObject;
+    namespace Physics { struct CollisionEvent; }
     /// Base for behavior attached to a GameObject. Owner deletes it via
     /// GameObject::RemoveComponent(), never directly.
     ///
@@ -15,7 +16,9 @@ namespace Sleak {
     /// parameter, because GameObject::AddComponent() supplies it and
     /// forwards the rest. Initialize() and Update() are pure virtual;
     /// FixedUpdate(), LateUpdate(), OnEnable(), OnDisable(), and
-    /// OnDestroy() are optional.
+    /// OnDestroy() are optional, as are the OnCollision and OnTrigger
+    /// callbacks the physics world sends to every component on an object
+    /// whose collider starts, keeps, or stops touching another.
     ///
     /// The owning GameObject holds components in a RefPtr and destroys them
     /// with itself, so never delete a component directly. Reach the owner
@@ -72,6 +75,18 @@ namespace Sleak {
             virtual void OnDestroy() {}
             virtual void OnEnable() {}
             virtual void OnDisable() {}
+
+            /// Sent on the first physics step this object's collider touches
+            /// another solid collider.
+            virtual void OnCollisionEnter(const Physics::CollisionEvent&) {}
+            /// Sent on every later physics step the two keep touching.
+            virtual void OnCollisionStay(const Physics::CollisionEvent&) {}
+            /// Sent on the first physics step they no longer touch.
+            virtual void OnCollisionExit(const Physics::CollisionEvent&) {}
+            /// Same as OnCollisionEnter when either collider is a trigger.
+            virtual void OnTriggerEnter(const Physics::CollisionEvent&) {}
+            virtual void OnTriggerStay(const Physics::CollisionEvent&) {}
+            virtual void OnTriggerExit(const Physics::CollisionEvent&) {}
 
             GameObject* GetOwner() {
                 return owner;

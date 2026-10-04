@@ -1,4 +1,5 @@
 #include <Physics/ColliderComponent.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <Core/GameObject.hpp>
 #include <Camera/Camera.hpp>
 #include <ECS/Components/TransformComponent.hpp>
@@ -84,18 +85,48 @@ void ColliderComponent::Update(float /*deltaTime*/) {
     // Collider shape is static relative to owner - no per-frame work needed
 }
 
+void ColliderComponent::RefreshCache() const {
+    if (!owner) return;
+    uint32_t version = owner->GetComponentVersion();
+    if (version == m_cacheVersion) return;
+
+    m_body = owner->GetComponent<RigidbodyComponent>();
+    m_transform = owner->GetComponent<TransformComponent>();
+    m_camera = m_transform ? nullptr : dynamic_cast<Camera*>(owner);
+    m_cacheVersion = version;
+}
+
+RigidbodyComponent* ColliderComponent::GetRigidbody() const {
+    RefreshCache();
+    return m_body;
+}
+
+void ColliderComponent::GetWorldPose(Math::Vector3D& position,
+                                     Math::Vector3D& scale) const {
+    RefreshCache();
+    position = m_offset;
+    scale = Math::Vector3D(1, 1, 1);
+    if (m_transform) {
+        position = m_transform->GetWorldPosition() + m_offset;
+        scale = m_transform->GetWorldScale();
+    } else if (m_camera) {
+        position = m_camera->GetPosition() + m_offset;
+    }
+}
+
+void ColliderComponent::TranslateOwner(const Math::Vector3D& delta) {
+    RefreshCache();
+    if (m_transform) {
+        m_transform->Translate(delta);
+    } else if (m_camera) {
+        m_camera->AddPosition(delta);
+    }
+}
+
 Physics::AABB ColliderComponent::GetWorldAABB() const {
     Math::Vector3D worldPos;
-    Math::Vector3D worldScale(1, 1, 1);
-
-    auto* transform = const_cast<GameObject*>(owner)->GetComponent<TransformComponent>();
-    if (transform) {
-        worldPos = transform->GetWorldPosition() + m_offset;
-        worldScale = transform->GetWorldScale();
-    } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
-        worldPos = cam->GetPosition() + m_offset;
-    }
-
+    Math::Vector3D worldScale;
+    GetWorldPose(worldPos, worldScale);
     return Physics::GetWorldAABB(m_shape, worldPos, worldScale);
 }
 

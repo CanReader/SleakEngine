@@ -29,9 +29,6 @@ void RigidbodyComponent::ClearCollisionState() {
 void RigidbodyComponent::ResolveCollision(const Math::Vector3D& normal, float penetration) {
     if (m_bodyType == BodyType::Static) return;
 
-    m_lastCollisionNormal = normal;
-    m_hadCollision = true;
-
     // Position correction — push out of the colliding object
     Math::Vector3D correction = normal * penetration;
 
@@ -41,6 +38,15 @@ void RigidbodyComponent::ResolveCollision(const Math::Vector3D& normal, float pe
     } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
         cam->AddPosition(correction);
     }
+
+    ApplyContactNormal(normal);
+}
+
+void RigidbodyComponent::ApplyContactNormal(const Math::Vector3D& normal) {
+    if (m_bodyType == BodyType::Static) return;
+
+    m_lastCollisionNormal = normal;
+    m_hadCollision = true;
 
     if (m_bodyType != BodyType::Dynamic) return;
 
