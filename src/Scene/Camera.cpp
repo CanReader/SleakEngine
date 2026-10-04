@@ -1,7 +1,7 @@
 #include <Camera/Camera.hpp>
+#include <Core/Window.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Math/Math.hpp>
-#include <Core/Window.hpp>
 
 namespace Sleak {
 
