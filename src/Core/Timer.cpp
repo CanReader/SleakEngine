@@ -5,9 +5,7 @@ namespace Sleak {
         Reset();
     }
 
-    void Timer::Reset() {
-        startPoint = std::chrono::steady_clock::now();
-    }
+    void Timer::Reset() { startPoint = std::chrono::steady_clock::now(); }
 
     float Timer::Elapsed() const {
         return static_cast<float>(ElapsedSeconds());
@@ -18,4 +16,4 @@ namespace Sleak {
             std::chrono::steady_clock::now() - startPoint;
         return elapsed.count();
     }
-};
+    };  // namespace Sleak

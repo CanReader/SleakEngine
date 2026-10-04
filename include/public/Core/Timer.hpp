@@ -21,7 +21,7 @@ namespace Sleak {
             /// readings that are hours into a session.
             double ElapsedSeconds() const;
 
-        private:
+           private:
             std::chrono::time_point<std::chrono::steady_clock> startPoint;
     };
 };

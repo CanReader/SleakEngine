@@ -1,16 +1,18 @@
 #include "../../include/public/Core/SceneBase.hpp"
+
+#include <Camera/Camera.hpp>
 #include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
-#include <Camera/Camera.hpp>
+#include <Debug/DebugLineRenderer.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Physics/PhysicsWorld.hpp>
 #include <Physics/ColliderComponent.hpp>
-#include <Debug/DebugLineRenderer.hpp>
-#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include <Physics/PhysicsWorld.hpp>
+#include <Runtime/Skybox.hpp>
 #include <cmath>
+
+#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
 
 namespace Sleak {
 
