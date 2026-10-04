@@ -12,17 +12,20 @@ namespace Sleak {
     class Object {
     public:
         Object(const std::string& name = "Object")
-         : m_uniqueID(s_nextUniqueID.fetch_add(1, std::memory_order_relaxed)),
-           m_name(name)
-        {
-            SetName(m_name + "-" + std::to_string(m_uniqueID));
-        }
+         : m_name(name),
+           m_uniqueID(s_nextUniqueID.fetch_add(1, std::memory_order_relaxed))
+        {}
 
         virtual ~Object() = default;
 
         uint64_t GetUniqueID() const { return m_uniqueID; }
 
         const std::string& GetName() const { return m_name; }
+
+        /// Name plus unique ID, for logs where names can repeat.
+        std::string GetDebugName() const {
+            return m_name + "-" + std::to_string(m_uniqueID);
+        }
 
         inline void SetName(const std::string& value) { m_name = value; }
 

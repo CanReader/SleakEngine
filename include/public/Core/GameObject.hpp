@@ -11,6 +11,7 @@
 
 namespace Sleak {
     namespace Math {class Vector3D;};
+    class SceneBase;
     /// Scene entity holding components and an optional parent/child transform
     /// hierarchy. Scene owns the instance; destroy via Scene::DestroyObject().
     ///
@@ -30,6 +31,10 @@ namespace Sleak {
     /// owns it. Never `delete` a GameObject. Use SceneBase::DestroyObject()
     /// for deferred destruction, which is what you want while iterating, or
     /// SceneBase::RemoveObject() for immediate destruction.
+    ///
+    /// A parent owns every child that was not itself added to a scene, so a
+    /// hierarchy built with SetParent() (for example by ModelLoader) only
+    /// needs its root added. Deleting a parent deletes those children too.
     ///
     /// Camera, Light, and its subclasses all derive from GameObject, so
     /// they are added and found the same way as anything else.
@@ -116,7 +121,7 @@ namespace Sleak {
             return GetComponent<T>() != nullptr;
         }
 
-        /// Initializes the object and its components; repeat calls no-op.
+        /// Initializes the object, components and children; repeats no-op.
         virtual void Initialize();
         bool IsInitialized() const { return bIsInitialized; }
         virtual void Update(float deltaTime);
@@ -138,6 +143,8 @@ namespace Sleak {
         void RemoveChild(GameObject* child);
         bool HasParent() const { return m_parent != nullptr; }
         bool HasChildren() const { return m_children.GetSize() > 0; }
+        /// True once a scene took ownership through SceneBase::AddObject().
+        bool IsOwnedByScene() const { return m_ownedByScene; }
 
         virtual bool IsLight() const { return false; }
 
@@ -159,6 +166,7 @@ namespace Sleak {
     private:
         bool m_isActive;
         bool m_pendingDestroy;
+        bool m_ownedByScene = false;
         std::string m_tag = "Untagged";
 
         List<RefPtr<Component>> Components;
@@ -171,6 +179,8 @@ namespace Sleak {
         void DestroyComponents();
         /// Initializes a component once, then enables it if active.
         void InitializeComponent(Component* component);
+
+        friend class SceneBase;
     };
 }
 

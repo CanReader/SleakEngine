@@ -12,19 +12,20 @@
 namespace Sleak {
 
     GameObject::~GameObject() {
+        List<GameObject*> children = std::move(m_children);
+        for (size_t i = 0; i < children.GetSize(); ++i) {
+            GameObject* child = children[i];
+            if (!child) continue;
+            child->m_parent = nullptr;
+            if (!child->m_ownedByScene) delete child;
+        }
+
         DestroyComponents();
 
         if (m_parent) {
             m_parent->RemoveChild(this);
             m_parent = nullptr;
         }
-
-        for (size_t i = 0; i < m_children.GetSize(); ++i) {
-            if (m_children[i]) {
-                m_children[i]->m_parent = nullptr;
-            }
-        }
-        m_children.clear();
     }
 
     void GameObject::Initialize() {
@@ -33,6 +34,10 @@ namespace Sleak {
 
         for (size_t i = 0; i < Components.GetSize(); ++i) {
             if (Components[i]) InitializeComponent(Components[i].get());
+        }
+
+        for (size_t i = 0; i < m_children.GetSize(); ++i) {
+            if (m_children[i]) m_children[i]->Initialize();
         }
     }
 
@@ -105,6 +110,14 @@ namespace Sleak {
 
     void GameObject::SetParent(GameObject* parent) {
         if (m_parent == parent) return;
+
+        for (GameObject* p = parent; p; p = p->m_parent) {
+            if (p == this) {
+                SLEAK_WARN("Cannot parent '{}' to its own descendant",
+                           GetName());
+                return;
+            }
+        }
 
         if (m_parent) {
             m_parent->RemoveChild(this);

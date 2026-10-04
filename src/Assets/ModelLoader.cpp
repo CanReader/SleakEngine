@@ -27,14 +27,6 @@
 
 namespace Sleak {
 
-/// Recursively initialize a GameObject and all its children.
-static void InitializeRecursive(GameObject* obj) {
-    obj->Initialize();
-    for (size_t i = 0; i < obj->GetChildren().GetSize(); ++i) {
-        InitializeRecursive(obj->GetChildren()[i]);
-    }
-}
-
 Math::Matrix4 ModelLoader::ConvertMatrix(const void* aiMatPtr) {
     const auto& m = *static_cast<const aiMatrix4x4*>(
         static_cast<const void*>(aiMatPtr));
@@ -107,7 +99,7 @@ GameObject* ModelLoader::Load(const std::string& filePath,
                             options, textureCache, skeleton, clips);
     }
 
-    InitializeRecursive(root);
+    root->Initialize();
     return root;
 }
 
