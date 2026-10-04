@@ -432,15 +432,22 @@ void DirectX11Renderer::Resize(uint32_t width, uint32_t height) {
     SLEAK_INFO("DirectX 11 resized to {}x{}", width, height);
 }
 
-void DirectX11Renderer::Draw(uint32_t vertexCount) {
-    deviceContext->Draw(vertexCount,0);
+void DirectX11Renderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
+
+void DirectX11Renderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
+    deviceContext->Draw(vertexCount, firstVertex);
 }
 
 void DirectX11Renderer::DrawIndexed(uint32_t indexCount) {
-    deviceContext->DrawIndexed(indexCount, 0, 0);
+    DrawIndexed(indexCount, 0, 0);
+}
+
+void DirectX11Renderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                    int32_t baseVertex) {
+    deviceContext->DrawIndexed(indexCount, firstIndex, baseVertex);
     DrawnVertices += indexCount;
 }
-    
+
 void DirectX11Renderer::DrawInstance(uint32_t instanceCount,
                                      uint32_t vertexPerInstance) {
     deviceContext->DrawInstanced(vertexPerInstance, instanceCount, 0, 0);
@@ -448,7 +455,15 @@ void DirectX11Renderer::DrawInstance(uint32_t instanceCount,
 
 void DirectX11Renderer::DrawIndexedInstance(uint32_t instanceCount,
                                             uint32_t indexPerInstance) {
-    deviceContext->DrawIndexedInstanced(indexPerInstance, instanceCount, 0, 0, 0);
+    DrawIndexedInstance(instanceCount, indexPerInstance, 0, 0);
+}
+
+void DirectX11Renderer::DrawIndexedInstance(uint32_t instanceCount,
+                                            uint32_t indexPerInstance,
+                                            uint32_t firstIndex,
+                                            int32_t baseVertex) {
+    deviceContext->DrawIndexedInstanced(indexPerInstance, instanceCount,
+                                        firstIndex, baseVertex, 0);
 }
 
 void DirectX11Renderer::ClearRenderTarget(float r, float g, float b, float a) {
