@@ -143,19 +143,22 @@ namespace Sleak {
     ///      Events::Input::KeyPressedEvent, Events::Input::MouseMovedEvent
     /// @ingroup events
     class ENGINE_API EventDispatcher {
-        public:
-            /// Registers a free-function/lambda callback for EventT, returning an ID for later unregistration.
-            template<typename EventT>
-            static std::string RegisterEventCallback(std::function<void(const EventT&)> callback) {
-                auto delegate = std::make_shared<EventDelegate<EventT>>(
-                    std::move(callback));
-                eventHandlers[EventT::GetStaticType()].push_back(delegate);
-                return delegate->GetID();
+       public:
+        /// Registers a free-function/lambda callback for EventT, returning an
+        /// ID for later unregistration.
+        template <typename EventT>
+        static std::string RegisterEventCallback(
+            std::function<void(const EventT&)> callback) {
+            auto delegate =
+                std::make_shared<EventDelegate<EventT>>(std::move(callback));
+            eventHandlers[EventT::GetStaticType()].push_back(delegate);
+            return delegate->GetID();
             }
 
             /// Registers a member-function handler bound to instance, returning an ID for later unregistration.
-            template<typename T, typename EventT>
-            static std::string RegisterEventHandler(T* instance, void (T::*memberFunction)(const EventT&)) {
+            template <typename T, typename EventT>
+            static std::string RegisterEventHandler(
+                T* instance, void (T::*memberFunction)(const EventT&)) {
                 auto callback = [instance, memberFunction](const EventT& event) {
                     (instance->*memberFunction)(event);
                 };

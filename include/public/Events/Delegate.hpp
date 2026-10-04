@@ -105,7 +105,8 @@ namespace Sleak {
 
         private:
             FunctionType function;
-            const EventT* eventPtr = nullptr;  // Store a pointer to avoid copying
+            const EventT* eventPtr =
+                nullptr;  // Store a pointer to avoid copying
         };
         
         /// Fan-out list of Delegate<Args...> instances, all invoked together via Broadcast.
