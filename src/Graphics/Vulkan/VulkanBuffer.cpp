@@ -5,11 +5,12 @@
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
-#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 #include <Core/Logger.hpp>
 #include <cstring>
 #include <stdexcept>
+
+#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanImmediateSubmit.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
