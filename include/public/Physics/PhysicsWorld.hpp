@@ -1,11 +1,12 @@
 #ifndef _PHYSICS_WORLD_HPP_
 #define _PHYSICS_WORLD_HPP_
 
+#include <Core/OSDef.hpp>
 #include <Physics/Colliders.hpp>
 #include <Physics/CollisionDetection.hpp>
 #include <Physics/DynamicAABBTree.hpp>
-#include <vector>
 #include <cstdint>
+#include <vector>
 
 namespace Sleak {
 
@@ -83,8 +84,8 @@ namespace Sleak {
         /// @see ColliderComponent, RigidbodyComponent, DynamicAABBTree,
         ///      RayHit, SweepResult, CollisionPair
         /// @ingroup physics
-        class PhysicsWorld {
-        public:
+        class ENGINE_API PhysicsWorld {
+           public:
             PhysicsWorld() = default;
             ~PhysicsWorld() = default;
 

@@ -18,8 +18,8 @@
 #include <backends/imgui_impl_vulkan.h>
 
 namespace Sleak {
-class ENGINE_API Window;
-    namespace RenderEngine {
+class Window;
+namespace RenderEngine {
 
 struct QueueIndices {
     uint32_t GraphicsIndex = UINT32_MAX;

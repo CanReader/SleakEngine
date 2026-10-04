@@ -1,14 +1,16 @@
 #ifndef _SERIALIZABLE_H_
 #define _SERIALIZABLE_H_
 
-#include <iostream>
-#include <string>
-#include <memory>
-#include <unordered_map>
+#include <yaml-cpp/yaml.h>
+
+#include <Core/OSDef.hpp>
 #include <any>
-#include <stdexcept>
+#include <iostream>
+#include <memory>
 #include <nlohmann/json.hpp>
-#include <yaml-cpp/yaml.h>  
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
 
 namespace Sleak {
 
@@ -48,8 +50,8 @@ namespace Sleak {
      * @brief Base class for objects that can be serialized and deserialized.
      * @ingroup filesystem
      */
-    class Serializable {
-    public:
+    class ENGINE_API Serializable {
+       public:
         virtual ~Serializable() = default;
 
         /**
@@ -82,8 +84,8 @@ namespace Sleak {
      * @brief Detects file format and creates the appropriate serialization context.
      * @ingroup filesystem
      */
-    class SerializationFactory {
-    public:
+    class ENGINE_API SerializationFactory {
+       public:
         /// Picks a format from filePath's extension (.bin/.json/.yaml/.yml).
         static SerializationFormat DetectFormat(const std::string& filePath);
         /// Builds the context implementation matching format.

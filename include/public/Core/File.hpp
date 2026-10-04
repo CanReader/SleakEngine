@@ -1,51 +1,52 @@
 #ifndef _FILE_H_
 #define _FILE_H_
 
+#include <Core/OSDef.hpp>
+#include <fstream>
 #include <string>
 #include <vector>
-#include <fstream>
 
 namespace Sleak {
 
     /// Thin wrapper over std::fstream for text/binary file I/O.
     /// @ingroup filesystem
-    class File {
-    public:
-        // Constructor and Destructor
-        File();
-        ~File();
+class ENGINE_API File {
+   public:
+    // Constructor and Destructor
+    File();
+    ~File();
 
-        // Opens a file with the specified mode
-        bool Open(const std::string& filename, const std::string& mode);
+    // Opens a file with the specified mode
+    bool Open(const std::string& filename, const std::string& mode);
 
-        // Closes the currently open file
-        void Close();
+    // Closes the currently open file
+    void Close();
 
-        // Reads all text from the file
-        std::string ReadAllText();
+    // Reads all text from the file
+    std::string ReadAllText();
 
-        // Reads all bytes from the file
-        std::vector<unsigned char> ReadAllBytes();
+    // Reads all bytes from the file
+    std::vector<unsigned char> ReadAllBytes();
 
-        // Writes all text to the file
-        bool WriteAllText(const std::string& content);
+    // Writes all text to the file
+    bool WriteAllText(const std::string& content);
 
-        // Writes all bytes to the file
-        bool WriteAllBytes(const std::vector<unsigned char>& data);
+    // Writes all bytes to the file
+    bool WriteAllBytes(const std::vector<unsigned char>& data);
 
-        // Checks if a file exists
-        static bool Exists(const std::string& filename);
+    // Checks if a file exists
+    static bool Exists(const std::string& filename);
 
-    private:
-        // File stream for reading and writing
-        std::fstream m_fileStream;
+   private:
+    // File stream for reading and writing
+    std::fstream m_fileStream;
 
-        // Current file mode
-        std::string m_mode;
+    // Current file mode
+    std::string m_mode;
 
-        // Platform-specific implementation for file existence check
-        static bool ExistsImpl(const std::string& filename);
-    };
+    // Platform-specific implementation for file existence check
+    static bool ExistsImpl(const std::string& filename);
+};
 
 } // namespace Sleak
 

@@ -1,19 +1,20 @@
 #ifndef _COLOR_HPP_
 #define _COLOR_HPP_
 
+#include <Core/OSDef.hpp>
+#include <Math/Math.hpp>
+#include <Math/Vector.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <sstream>
 #include <string>
-#include <Math/Math.hpp>
-#include <Math/Vector.hpp>
 
 namespace Sleak {
 namespace Math {
 /// 8-bit RGBA color. Value type, cheap to pass and store on vertices/UI.
 /// @ingroup math
-class Color {
+class ENGINE_API Color {
    public:
     static const Color Red;
     static const Color Green;
