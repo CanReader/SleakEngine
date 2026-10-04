@@ -1,0 +1,17 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# yaml-cpp is part of the public interface (FileSystem/Serializable.hpp).
+if(NOT TARGET yaml-cpp::yaml-cpp)
+    if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/EngineYamlCppTargets.cmake")
+        include("${CMAKE_CURRENT_LIST_DIR}/EngineYamlCppTargets.cmake")
+    else()
+        find_dependency(yaml-cpp CONFIG
+            HINTS "${CMAKE_CURRENT_LIST_DIR}/../yaml-cpp")
+    endif()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/EngineTargets.cmake")
+
+check_required_components(Engine)
