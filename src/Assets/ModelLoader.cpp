@@ -1,31 +1,28 @@
-#include <Runtime/ModelLoader.hpp>
-
-#include <Core/GameObject.hpp>
-#include <ECS/Components/MeshComponent.hpp>
-#include <ECS/Components/TransformComponent.hpp>
-#include <ECS/Components/MaterialComponent.hpp>
-#include <ECS/Components/AnimatorComponent.hpp>
-#include <Runtime/Material.hpp>
-#include <Runtime/Texture.hpp>
-#include <Runtime/Skeleton.hpp>
-#include <Runtime/AnimationClip.hpp>
-#include <Physics/ColliderComponent.hpp>
-#include <Physics/RigidbodyComponent.hpp>
-#include <Memory/RefPtr.hpp>
-#include <Core/JobSystem.hpp>
-#include <Core/Logger.hpp>
-
-#include <Runtime/MeshData.hpp>
-#include "../../include/private/Graphics/Common/ResourceManager.hpp"
-
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
 #include <assimp/postprocess.h>
-
+#include <assimp/scene.h>
 #include <stb_image.h>
 
+#include <Core/GameObject.hpp>
+#include <Core/JobSystem.hpp>
+#include <Core/Logger.hpp>
+#include <ECS/Components/AnimatorComponent.hpp>
+#include <ECS/Components/MaterialComponent.hpp>
+#include <ECS/Components/MeshComponent.hpp>
+#include <ECS/Components/TransformComponent.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/RigidbodyComponent.hpp>
+#include <Runtime/AnimationClip.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/ModelLoader.hpp>
+#include <Runtime/Skeleton.hpp>
+#include <Runtime/Texture.hpp>
 #include <algorithm>
+#include <assimp/Importer.hpp>
 #include <filesystem>
+
+#include "../../include/private/Graphics/Common/ResourceManager.hpp"
 
 namespace Sleak {
 
