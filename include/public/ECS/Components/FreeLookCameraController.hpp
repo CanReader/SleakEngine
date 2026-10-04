@@ -52,44 +52,45 @@ namespace Sleak {
         void SetRoll(float roll) { this->roll = roll; }
         float GetRoll() const { return roll; }
 
-
-        /// Updates translation input state from a key-down event; doubles speed while LCTRL is held.
+        /// No longer used: movement keys are polled in Update(). Kept so
+        /// existing overrides still compile.
         virtual void OnKeyPressed(const Sleak::Events::Input::KeyPressedEvent& e);
-        /// Clears translation input state from a key-up event.
+        /// No longer used: movement keys are polled in Update().
         virtual void OnKeyReleased(const Sleak::Events::Input::KeyReleasedEvent& e);
 
     private:
-        /// Reads and smooths mouse delta into yaw/pitch, clamped to PitchRange.
-        void UpdateInput(float deltaTime) override;
-        /// Accelerates toward the input-driven target velocity, applies damping, and moves the camera.
-        void UpdateCamera(float deltaTime) override;
+     /// Polls movement keys, then reads and smooths mouse delta into yaw/pitch,
+     /// clamped to PitchRange.
+     void UpdateInput(float deltaTime) override;
+     /// Accelerates toward the input-driven target velocity, applies damping,
+     /// and moves the camera.
+     void UpdateCamera(float deltaTime) override;
 
-        /// Exponentially decays velocity toward zero when there's no translation input.
-        void ApplyDamping(float DeltaTime);
-        /// Accelerates velocity toward the input-driven target velocity.
-        void ApplyAcceleration(float DeltaTime);
-        /// Clamps velocity magnitude to maxSpeed.
-        void ClampVelocity();
+     /// Exponentially decays velocity toward zero when there's no translation
+     /// input.
+     void ApplyDamping(float DeltaTime);
+     /// Accelerates velocity toward the input-driven target velocity.
+     void ApplyAcceleration(float DeltaTime);
+     /// Clamps velocity magnitude to maxSpeed.
+     void ClampVelocity();
 
-        Math::Vector3D velocity;        
-        float speed = 1.0f;
-        float sensitivity = 0.1f;
-        float acceleration;
-        float damping;
-        float maxSpeed;
-        
-        bool isInvertY = false;
-        float pitch = 0.0f;
-        float yaw = 0.0f;
-        float roll = 0.0f;
-        Math::Vector2D PitchRange;
-        Math::Vector2D YawRange;
-        Math::Vector2D RollRange;
+     Math::Vector3D velocity;
+     float speed = 1.0f;
+     float sensitivity = 0.1f;
+     float acceleration;
+     float damping;
+     float maxSpeed;
 
-        bool m_firstFrame = true;
+     bool isInvertY = false;
+     float pitch = 0.0f;
+     float yaw = 0.0f;
+     float roll = 0.0f;
+     Math::Vector2D PitchRange;
+     Math::Vector2D YawRange;
+     Math::Vector2D RollRange;
 
-        std::string m_keyPressedHandlerId;
-        std::string m_keyReleasedHandlerId;
+     bool m_firstFrame = true;
+     bool m_boost = false;
     };
 }
 

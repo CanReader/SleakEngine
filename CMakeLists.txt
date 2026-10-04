@@ -177,6 +177,10 @@ set(GRAPHICS_DIRECTX12_SOURCES
     src/Graphics/DirectX12/DirectX12Texture.cpp
 )
 
+set(INPUT_SOURCES
+    src/Input/Input.cpp
+)
+
 set(LIGHTING_SOURCES
     src/Lighting/AreaLight.cpp
     src/Lighting/DirectionalLight.cpp
@@ -225,6 +229,7 @@ set(ENGINE_SOURCES
     ${GRAPHICS_COMMON_SOURCES}
     ${GRAPHICS_OPENGL_SOURCES}
     ${GRAPHICS_VULKAN_SOURCES}
+    ${INPUT_SOURCES}
     ${LIGHTING_SOURCES}
     ${MATH_SOURCES}
     ${PHYSICS_SOURCES}

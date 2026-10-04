@@ -53,6 +53,39 @@ namespace Sleak {
                 bool bIsFullScreen;
         };
 
+        /// Fired when the window gains keyboard focus.
+        /// @ingroup events
+        class ENGINE_API WindowFocusEvent : public Event {
+           public:
+            WindowFocusEvent() = default;
+            EVENT_CLASS_TYPE(WindowFocus)
+            EVENT_CLASS_CATEGORY(EventCategory::Application)
+        };
+
+        /// Fired when the window loses keyboard focus. Held keys and buttons
+        /// are released in the polling state at the same time.
+        /// @ingroup events
+        class ENGINE_API WindowLostFocusEvent : public Event {
+           public:
+            WindowLostFocusEvent() = default;
+            EVENT_CLASS_TYPE(WindowLostFocus)
+            EVENT_CLASS_CATEGORY(EventCategory::Application)
+        };
+
+        /// Fired when the window moves, carrying its new top-left position on
+        /// the desktop.
+        /// @ingroup events
+        class ENGINE_API WindowMovedEvent : public Event {
+           public:
+            WindowMovedEvent(int x, int y) : x(x), y(y) {}
+            int GetX() const { return x; }
+            int GetY() const { return y; }
+            EVENT_CLASS_TYPE(WindowMoved)
+            EVENT_CLASS_CATEGORY(EventCategory::Application)
+           private:
+            int x, y;
+        };
+
         /// Fired when the window is about to close.
         /// @ingroup events
         class ENGINE_API WindowCloseEvent : public Event {

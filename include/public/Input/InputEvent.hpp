@@ -1,6 +1,8 @@
 #ifndef _INPUTEVENTS_HPP_
 #define _INPUTEVENTS_HPP_
 
+#include <Input/KeyCodes.hpp>
+
 namespace Sleak {
     namespace Input {
 
