@@ -1,5 +1,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
+
 #include <Core/Logger.hpp>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -25,8 +27,10 @@ bool OpenGLShader::compile(const std::string& shaderPath) {
     return compile(basePath + "_gl.vert", basePath + "_gl.frag");
 }
 
-bool OpenGLShader::compile(const std::string& vertPath,
-                            const std::string& fragPath) {
+bool OpenGLShader::compile(const std::string& vertFile,
+                           const std::string& fragFile) {
+    const std::string vertPath = ResolveGenerated(vertFile);
+    const std::string fragPath = ResolveGenerated(fragFile);
     std::string vertSource = ReadFile(vertPath);
     std::string fragSource = ReadFile(fragPath);
 
@@ -94,6 +98,18 @@ bool OpenGLShader::CompileShaderSource(const std::string& source,
         return false;
     }
     return true;
+}
+
+std::string OpenGLShader::ResolveGenerated(const std::string& path) {
+    for (const char* stage : {"vert", "frag"}) {
+        const std::string suffix = std::string("_gl.") + stage;
+        if (!path.ends_with(suffix)) continue;
+        std::string generated =
+            path.substr(0, path.size() - suffix.size()) + "." + stage + ".glsl";
+        std::error_code ec;
+        if (std::filesystem::exists(generated, ec)) return generated;
+    }
+    return path;
 }
 
 std::string OpenGLShader::ReadFile(const std::string& path) {
