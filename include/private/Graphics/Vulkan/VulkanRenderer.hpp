@@ -13,7 +13,6 @@
 #include <vector>
 #include <set>
 #include <array>
-#include <unordered_map>
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -299,7 +298,11 @@ private:
     bool RecreateSwapChain();
     /// Creates an image view for each swapchain image.
     bool CreateImageViews();
-    /// Creates the main forward graphics pipeline and its pipeline layout.
+    /// Creates the layout shared by the forward, skybox, debug line, skinned,
+    /// and shadow pipelines.
+    bool CreateMainPipelineLayout();
+    /// Creates the main forward graphics pipeline, creating the shared
+    /// layout on first use.
     bool CreateGraphicsPipeline();
     /// Creates the pipeline cache, seeded from disk when the saved blob was
     /// written by this device and driver.
@@ -471,30 +474,47 @@ private:
     /// Compiles the debug line shaders and creates the line-list pipeline.
     bool CreateDebugLinePipeline();
 
-    // Custom vertex format pipelines (built lazily per registered VertexFormatHandle)
-    /// The four pipeline variants a registered vertex layout can drive.
-    /// A failed flag marks a variant as permanently absent so draws skip it
-    /// instead of retrying compilation every frame.
-    struct CustomFormatPipelines {
-        VkPipeline main = VK_NULL_HANDLE;
-        VkPipeline shadow = VK_NULL_HANDLE;
-        VkPipeline gbuffer = VK_NULL_HANDLE;
-        VkPipeline transparent = VK_NULL_HANDLE;
-        bool mainFailed = false;
-        bool shadowFailed = false;
-        bool gbufferFailed = false;
-        bool transparentFailed = false;
+    // Custom vertex format pipelines (one per registered VertexFormatHandle)
+    /// Render pass a custom-format pipeline variant is built for.
+    enum class CustomPass : uint8_t {
+        Main,
+        Shadow,
+        GBuffer,
+        Transparent,
+        Count
     };
-    std::unordered_map<VertexFormatHandle, CustomFormatPipelines>
-        m_customFormatPipelines;
+    static constexpr size_t CUSTOM_PASS_COUNT =
+        static_cast<size_t>(CustomPass::Count);
+    /// The pipeline variants a registered vertex layout can drive, indexed by
+    /// CustomPass. A failed flag marks a variant as permanently absent so
+    /// draws skip it instead of retrying compilation every frame.
+    struct CustomFormatPipelines {
+        std::array<VkPipeline, CUSTOM_PASS_COUNT> pipelines{};
+        std::array<bool, CUSTOM_PASS_COUNT> failed{};
+    };
+    // Indexed by handle - 1 (handles are dense and start at 1)
+    std::vector<CustomFormatPipelines> m_customFormatPipelines;
+    // Registered formats whose active-path variants were prebuilt
+    VertexFormatHandle m_customFormatsPrebuilt = 0;
     VertexFormatHandle m_activeCustomFormat = 0;
     /// Set while the active custom format has no pipeline for the current pass;
     /// draws are dropped rather than issued against a mismatched vertex layout.
     bool m_customFormatUnbound = false;
     /// True while the bound vertex buffer's format has no pipeline for this pass.
     bool CustomFormatDrawsSuppressed() const;
-    /// Creates any missing pipeline variant for a registered format; returns false when the main variant is unusable.
-    bool CreateCustomFormatPipelines(VertexFormatHandle format);
+    /// True when the render pass a custom-format variant targets exists.
+    bool CustomPassAvailable(CustomPass pass) const;
+    /// Returns a format's pipeline for a pass, compiling it on first request.
+    VkPipeline GetCustomFormatPipeline(VertexFormatHandle format,
+                                       CustomPass pass);
+    /// Compiles one pipeline variant of a registered layout; returns
+    /// VK_NULL_HANDLE when its stem is empty or compilation fails.
+    VkPipeline BuildCustomFormatPipeline(VertexFormatHandle format,
+                                         const VertexLayoutDesc& desc,
+                                         CustomPass pass);
+    /// Compiles the variants the active render path draws with for every
+    /// registered format not prebuilt yet.
+    void PrebuildCustomFormatPipelines();
     /// Destroys every cached custom-format pipeline (all variants, all formats).
     void DestroyCustomFormatPipelines();
 

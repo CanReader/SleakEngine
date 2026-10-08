@@ -249,6 +249,8 @@ bool VulkanRenderer::CreateGBufferPipeline() {
 
 /// Compiles the skinned GBuffer shaders so skinned meshes write into the GBuffer.
 bool VulkanRenderer::CreateSkinnedGbufferPipeline() {
+    if (m_skinnedGbufferPipeline != VK_NULL_HANDLE) return true;
+
     // Load skinned vert + gbuffer frag (SPIR-V already on disk)
     VulkanShader* sh = new VulkanShader(device);
     if (!sh->compile("assets/shaders/skinned_shader.vert.spv",

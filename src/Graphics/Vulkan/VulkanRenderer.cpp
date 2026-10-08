@@ -128,8 +128,8 @@ bool VulkanRenderer::Initialize() {
     if (!CreateDefaultTexture())
         SLEAK_WARN("Failed to create default white texture for Vulkan");
 
-    if (!CreateGraphicsPipeline())
-        SLEAK_RETURN_ERR("Failed to create graphics pipeline!");
+    if (!CreateMainPipelineLayout())
+        SLEAK_RETURN_ERR("Failed to create graphics pipeline layout!");
 
     if (!CreateShadowLightUBOResources())
         SLEAK_WARN("Failed to create light UBO resources — dynamic lighting disabled");
@@ -145,6 +145,10 @@ bool VulkanRenderer::Initialize() {
         if (!CreateGBufferResources())
             SLEAK_WARN("Failed to create GBuffer resources — deferred rendering disabled");
     }
+
+    // Forward path
+    if (pipeline == VK_NULL_HANDLE && !CreateGraphicsPipeline())
+        SLEAK_RETURN_ERR("Failed to create graphics pipeline!");
 
     // Eagerly create bone UBO resources so set 1 is always bound at pass start.
     // Must happen after CreateDescriptorSetLayout() (boneDescriptorSetLayout is ready)
@@ -189,6 +193,7 @@ void VulkanRenderer::BeginRender() {
         ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
+    PrebuildCustomFormatPipelines();
 
     VkResult result;
 
@@ -1845,7 +1850,6 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
         if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
-        if (m_skinnedGbufferPipeline) { vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr); m_skinnedGbufferPipeline = VK_NULL_HANDLE; }
         DestroyCustomFormatPipelines();
         // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
         if (skyboxDescriptorPool) {
@@ -1860,7 +1864,6 @@ bool VulkanRenderer::CreateGBufferResources() {
         CreateSkyboxPipeline();
         CreateDebugLinePipeline();
         CreateSkinnedPipeline();
-        CreateSkinnedGbufferPipeline();
 
         m_gbufferResourcesCreated = true;
 
@@ -1885,6 +1888,8 @@ bool VulkanRenderer::CreateGBufferResources() {
             }
             m_skyboxDescriptorsWritten = true;
         }
+
+        PrebuildCustomFormatPipelines();
     }
 
     SLEAK_INFO("VulkanRenderer: Deferred GBuffer resources created ({}x{})",
