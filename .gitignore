@@ -29,7 +29,7 @@ bin/
 *.dll
 
 # Exception: vendored Vulkan SDK libraries needed for build
-!Engine/vendors/VulkanSdk/Lib/vulkan-1.lib
+!vendors/VulkanSdk/Lib/vulkan-1.lib
 
 # Executables
 *.exe
