@@ -43,12 +43,24 @@ public:
     VkImageView GetImageView() const { return m_imageView; }
     VkSampler GetSampler() const { return m_sampler; }
 
-    // Per-texture descriptor sets (one per swapchain image)
-    void SetDescriptorSets(std::vector<VkDescriptorSet> sets) { m_descriptorSets = std::move(sets); }
+    /// Takes ownership of per-swapchain-image descriptor sets allocated from
+    /// pool, releasing any sets the texture held before.
+    void SetDescriptorSets(std::vector<VkDescriptorSet> sets,
+                           VkDescriptorPool pool);
     const std::vector<VkDescriptorSet>& GetDescriptorSets() const { return m_descriptorSets; }
     bool HasDescriptorSets() const { return !m_descriptorSets.empty(); }
 
+    /// Stamps textures released from now on with the serial of the next
+    /// frame submission, the last one that may still reference them.
+    static void SetReleaseSerial(uint64_t serial);
+    /// Destroys released textures whose stamped submission has completed.
+    static void DestroyReleased(uint64_t completedSerial);
+    /// Destroys every released texture; the caller guarantees the GPU is idle.
+    static void DestroyAllReleased();
+
 private:
+    /// Hands the descriptor sets and GPU objects to the release queue so they
+    /// outlive any frame still in flight.
     void Cleanup();
     /// Writes this texture's image view/sampler into each of its per-frame descriptor sets.
     void UpdateDescriptorSets();
@@ -78,6 +90,7 @@ private:
     VkSampler m_sampler = VK_NULL_HANDLE;
 
     std::vector<VkDescriptorSet> m_descriptorSets;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
     mutable VkDescriptorSet m_imguiDescriptorSet = VK_NULL_HANDLE;
 
     uint32_t m_width = 0;

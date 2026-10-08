@@ -109,6 +109,7 @@ bool VulkanRenderer::CreateDescriptorPool() {
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
     poolInfo.maxSets = totalSets;
@@ -229,7 +230,7 @@ void VulkanRenderer::WriteTextureDescriptors(VulkanTexture* texture) {
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
     }
 
-    texture->SetDescriptorSets(std::move(sets));
+    texture->SetDescriptorSets(std::move(sets), descriptorPool);
 }
 
 /// Initializes ImGui and its Vulkan backend against the active render pass.

@@ -230,9 +230,11 @@ public:
     }
 
 private:
-    /// Compiles the skybox shaders and creates the skybox descriptor set and pipeline.
+    /// Compiles the skybox shaders on first use, sizes the skybox descriptor
+    /// sets to the swapchain image count, and creates the skybox pipeline.
     bool CreateSkyboxPipeline();
-    /// Compiles the skinned shaders and creates the forward skinned pipeline.
+    /// Compiles the skinned shaders on first use and creates the forward
+    /// skinned pipeline.
     bool CreateSkinnedPipeline();
 
     // Deferred rendering
@@ -301,8 +303,8 @@ private:
     /// Creates the layout shared by the forward, skybox, debug line, skinned,
     /// and shadow pipelines.
     bool CreateMainPipelineLayout();
-    /// Creates the main forward graphics pipeline, creating the shared
-    /// layout on first use.
+    /// Creates the main forward graphics pipeline, plus its layout and shader
+    /// on first use.
     bool CreateGraphicsPipeline();
     /// Creates the pipeline cache, seeded from disk when the saved blob was
     /// written by this device and driver.
@@ -418,6 +420,9 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
+    // Submission serial of the last frame recorded in each frame slot
+    std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> m_slotSerial{};
+    uint64_t m_submitSerial = 0;
     VulkanShader* simpleShader = nullptr;
     VkClearValue clearColor;
 

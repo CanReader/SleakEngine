@@ -200,6 +200,7 @@ void VulkanRenderer::BeginRender() {
     if (device && !inFlightFences.empty()) {
         vkWaitForFences(device, 1, &inFlightFences[currentFrame],
                         VK_TRUE, UINT64_MAX);
+        VulkanTexture::DestroyReleased(m_slotSerial[currentFrame]);
     }
     CollectGpuProfile();
 
@@ -592,6 +593,8 @@ void VulkanRenderer::EndRender() {
         SLEAK_ERROR("Failed to submit draw command buffer!");
     } else {
         MarkGpuFrameSubmitted();
+        m_slotSerial[currentFrame] = ++m_submitSerial;
+        VulkanTexture::SetReleaseSerial(m_submitSerial + 1);
     }
 
     // Present
@@ -1116,6 +1119,13 @@ void VulkanRenderer::Cleanup() {
 
     DestroyPipelineCache();
 
+    // Drain released textures
+    if (device) {
+        delete m_defaultTexture;
+        m_defaultTexture = nullptr;
+        VulkanTexture::DestroyAllReleased();
+    }
+
     // Destroy descriptor pool (frees descriptor sets too)
     if (descriptorPool) {
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
@@ -1285,12 +1295,6 @@ void VulkanRenderer::Cleanup() {
         renderPass = VK_NULL_HANDLE;
     }
 
-    // Destroy default texture
-    if (m_defaultTexture) {
-        delete m_defaultTexture;
-        m_defaultTexture = nullptr;
-    }
-
     // Destroy command pool (this will also free command buffers)
     if (commands) {
         vkDestroyCommandPool(device, commands, nullptr);
@@ -1442,6 +1446,10 @@ void VulkanRenderer::ApplyMSAAChange() {
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
         bImInitialized = false;
+    }
+    if (imguiDescriptorPool) {
+        vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
+        imguiDescriptorPool = VK_NULL_HANDLE;
     }
 
     // Cleanup swapchain-related resources
@@ -1851,14 +1859,6 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
         if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
         DestroyCustomFormatPipelines();
-        // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
-        if (skyboxDescriptorPool) {
-            vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
-            skyboxDescriptorPool = VK_NULL_HANDLE;
-        }
-        skyboxDescriptorSets.clear();
-        delete skyboxShader;
-        skyboxShader = nullptr;
 
         CreateGraphicsPipeline();
         CreateSkyboxPipeline();

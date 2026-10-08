@@ -9,6 +9,7 @@
 #include <fstream>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 #include "Core/Logger.hpp"
 
@@ -228,18 +229,20 @@ bool VulkanRenderer::CreateMainPipelineLayout() {
     return true;
 }
 
-/// Creates the main forward graphics pipeline, creating the shared layout
-/// on first use.
+/// Creates the main forward graphics pipeline, plus its layout and shader on
+/// first use.
 bool VulkanRenderer::CreateGraphicsPipeline() {
     if (pipeline != VK_NULL_HANDLE) return true;
     if (!CreateMainPipelineLayout()) return false;
 
-    simpleShader = new VulkanShader(device);
-    bool isShader =
-        simpleShader->compile("assets/shaders/default_shader");
-
-    if (!isShader)
-        SLEAK_RETURN_ERR("Cannot compile shaders!")
+    if (!simpleShader) {
+        simpleShader = new VulkanShader(device);
+        if (!simpleShader->compile("assets/shaders/default_shader")) {
+            delete simpleShader;
+            simpleShader = nullptr;
+            SLEAK_RETURN_ERR("Cannot compile shaders!")
+        }
+    }
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {
         simpleShader->GetVertexInfo(), simpleShader->GetFragInfo()};
@@ -526,52 +529,65 @@ bool VulkanRenderer::CreateFrameBuffer() {
     return true;
 }
 
-/// Compiles the skybox shaders and creates the skybox descriptor set and pipeline.
+/// Compiles the skybox shaders on first use, sizes the skybox descriptor sets
+/// to the swapchain image count, and creates the skybox pipeline.
 bool VulkanRenderer::CreateSkyboxPipeline() {
     // 1. Compile skybox shaders
-    skyboxShader = new VulkanShader(device);
-    if (!skyboxShader->compile("assets/shaders/skybox")) {
-        SLEAK_ERROR("VulkanRenderer: Failed to compile skybox shaders");
-        delete skyboxShader;
-        skyboxShader = nullptr;
-        return false;
+    if (!skyboxShader) {
+        skyboxShader = new VulkanShader(device);
+        if (!skyboxShader->compile("assets/shaders/skybox")) {
+            SLEAK_ERROR("VulkanRenderer: Failed to compile skybox shaders");
+            delete skyboxShader;
+            skyboxShader = nullptr;
+            return false;
+        }
     }
 
     // 2. Create skybox descriptor pool and sets (same layout as main)
     uint32_t imageCount =
         static_cast<uint32_t>(swapChainImages.size());
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = imageCount;
+    if (skyboxDescriptorSets.size() != imageCount) {
+        if (skyboxDescriptorPool) {
+            vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
+            skyboxDescriptorPool = VK_NULL_HANDLE;
+        }
+        skyboxDescriptorSets.clear();
 
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = imageCount;
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = imageCount;
 
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr,
-                                &skyboxDescriptorPool) != VK_SUCCESS) {
-        SLEAK_ERROR("VulkanRenderer: Failed to create skybox descriptor pool");
-        return false;
-    }
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.maxSets = imageCount;
 
-    std::vector<VkDescriptorSetLayout> layouts(imageCount,
-                                                descriptorSetLayout);
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr,
+                                   &skyboxDescriptorPool) != VK_SUCCESS) {
+            SLEAK_ERROR(
+                "VulkanRenderer: Failed to create skybox descriptor pool");
+            return false;
+        }
 
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = skyboxDescriptorPool;
-    allocInfo.descriptorSetCount = imageCount;
-    allocInfo.pSetLayouts = layouts.data();
+        std::vector<VkDescriptorSetLayout> layouts(imageCount,
+                                                   descriptorSetLayout);
 
-    skyboxDescriptorSets.resize(imageCount);
-    if (vkAllocateDescriptorSets(device, &allocInfo,
-                                  skyboxDescriptorSets.data()) !=
-        VK_SUCCESS) {
-        SLEAK_ERROR("VulkanRenderer: Failed to allocate skybox descriptor sets");
-        return false;
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = skyboxDescriptorPool;
+        allocInfo.descriptorSetCount = imageCount;
+        allocInfo.pSetLayouts = layouts.data();
+
+        std::vector<VkDescriptorSet> sets(imageCount);
+        if (vkAllocateDescriptorSets(device, &allocInfo, sets.data()) !=
+            VK_SUCCESS) {
+            SLEAK_ERROR(
+                "VulkanRenderer: Failed to allocate skybox descriptor sets");
+            return false;
+        }
+        skyboxDescriptorSets = std::move(sets);
     }
 
     // 3. Create skybox pipeline (same as main but with skybox shaders
@@ -717,12 +733,14 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
 bool VulkanRenderer::CreateDebugLinePipeline() {
     if (debugLinePipeline != VK_NULL_HANDLE) return true;
 
-    debugLineShader = new VulkanShader(device);
-    if (!debugLineShader->compile("assets/shaders/debug_line")) {
-        SLEAK_ERROR("VulkanRenderer: Failed to compile debug line shaders");
-        delete debugLineShader;
-        debugLineShader = nullptr;
-        return false;
+    if (!debugLineShader) {
+        debugLineShader = new VulkanShader(device);
+        if (!debugLineShader->compile("assets/shaders/debug_line")) {
+            SLEAK_ERROR("VulkanRenderer: Failed to compile debug line shaders");
+            delete debugLineShader;
+            debugLineShader = nullptr;
+            return false;
+        }
     }
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {
@@ -1205,15 +1223,20 @@ void VulkanRenderer::EndDebugLinePass() {
     }
 }
 
-/// Compiles the skinned shaders and creates the forward skinned pipeline.
+/// Compiles the skinned shaders on first use and creates the forward skinned
+/// pipeline.
 bool VulkanRenderer::CreateSkinnedPipeline() {
+    if (skinnedPipeline != VK_NULL_HANDLE) return true;
+
     // 1. Compile skinned shaders
-    skinnedShader = new VulkanShader(device);
-    if (!skinnedShader->compile("assets/shaders/skinned_shader")) {
-        SLEAK_ERROR("VulkanRenderer: Failed to compile skinned shaders");
-        delete skinnedShader;
-        skinnedShader = nullptr;
-        return false;
+    if (!skinnedShader) {
+        skinnedShader = new VulkanShader(device);
+        if (!skinnedShader->compile("assets/shaders/skinned_shader")) {
+            SLEAK_ERROR("VulkanRenderer: Failed to compile skinned shaders");
+            delete skinnedShader;
+            skinnedShader = nullptr;
+            return false;
+        }
     }
 
     // 2. Create pipeline (same as main but with skinned shaders)

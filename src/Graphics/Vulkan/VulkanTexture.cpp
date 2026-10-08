@@ -5,9 +5,71 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
+
+namespace {
+
+/// GPU objects of a destroyed texture, kept until no submitted frame can
+/// still reference them.
+struct ReleasedTexture {
+    VkDevice device = VK_NULL_HANDLE;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> sets;
+    VkSampler sampler = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    uint64_t serial = 0;
+};
+
+std::mutex g_releaseMutex;
+std::vector<ReleasedTexture> g_released;
+uint64_t g_releaseSerial = 1;
+
+/// Frees a released texture's descriptor sets and destroys its objects.
+void DestroyReleasedTexture(ReleasedTexture& entry) {
+    if (entry.pool != VK_NULL_HANDLE && !entry.sets.empty()) {
+        vkFreeDescriptorSets(entry.device, entry.pool,
+                             static_cast<uint32_t>(entry.sets.size()),
+                             entry.sets.data());
+    }
+    if (entry.sampler) vkDestroySampler(entry.device, entry.sampler, nullptr);
+    if (entry.view) vkDestroyImageView(entry.device, entry.view, nullptr);
+    if (entry.image) vkDestroyImage(entry.device, entry.image, nullptr);
+    if (entry.memory) vkFreeMemory(entry.device, entry.memory, nullptr);
+}
+
+}  // namespace
+
+/// Stamps textures released from now on with the serial of the next frame
+/// submission, the last one that may still reference them.
+void VulkanTexture::SetReleaseSerial(uint64_t serial) {
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    g_releaseSerial = serial;
+}
+
+/// Destroys released textures whose stamped submission has completed.
+void VulkanTexture::DestroyReleased(uint64_t completedSerial) {
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    auto done = std::stable_partition(
+        g_released.begin(), g_released.end(),
+        [&](const ReleasedTexture& e) { return e.serial > completedSerial; });
+    for (auto it = done; it != g_released.end(); ++it)
+        DestroyReleasedTexture(*it);
+    g_released.erase(done, g_released.end());
+}
+
+/// Destroys every released texture; the caller guarantees the GPU is idle.
+void VulkanTexture::DestroyAllReleased() {
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    for (ReleasedTexture& entry : g_released) DestroyReleasedTexture(entry);
+    g_released.clear();
+}
 
 VulkanTexture::VulkanTexture(VkDevice device,
                              VkPhysicalDevice physicalDevice,
@@ -274,6 +336,25 @@ uint64_t VulkanTexture::GetImGuiTextureID() const {
     return reinterpret_cast<uint64_t>(m_imguiDescriptorSet);
 }
 
+/// Takes ownership of per-swapchain-image descriptor sets allocated from
+/// pool, releasing any sets the texture held before.
+void VulkanTexture::SetDescriptorSets(std::vector<VkDescriptorSet> sets,
+                                      VkDescriptorPool pool) {
+    if (!m_descriptorSets.empty()) {
+        ReleasedTexture entry;
+        entry.device = m_device;
+        entry.pool = m_descriptorPool;
+        entry.sets = std::move(m_descriptorSets);
+        std::lock_guard<std::mutex> lock(g_releaseMutex);
+        entry.serial = g_releaseSerial;
+        g_released.push_back(std::move(entry));
+    }
+    m_descriptorSets = std::move(sets);
+    m_descriptorPool = pool;
+}
+
+/// Hands the descriptor sets and GPU objects to the release queue so they
+/// outlive any frame still in flight.
 void VulkanTexture::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
@@ -281,22 +362,25 @@ void VulkanTexture::Cleanup() {
         ImGui_ImplVulkan_RemoveTexture(m_imguiDescriptorSet);
         m_imguiDescriptorSet = VK_NULL_HANDLE;
     }
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-    }
-    if (m_imageView != VK_NULL_HANDLE) {
-        vkDestroyImageView(m_device, m_imageView, nullptr);
-        m_imageView = VK_NULL_HANDLE;
-    }
-    if (m_image != VK_NULL_HANDLE) {
-        vkDestroyImage(m_device, m_image, nullptr);
-        m_image = VK_NULL_HANDLE;
-    }
-    if (m_imageMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device, m_imageMemory, nullptr);
-        m_imageMemory = VK_NULL_HANDLE;
-    }
+    if (m_descriptorSets.empty() && m_sampler == VK_NULL_HANDLE &&
+        m_imageView == VK_NULL_HANDLE && m_image == VK_NULL_HANDLE &&
+        m_imageMemory == VK_NULL_HANDLE)
+        return;
+
+    ReleasedTexture entry;
+    entry.device = m_device;
+    entry.pool = m_descriptorPool;
+    entry.sets = std::move(m_descriptorSets);
+    entry.sampler = std::exchange(m_sampler, VK_NULL_HANDLE);
+    entry.view = std::exchange(m_imageView, VK_NULL_HANDLE);
+    entry.image = std::exchange(m_image, VK_NULL_HANDLE);
+    entry.memory = std::exchange(m_imageMemory, VK_NULL_HANDLE);
+    m_descriptorSets.clear();
+    m_descriptorPool = VK_NULL_HANDLE;
+
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    entry.serial = g_releaseSerial;
+    g_released.push_back(std::move(entry));
 }
 
 uint32_t VulkanTexture::FindMemoryType(
