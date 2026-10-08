@@ -285,7 +285,8 @@ private:
     bool CreateShadowLightUBOResources();
     /// Destroys the shadow map image, pipeline, render pass, and light UBO resources.
     void CleanupShadowResources();
-    /// Creates the Vulkan instance with validation layers when available.
+    /// Creates the Vulkan instance. The validation layer is on in Debug builds
+    /// or with --validate, and --syncval adds synchronization validation.
     bool InitVulkan();
     /// Creates the SDL-backed Vulkan presentation surface.
     bool CreateSurface();
@@ -322,7 +323,7 @@ private:
     bool CreateDefaultTexture();
     /// Allocates and writes a per-texture descriptor set for the given texture.
     void WriteTextureDescriptors(VulkanTexture* texture);
-    /// Registers the debug messenger callback for validation output.
+    /// Registers the debug messenger callback when the validation layer is on.
     bool SetupDebugMessenger();
 
     /// Destroys the swapchain, its image views, and framebuffers.
@@ -433,6 +434,7 @@ private:
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT =
         nullptr;
+    bool m_validationEnabled = false;
 
     Window* sdlWindow;
 

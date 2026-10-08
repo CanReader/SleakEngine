@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "Core/CommandLine.hpp"
 #include "Core/Logger.hpp"
 #include "SDL3/SDL_error.h"
 #ifdef PLATFORM_LINUX
@@ -22,7 +23,8 @@
 namespace Sleak {
     namespace RenderEngine {
 
-/// Creates the Vulkan instance with validation layers when available.
+/// Creates the Vulkan instance. The validation layer is on in Debug builds
+/// or with --validate, and --syncval adds synchronization validation.
 bool VulkanRenderer::InitVulkan() {
     try {
         instance = VK_NULL_HANDLE;
@@ -57,19 +59,22 @@ bool VulkanRenderer::InitVulkan() {
             requiredExtensions.push_back(VK_MVK_MOLTENVK_EXTENSION_NAME);
         #endif
 
-        // Always attempt to enable validation layers so GPU errors are
-        // reported via the debug messenger as SLEAK_ERROR messages rather
-        // than silent VK_ERROR_DEVICE_LOST crashes.  If the layer is not
-        // installed the instance still creates successfully (empty list).
+        // Validation layer gating
+        const bool syncValidation = CommandLine::HasFlag("--syncval");
+        bool wantValidation =
+            syncValidation || CommandLine::HasFlag("--validate");
+#ifdef _DEBUG
+        wantValidation = true;
+#endif
+        const char* desiredLayer = "VK_LAYER_KHRONOS_validation";
         std::vector<const char*> enabledLayers;
-        {
+        if (wantValidation) {
             uint32_t layerCount = 0;
             vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
             std::vector<VkLayerProperties> availableLayers(layerCount);
             vkEnumerateInstanceLayerProperties(&layerCount,
                                                 availableLayers.data());
 
-            const char* desiredLayer = "VK_LAYER_KHRONOS_validation";
             for (const auto& layer : availableLayers) {
                 if (strcmp(layer.layerName, desiredLayer) == 0) {
                     enabledLayers.push_back(desiredLayer);
@@ -81,6 +86,7 @@ bool VulkanRenderer::InitVulkan() {
                 SLEAK_WARN("VK_LAYER_KHRONOS_validation not available — GPU errors will not be reported");
             }
         }
+        m_validationEnabled = !enabledLayers.empty();
         if (enabledLayers.empty()) {
             auto it = std::find_if(
                 requiredExtensions.begin(), requiredExtensions.end(),
@@ -90,6 +96,41 @@ bool VulkanRenderer::InitVulkan() {
                 });
             if (it != requiredExtensions.end()) {
                 requiredExtensions.erase(it);
+            }
+        }
+
+        // Sync validation settings
+        const VkBool32 syncEnabled = VK_TRUE;
+        VkLayerSettingEXT syncSetting{desiredLayer, "validate_sync",
+                                      VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1,
+                                      &syncEnabled};
+        VkLayerSettingsCreateInfoEXT layerSettings{};
+        layerSettings.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT;
+        layerSettings.settingCount = 1;
+        layerSettings.pSettings = &syncSetting;
+        bool useLayerSettings = false;
+        if (m_validationEnabled && syncValidation) {
+            uint32_t layerExtCount = 0;
+            vkEnumerateInstanceExtensionProperties(desiredLayer, &layerExtCount,
+                                                   nullptr);
+            std::vector<VkExtensionProperties> layerExts(layerExtCount);
+            vkEnumerateInstanceExtensionProperties(desiredLayer, &layerExtCount,
+                                                   layerExts.data());
+            for (const auto& ext : layerExts) {
+                if (strcmp(ext.extensionName,
+                           VK_EXT_LAYER_SETTINGS_EXTENSION_NAME) == 0) {
+                    useLayerSettings = true;
+                    break;
+                }
+            }
+            if (useLayerSettings) {
+                requiredExtensions.push_back(
+                    VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+                SLEAK_INFO("Vulkan synchronization validation enabled");
+            } else {
+                SLEAK_WARN(
+                    "Vulkan synchronization validation needs "
+                    "VK_EXT_layer_settings, which this layer lacks");
             }
         }
 
@@ -120,8 +161,9 @@ bool VulkanRenderer::InitVulkan() {
         createInfo.ppEnabledLayerNames = enabledLayers.data();
 
         VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-        if (!enabledLayers.empty()) {
+        if (m_validationEnabled) {
             PopulateDebugMessengerCreateInfo(debugCreateInfo);
+            if (useLayerSettings) debugCreateInfo.pNext = &layerSettings;
             createInfo.pNext = &debugCreateInfo;
         }
 
@@ -327,8 +369,10 @@ VulkanRenderer::GetUniqueQueueCreateInfos() {
     return result;
 }
 
-/// Registers the debug messenger callback for validation output.
+/// Registers the debug messenger callback when the validation layer is on.
 bool VulkanRenderer::SetupDebugMessenger() {
+    if (!m_validationEnabled) return true;
+
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     PopulateDebugMessengerCreateInfo(createInfo);
 
