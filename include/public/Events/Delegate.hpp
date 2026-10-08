@@ -1,6 +1,7 @@
 #ifndef _DELEGATE_H_
 #define _DELEGATE_H_
 
+#include <Core/OSDef.hpp>
 #include <Utility/Container/List.hpp>
 #include <atomic>
 #include <cstdint>
@@ -49,6 +50,13 @@ namespace Sleak {
             std::tuple<Args...> storedArgs;  // Store by reference using forward_as_tuple
         };
 
+        /// Process-wide source of delegate handles. Exported so the engine
+        /// and every module built on it draw from one counter.
+        /// @ingroup events
+        struct ENGINE_API DelegateHandleCounter {
+            static inline std::atomic<uint64_t> next{0};
+        };
+
         // Specialized delegate for Event types
         /// Common base for EventDelegate<T> instantiations, so they can share a handler list.
         /// @ingroup events
@@ -60,8 +68,9 @@ namespace Sleak {
          /// Assigns a fresh process-unique ID, used to identify this delegate
          /// for unregistration.
          std::string GenerateID() {
-             static std::atomic<uint64_t> nextHandle{0};
-             handle = nextHandle.fetch_add(1, std::memory_order_relaxed) + 1;
+             handle = DelegateHandleCounter::next.fetch_add(
+                          1, std::memory_order_relaxed) +
+                      1;
              id = std::to_string(handle);
              return id;
          }
