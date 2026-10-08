@@ -298,9 +298,14 @@ bool VulkanRenderer::CreateDevice() {
     // Build unique queue create infos (no duplicates!)
     auto queueCreateInfos = GetUniqueQueueCreateInfos();
 
-    // Get supported features
+    // Enable only used features
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physicalDevice, &supported);
     VkPhysicalDeviceFeatures features{};
-    vkGetPhysicalDeviceFeatures(physicalDevice, &features);
+    features.samplerAnisotropy = supported.samplerAnisotropy;
+    features.fullDrawIndexUint32 = supported.fullDrawIndexUint32;
+    if (CommandLine::HasFlag("--validate"))
+        features.robustBufferAccess = supported.robustBufferAccess;
 
     // Query max MSAA sample count
     VkPhysicalDeviceProperties deviceProperties;
