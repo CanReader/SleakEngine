@@ -1,38 +1,39 @@
 #ifndef _OBJECT_H_
 #define _OBJECT_H_
 
+#include <Core/OSDef.hpp>
+#include <atomic>
 #include <cstdint>
 #include <string>
-#include <atomic>
 
 namespace Sleak {
     /// Base for anything needing a stable identity: a name and a
     /// process-unique, atomically assigned ID.
     /// @ingroup core
-    class Object {
-    public:
-     Object(const std::string& name = "Object")
-         : m_name(name),
-           m_uniqueID(s_nextUniqueID.fetch_add(1, std::memory_order_relaxed)) {}
+class ENGINE_API Object {
+   public:
+    Object(const std::string& name = "Object")
+        : m_name(name),
+          m_uniqueID(s_nextUniqueID.fetch_add(1, std::memory_order_relaxed)) {}
 
-     virtual ~Object() = default;
+    virtual ~Object() = default;
 
-     uint64_t GetUniqueID() const { return m_uniqueID; }
+    uint64_t GetUniqueID() const { return m_uniqueID; }
 
-     const std::string& GetName() const { return m_name; }
+    const std::string& GetName() const { return m_name; }
 
-     /// Name plus unique ID, for logs where names can repeat.
-     std::string GetDebugName() const {
-         return m_name + "-" + std::to_string(m_uniqueID);
-     }
+    /// Name plus unique ID, for logs where names can repeat.
+    std::string GetDebugName() const {
+        return m_name + "-" + std::to_string(m_uniqueID);
+    }
 
-        inline void SetName(const std::string& value) { m_name = value; }
+    inline void SetName(const std::string& value) { m_name = value; }
 
-    private:
-        std::string m_name;
-        uint64_t m_uniqueID;
-        static inline std::atomic<uint64_t> s_nextUniqueID = 0;
-    };
+   private:
+    std::string m_name;
+    uint64_t m_uniqueID;
+    static inline std::atomic<uint64_t> s_nextUniqueID = 0;
+};
 }
 
 #endif

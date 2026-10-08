@@ -74,12 +74,12 @@ if(MSVC)
 endif()
 
 # --- Build all vendor dependencies ---
-add_subdirectory(vendors/freeglut)
-add_subdirectory(vendors/SDL3)
-add_subdirectory(vendors/spdlog)
-add_subdirectory(vendors/json)
-add_subdirectory(vendors/yaml-cpp)
-add_subdirectory(vendors/assimp)
+add_subdirectory(vendors/freeglut SYSTEM)
+add_subdirectory(vendors/SDL3 SYSTEM)
+add_subdirectory(vendors/spdlog SYSTEM)
+add_subdirectory(vendors/json SYSTEM)
+add_subdirectory(vendors/yaml-cpp SYSTEM)
+add_subdirectory(vendors/assimp SYSTEM)
 
 # --- Find system packages ---
 find_package(OpenGL REQUIRED)
@@ -252,6 +252,21 @@ if(WIN32 OR USE_MINGW)
     )
 endif()
 
+# --- Warnings, only on engine code and not on vendored sources built in ---
+set(ENGINE_WARNING_SOURCES ${ENGINE_SOURCES})
+list(REMOVE_ITEM ENGINE_WARNING_SOURCES
+    src/Assets/stb_image_impl.cpp
+    src/Graphics/OpenGL/glad.c
+)
+if(MSVC)
+    set(ENGINE_WARNING_FLAGS /W4)
+else()
+    set(ENGINE_WARNING_FLAGS -Wall -Wextra -Wpedantic)
+endif()
+set_source_files_properties(${ENGINE_WARNING_SOURCES}
+    PROPERTIES COMPILE_OPTIONS "${ENGINE_WARNING_FLAGS}"
+)
+
 # --- Header files (for IDE source groups) ---
 file(GLOB_RECURSE ENGINE_PUBLIC_HEADERS "include/public/*.hpp")
 file(GLOB_RECURSE ENGINE_PRIVATE_HEADERS "include/private/*.hpp")
@@ -293,6 +308,13 @@ set_target_properties(Engine PROPERTIES
 )
 target_compile_features(Engine PUBLIC cxx_std_23)
 
+# --- Only ENGINE_API symbols are exported, matching the Windows DLL ---
+set_target_properties(Engine PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
 # --- Generated version header ---
 set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
 configure_file(
@@ -311,12 +333,16 @@ target_include_directories(Engine
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/public>
         $<BUILD_INTERFACE:${ENGINE_GENERATED_INCLUDE_DIR}>
-        $<BUILD_INTERFACE:${VENDOR_DIR}/spdlog/include>
-        $<BUILD_INTERFACE:${VENDOR_DIR}/json/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine>
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine/vendor>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include/private
+)
+target_include_directories(Engine SYSTEM
+    PUBLIC
+        $<BUILD_INTERFACE:${VENDOR_DIR}/spdlog/include>
+        $<BUILD_INTERFACE:${VENDOR_DIR}/json/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine/vendor>
+    PRIVATE
         ${Vulkan_INCLUDE_DIR}
         ${OPENGL_INCLUDE_DIR}
         ${VENDOR_DIR}/imgui
