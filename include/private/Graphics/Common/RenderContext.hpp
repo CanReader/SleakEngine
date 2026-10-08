@@ -57,12 +57,22 @@ enum class DepthCompare {
             // Rendering commands
             /// Non-indexed draw from the currently bound vertex buffer.
             virtual void Draw(uint32_t vertexCount) = 0;
+            /// Non-indexed draw starting at firstVertex.
+            virtual void Draw(uint32_t vertexCount, uint32_t firstVertex) = 0;
             /// Indexed draw from the currently bound vertex/index buffers.
             virtual void DrawIndexed(uint32_t indexCount) = 0;
+            /// Indexed draw from firstIndex, adding baseVertex to each index.
+            virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                     int32_t baseVertex) = 0;
             /// Non-indexed instanced draw.
             virtual void DrawInstance(uint32_t instanceCount, uint32_t vertexPerInstance) = 0;
             /// Indexed instanced draw.
             virtual void DrawIndexedInstance(uint32_t instanceCount, uint32_t indexPerInstance) = 0;
+            /// Indexed instanced draw from firstIndex, adding baseVertex.
+            virtual void DrawIndexedInstance(uint32_t instanceCount,
+                                             uint32_t indexPerInstance,
+                                             uint32_t firstIndex,
+                                             int32_t baseVertex) = 0;
 
             // State management
             virtual void SetRenderFace(RenderFace face) = 0;

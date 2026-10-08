@@ -73,8 +73,7 @@ namespace Sleak {
             }
 
             RefPtr<Component> newComponent = RefPtr<T>(new T(this, std::forward<Args>(args)...));
-            if (bIsInitialized) newComponent->Initialize();
-            if (m_isActive && bIsInitialized) newComponent->OnEnable();
+            if (bIsInitialized) InitializeComponent(newComponent.get());
             Components.add(std::move(newComponent));
         }
 
@@ -117,8 +116,9 @@ namespace Sleak {
             return GetComponent<T>() != nullptr;
         }
 
-        /// Initializes the object and its components; called once before the first Update.
+        /// Initializes the object and its components; repeat calls no-op.
         virtual void Initialize();
+        bool IsInitialized() const { return bIsInitialized; }
         virtual void Update(float deltaTime);
         virtual void FixedUpdate(float fixedDeltaTime);
         virtual void LateUpdate(float deltaTime);
@@ -169,6 +169,8 @@ namespace Sleak {
 
         /// Calls OnDestroy() on and drops every attached component.
         void DestroyComponents();
+        /// Initializes a component once, then enables it if active.
+        void InitializeComponent(Component* component);
     };
 }
 

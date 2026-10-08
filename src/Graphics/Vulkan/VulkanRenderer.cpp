@@ -599,10 +599,12 @@ bool VulkanRenderer::CustomFormatDrawsSuppressed() const {
 }
 
 /// Issues a non-indexed draw call and updates the vertex/triangle counters.
-void VulkanRenderer::Draw(uint32_t vertexCount) {
+void VulkanRenderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
+
+void VulkanRenderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
     if (!bFrameStarted) return;
     if (CustomFormatDrawsSuppressed()) return;
-    vkCmdDraw(command, vertexCount, 1, 0, 0);
+    vkCmdDraw(command, vertexCount, 1, firstVertex, 0);
     if (!m_shadowPassActive) {
         DrawnVertices += vertexCount;
         DrawnTriangles += vertexCount / 3;
@@ -611,9 +613,14 @@ void VulkanRenderer::Draw(uint32_t vertexCount) {
 
 /// Issues an indexed draw call and updates the vertex/triangle counters.
 void VulkanRenderer::DrawIndexed(uint32_t indexCount) {
+    DrawIndexed(indexCount, 0, 0);
+}
+
+void VulkanRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                 int32_t baseVertex) {
     if (!bFrameStarted) return;
     if (CustomFormatDrawsSuppressed()) return;
-    vkCmdDrawIndexed(command, indexCount, 1, 0, 0, 0);
+    vkCmdDrawIndexed(command, indexCount, 1, firstIndex, baseVertex, 0);
     if (!m_shadowPassActive) {
         DrawnVertices += indexCount;
         DrawnTriangles += indexCount / 3;
@@ -631,9 +638,17 @@ void VulkanRenderer::DrawInstance(uint32_t instanceCount,
 /// Issues an instanced, indexed draw call.
 void VulkanRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                           uint32_t indexPerInstance) {
+    DrawIndexedInstance(instanceCount, indexPerInstance, 0, 0);
+}
+
+void VulkanRenderer::DrawIndexedInstance(uint32_t instanceCount,
+                                         uint32_t indexPerInstance,
+                                         uint32_t firstIndex,
+                                         int32_t baseVertex) {
     if (!bFrameStarted) return;
     if (CustomFormatDrawsSuppressed()) return;
-    vkCmdDrawIndexed(command, indexPerInstance, instanceCount, 0, 0, 0);
+    vkCmdDrawIndexed(command, indexPerInstance, instanceCount, firstIndex,
+                     baseVertex, 0);
 }
 
 /// Stores the cull face for the next pipeline rebuild (Vulkan state is baked).

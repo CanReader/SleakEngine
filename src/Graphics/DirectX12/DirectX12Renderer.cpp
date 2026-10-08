@@ -886,14 +886,21 @@ void DirectX12Renderer::Resize(uint32_t width, uint32_t height) {
     SLEAK_INFO("DirectX 12 resized to {}x{}", width, height);
 }
 
-void DirectX12Renderer::Draw(uint32_t vertexCount) {
-    commandList->DrawInstanced(vertexCount, 1, 0, 0);
+void DirectX12Renderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
+
+void DirectX12Renderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
+    commandList->DrawInstanced(vertexCount, 1, firstVertex, 0);
     DrawnVertices += vertexCount;
     DrawnTriangles += vertexCount / 3;
 }
 
 void DirectX12Renderer::DrawIndexed(uint32_t indexCount) {
-    commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+    DrawIndexed(indexCount, 0, 0);
+}
+
+void DirectX12Renderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                    int32_t baseVertex) {
+    commandList->DrawIndexedInstanced(indexCount, 1, firstIndex, baseVertex, 0);
     DrawnVertices += indexCount;
     DrawnTriangles += indexCount / 3;
 }
@@ -907,8 +914,15 @@ void DirectX12Renderer::DrawInstance(uint32_t instanceCount,
 
 void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
                                              uint32_t indexPerInstance) {
-    commandList->DrawIndexedInstanced(indexPerInstance, instanceCount, 0,
-                                      0, 0);
+    DrawIndexedInstance(instanceCount, indexPerInstance, 0, 0);
+}
+
+void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
+                                            uint32_t indexPerInstance,
+                                            uint32_t firstIndex,
+                                            int32_t baseVertex) {
+    commandList->DrawIndexedInstanced(indexPerInstance, instanceCount,
+                                      firstIndex, baseVertex, 0);
     DrawnVertices += indexPerInstance * instanceCount;
     DrawnTriangles += (indexPerInstance / 3) * instanceCount;
 }

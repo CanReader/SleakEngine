@@ -94,9 +94,9 @@ namespace Sleak {
         Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
         Quaternion rotation = Quaternion();
         Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
-        TransformMatrix* Transform;
+        TransformMatrix* Transform = nullptr;
 
-    private:
+       private:
         RefPtr<RenderEngine::BufferBase> ConstantBuffer;
 
         /// Rebuilds the transform matrix and pushes it to the GPU constant buffer.
