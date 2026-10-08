@@ -92,7 +92,6 @@ private:
     static void ProcessDeferredCleanup(uint64_t completedValue);
 
    private:
-
     // Smart pointers for proper resource management
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
     ID3D12CommandQueue* m_commandQueue = nullptr; // non-owning, for upload execution

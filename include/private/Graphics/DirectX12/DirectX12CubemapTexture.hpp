@@ -56,7 +56,8 @@ public:
  // Set shared SRV heap slot (called by renderer during creation)
  void SetSharedSrvGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle) {
      m_srvGpuHandle = handle;
-     m_usesSharedHeap = true; }
+     m_usesSharedHeap = true;
+ }
     // Create SRV directly into an externally-provided CPU handle (cube SRV)
     void CreateSRVIntoHandle(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
