@@ -5,19 +5,22 @@
 #ifndef _DIRECTX12RENDERER_H
 #define _DIRECTX12RENDERER_H
 
-#include "Graphics/Common/Renderer.hpp"
+#include <backends/imgui_impl_dx12.h>
+#include <d3d12.h>
+#include <d3dcompiler.h>
+#include <dxgi1_4.h>
+#include <imgui.h>
+#include <wrl/client.h>
+
+#include <Core/Window.hpp>
+
 #include "Graphics/Common/RenderContext.hpp"
+#include "Graphics/Common/Renderer.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
 #include "Graphics/DirectX12/DirectX12Buffer.hpp"
 #include "Graphics/DirectX12/DirectX12Shader.hpp"
 #include "Graphics/DirectX12/DirectX12Texture.hpp"
-#include <Core/Window.hpp>
-#include <d3d12.h>
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
-#include <wrl/client.h>
-#include <imgui.h>
-#include <backends/imgui_impl_dx12.h>
+#include "Graphics/DirectX12/DirectX12UploadRing.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -184,6 +187,9 @@ private:
     /// Builds the line-topology PSO used for debug line rendering.
     bool CreateDebugLinePipelineState();
 
+    // Transient per-frame constant data (per-draw shadow transforms)
+    DirectX12UploadRing m_uploadRing;
+
     // Light/fog constant buffer (persistently-mapped upload heap)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lightUBO;
     void* m_lightUBOMapped = nullptr;
@@ -200,9 +206,7 @@ private:
     float                                          m_lightVP[16] = {};
     float                                          m_pendingLightVP[16] = {};
     bool                                           m_hasPendingLightVP = false;
-    bool                                           m_inShadowPass = false;
-    Microsoft::WRL::ComPtr<ID3D12Resource>          m_shadowTransformCB;
-    void*                                          m_shadowTransformMapped = nullptr;
+    bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
     Microsoft::WRL::ComPtr<ID3D12PipelineState>    m_shadowPassPSO;
     Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob; // saved for shadow PSO
