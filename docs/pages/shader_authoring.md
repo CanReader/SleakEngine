@@ -69,34 +69,39 @@ The output name keeps the full source name and appends `.spv`, so
 `foo.vert` becomes `foo.vert.spv`, not `foo.spv`. Getting this wrong
 produces a file the loader never looks for.
 
-`.spv` files are committed to the repository. They are build outputs living
-in the source tree, which is unusual but deliberate: it keeps a checkout
-runnable on Vulkan without the Vulkan SDK installed.
+`.spv` files are committed to the repository, but only as a fallback that
+keeps a checkout runnable on Vulkan without the Vulkan SDK installed. A
+build with `glslc` never reads or writes them. CI fails when a change to a
+Vulkan `.vert` or `.frag` lands without its `.spv`, unless the edit compiles
+to the same code (a comment), so recompile and commit the `.spv` with every
+GLSL edit.
 
 ### The engine's CompileShaders target
 
-The engine's `CMakeLists.txt` looks for `glslc`, and when it finds it,
-globs `assets/shaders/*.vert` and `assets/shaders/*.frag`, filters out
-anything ending in `_gl.vert` or `_gl.frag`, and emits one custom command
-per shader that compiles it in place and copies the result into
-`bin/assets/shaders`. The commands are collected into an `ALL` target named
-`CompileShaders`, and `Engine` depends on it, so it runs before the library
-links on every default build.
+The engine's `CMakeLists.txt` globs `assets/shaders/*.vert` and
+`assets/shaders/*.frag` with `CONFIGURE_DEPENDS`, filters out anything ending
+in `_gl.vert` or `_gl.frag`, and emits one custom command per shader that
+compiles it into `<build>/Engine/shaders`. The commands are collected into an
+`ALL` target named `CompileShaders`, and `Engine` depends on it.
 
-Three limits are worth knowing before you rely on it:
+Staging depends on how the engine is built:
+
+- **Standalone.** The compiled `.spv` are copied into `bin/assets/shaders`.
+- **Through `add_subdirectory`.** Once the consuming project is configured,
+  every executable that links `Engine` directly gets a
+  `<target>_EngineSpirv` target that copies the compiled `.spv` into
+  `assets/shaders` next to the executable. It runs after the executable and
+  its own asset copy, so a stale committed `.spv` copied by the game never
+  overwrites the fresh one.
+
+Two limits are worth knowing before you rely on it:
 
 - **Engine scope only.** The glob is rooted at the engine's own
   `assets/shaders`. A game's shader folder is invisible to it. Games compile
   their own shaders through their own script or target.
-- **No `CONFIGURE_DEPENDS`.** The glob is evaluated at configure time, so a
-  newly added engine shader needs a CMake re-run before the build sees it.
-  Editing an existing shader is tracked correctly and recompiles on the next
-  build.
-- **Silent when `glslc` is absent.** Without the compiler the target is never
-  created at all, and the build prints only
-  `glslc not found, SPIR-V shaders will not be auto-compiled` at configure
-  time. Every `.spv` then stays at whatever revision was committed, which
-  looks exactly like a shader edit that had no effect.
+- **Fallback when `glslc` is absent.** Configure warns and stages the
+  committed `.spv` instead, so GLSL edits have no effect until `glslc` is
+  installed. If a shader has no committed `.spv` either, configure fails.
 
 ### Game shader folders
 
