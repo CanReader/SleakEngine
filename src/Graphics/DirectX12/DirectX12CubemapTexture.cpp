@@ -2,24 +2,28 @@
 
 #ifdef PLATFORM_WIN
 
-#include <Core/Logger.hpp>
 #include <stb_image.h>
-#include <cstring>
-#include <cmath>
+
+#include <Core/Logger.hpp>
+#include <Graphics/DirectX12/DirectX12Buffer.hpp>
+#include <Graphics/DirectX12/DirectX12UploadContext.hpp>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <utility>
 #include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
 
 DirectX12CubemapTexture::DirectX12CubemapTexture(
-    ID3D12Device* device, ID3D12CommandQueue* commandQueue)
-    : m_device(device), m_commandQueue(commandQueue) {}
+    ID3D12Device* device, ID3D12CommandQueue* commandQueue,
+    DirectX12UploadContext* uploader)
+    : m_device(device), m_commandQueue(commandQueue), m_uploader(uploader) {}
 
 DirectX12CubemapTexture::~DirectX12CubemapTexture() {
-    m_uploadBuffer.Reset();
-    m_srvHeap.Reset();
-    m_texture.Reset();
+    DirectX12Buffer::DeferCleanup(std::move(m_srvHeap));
+    DirectX12Buffer::DeferCleanup(std::move(m_texture));
 }
 
 bool DirectX12CubemapTexture::LoadCubemap(
@@ -216,43 +220,19 @@ bool DirectX12CubemapTexture::CreateCubemapFromFaces(
     m_device->GetCopyableFootprints(&texDesc, 0, 6, 0, footprints, numRows,
                                      rowSizeInBytes, &totalBytes);
 
-    // Create upload buffer
-    D3D12_HEAP_PROPERTIES uploadHeapProps = {};
-    uploadHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-    uploadHeapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    uploadHeapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-    uploadHeapProps.CreationNodeMask = 1;
-    uploadHeapProps.VisibleNodeMask = 1;
-
-    D3D12_RESOURCE_DESC uploadDesc = {};
-    uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    uploadDesc.Alignment = 0;
-    uploadDesc.Width = totalBytes;
-    uploadDesc.Height = 1;
-    uploadDesc.DepthOrArraySize = 1;
-    uploadDesc.MipLevels = 1;
-    uploadDesc.Format = DXGI_FORMAT_UNKNOWN;
-    uploadDesc.SampleDesc.Count = 1;
-    uploadDesc.SampleDesc.Quality = 0;
-    uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    uploadDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    hr = m_device->CreateCommittedResource(
-        &uploadHeapProps, D3D12_HEAP_FLAG_NONE, &uploadDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-        IID_PPV_ARGS(&m_uploadBuffer));
-
-    if (FAILED(hr)) {
-        SLEAK_ERROR(
-            "DirectX12CubemapTexture: Failed to create upload buffer");
-        return false;
+    DirectX12UploadContext local;
+    DirectX12UploadContext* uploader = m_uploader;
+    if (!uploader) {
+        if (!local.Initialize(m_device, m_commandQueue)) return false;
+        uploader = &local;
     }
 
-    // Map and copy data for all 6 faces
-    BYTE* mapped = nullptr;
-    hr = m_uploadBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
-    if (FAILED(hr)) {
-        SLEAK_ERROR("DirectX12CubemapTexture: Failed to map upload buffer");
+    ID3D12Resource* staging = nullptr;
+    BYTE* mapped =
+        static_cast<BYTE*>(uploader->AllocateStaging(totalBytes, &staging));
+    if (!mapped) {
+        SLEAK_ERROR(
+            "DirectX12CubemapTexture: Failed to allocate staging memory");
         return false;
     }
 
@@ -267,20 +247,7 @@ bool DirectX12CubemapTexture::CreateCubemapFromFaces(
         }
     }
 
-    m_uploadBuffer->Unmap(0, nullptr);
-
-    // Create command allocator and list for the upload
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> cmdAllocator;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> cmdList;
-
-    hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                           IID_PPV_ARGS(&cmdAllocator));
-    if (FAILED(hr)) return false;
-
-    hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                      cmdAllocator.Get(), nullptr,
-                                      IID_PPV_ARGS(&cmdList));
-    if (FAILED(hr)) return false;
+    ID3D12GraphicsCommandList* cmdList = uploader->GetCommandList();
 
     // Copy each face from upload buffer to texture
     for (UINT face = 0; face < 6; face++) {
@@ -290,7 +257,7 @@ bool DirectX12CubemapTexture::CreateCubemapFromFaces(
         dst.SubresourceIndex = face;
 
         D3D12_TEXTURE_COPY_LOCATION src = {};
-        src.pResource = m_uploadBuffer.Get();
+        src.pResource = staging;
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         src.PlacedFootprint = footprints[face];
 
@@ -309,11 +276,7 @@ bool DirectX12CubemapTexture::CreateCubemapFromFaces(
         D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     cmdList->ResourceBarrier(1, &barrier);
 
-    cmdList->Close();
-
-    ID3D12CommandList* ppCmdLists[] = {cmdList.Get()};
-    m_commandQueue->ExecuteCommandLists(1, ppCmdLists);
-    WaitForUpload();
+    if (uploader == &local) local.Flush();
 
     // Create SRV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
@@ -344,24 +307,6 @@ bool DirectX12CubemapTexture::CreateCubemapFromFaces(
         m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
     return true;
-}
-
-void DirectX12CubemapTexture::WaitForUpload() {
-    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
-    HRESULT hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-                                        IID_PPV_ARGS(&fence));
-    if (FAILED(hr)) return;
-
-    HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (!event) return;
-
-    m_commandQueue->Signal(fence.Get(), 1);
-    if (fence->GetCompletedValue() < 1) {
-        fence->SetEventOnCompletion(1, event);
-        WaitForSingleObject(event, INFINITE);
-    }
-
-    CloseHandle(event);
 }
 
 bool DirectX12CubemapTexture::LoadFromMemory(const void* data, uint32_t width,
