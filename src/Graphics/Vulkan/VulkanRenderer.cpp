@@ -1619,24 +1619,19 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
         cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmdBuf, &cmdBeginInfo);
 
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_shadowImage;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &barrier);
+        // Clear to far depth
+        VkClearValue clear{};
+        clear.depthStencil = {1.0f, 0};
+        VkRenderPassBeginInfo clearPass{};
+        clearPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        clearPass.renderPass = m_shadowRenderPass;
+        clearPass.framebuffer = m_shadowFramebuffer;
+        clearPass.renderArea.extent = {m_shadowMapResolution,
+                                       m_shadowMapResolution};
+        clearPass.clearValueCount = 1;
+        clearPass.pClearValues = &clear;
+        vkCmdBeginRenderPass(cmdBuf, &clearPass, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdEndRenderPass(cmdBuf);
 
         vkEndCommandBuffer(cmdBuf);
 
