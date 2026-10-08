@@ -39,7 +39,7 @@ public:
     /// Routes bind() through the renderer so pass-specific PSOs are respected.
     void SetRenderer(DirectX12Renderer* renderer);
 
-private:
+   private:
     /// Compiles one HLSL entry point/profile via D3DCompileFromFile into bytecode.
     bool compileShader(const std::string& filePath,
                       const std::string& entryPoint,

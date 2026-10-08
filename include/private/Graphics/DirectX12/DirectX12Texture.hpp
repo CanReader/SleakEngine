@@ -16,41 +16,42 @@ class DirectX12UploadContext;
 /// D3D12 2D texture: default-heap resource with an upload-heap staging path and shared-SRV-heap support.
 class ENGINE_API DirectX12Texture : public Texture {
 public:
-    /// Uploads go through the shared uploader when given, else they block.
-    DirectX12Texture(ID3D12Device* device,
-                     ID3D12CommandQueue* commandQueue,
-                     ID3D12GraphicsCommandList* commandList = nullptr,
-                     DirectX12UploadContext* uploader = nullptr);
-    ~DirectX12Texture() override;
+ /// Uploads go through the shared uploader when given, else they block.
+ DirectX12Texture(ID3D12Device* device, ID3D12CommandQueue* commandQueue,
+                  ID3D12GraphicsCommandList* commandList = nullptr,
+                  DirectX12UploadContext* uploader = nullptr);
+ ~DirectX12Texture() override;
 
-    /// Uploads raw pixel data as a new D3D12 texture resource.
-    bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
-                        TextureFormat format) override;
-    /// Decodes an image file and uploads it as a new D3D12 texture resource.
-    bool LoadFromFile(const std::string& filePath) override;
+ /// Uploads raw pixel data as a new D3D12 texture resource.
+ bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
+                     TextureFormat format) override;
+ /// Decodes an image file and uploads it as a new D3D12 texture resource.
+ bool LoadFromFile(const std::string& filePath) override;
 
-    void Bind(uint32_t slot = 0) const override;
-    void Unbind() const override;
+ void Bind(uint32_t slot = 0) const override;
+ void Unbind() const override;
 
-    void SetFilter(TextureFilter filter) override;
-    void SetWrapMode(TextureWrapMode wrapMode) override;
+ void SetFilter(TextureFilter filter) override;
+ void SetWrapMode(TextureWrapMode wrapMode) override;
 
-    uint32_t GetWidth() const override { return m_width; }
-    uint32_t GetHeight() const override { return m_height; }
-    TextureFormat GetFormat() const override { return m_format; }
-    TextureType GetType() const override { return TextureType::Texture2D; }
+ uint32_t GetWidth() const override { return m_width; }
+ uint32_t GetHeight() const override { return m_height; }
+ TextureFormat GetFormat() const override { return m_format; }
+ TextureType GetType() const override { return TextureType::Texture2D; }
 
-    uint64_t GetImGuiTextureID() const override { return m_srvGpuHandle.ptr; }
+ uint64_t GetImGuiTextureID() const override { return m_srvGpuHandle.ptr; }
 
-    ID3D12Resource* GetResource() const { return m_texture.Get(); }
+ ID3D12Resource* GetResource() const { return m_texture.Get(); }
 
-    // Bind SRV table to a command list for rendering (heap already set)
-    /// Binds this texture's SRV table at the given root parameter for a draw.
-    void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
-                           UINT rootParameterIndex) const;
+ // Bind SRV table to a command list for rendering (heap already set)
+ /// Binds this texture's SRV table at the given root parameter for a draw.
+ void BindToCommandList(ID3D12GraphicsCommandList* cmdList,
+                        UINT rootParameterIndex) const;
 
-    // Set shared SRV heap slot (called by renderer during creation)
-    void SetSharedSrvGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle) { m_srvGpuHandle = handle; m_usesSharedHeap = true; }
+ // Set shared SRV heap slot (called by renderer during creation)
+ void SetSharedSrvGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle) {
+     m_srvGpuHandle = handle;
+     m_usesSharedHeap = true; }
 
     // Create SRV directly into an externally-provided CPU handle (shared heap)
     bool CreateSRVIntoHandle(DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);

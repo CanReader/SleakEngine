@@ -1,9 +1,12 @@
 #include "../../include/private/Graphics/DirectX12/DirectX12Shader.hpp"
-#include "../../include/private/Graphics/DirectX12/DirectX12Renderer.hpp"
+
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
+
 #include <Core/Logger.hpp>
+
+#include "../../include/private/Graphics/DirectX12/DirectX12Renderer.hpp"
 
 namespace Sleak {
 namespace RenderEngine {

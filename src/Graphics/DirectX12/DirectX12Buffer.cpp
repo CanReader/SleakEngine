@@ -1,8 +1,10 @@
 #include "../../include/private/Graphics/DirectX12/DirectX12Buffer.hpp"
-#include "../../include/private/Graphics/DirectX12/DirectX12UploadContext.hpp"
+
 #include <Runtime/MeshData.hpp>
 #include <cassert>
 #include <cstring>
+
+#include "../../include/private/Graphics/DirectX12/DirectX12UploadContext.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -11,8 +13,7 @@ DirectX12Buffer::DirectX12Buffer(ID3D12Device* device,
                                  ID3D12CommandQueue* queue, size_t size,
                                  BufferType type,
                                  DirectX12UploadContext* uploader)
-    : BufferBase()
-{
+    : BufferBase() {
     assert(device != nullptr);
     m_device = device;
     m_commandQueue = queue;
@@ -23,11 +24,9 @@ DirectX12Buffer::DirectX12Buffer(ID3D12Device* device,
 }
 
 DirectX12Buffer::DirectX12Buffer(ID3D12Device* device, size_t size,
-                               D3D12_HEAP_TYPE heapType, D3D12_RESOURCE_STATES resourceState)
-    : BufferBase(),
-      m_heapType(heapType),
-      m_resourceState(resourceState)
-{
+                                 D3D12_HEAP_TYPE heapType,
+                                 D3D12_RESOURCE_STATES resourceState)
+    : BufferBase(), m_heapType(heapType), m_resourceState(resourceState) {
     assert(device != nullptr);
     m_device = device;
     Size = size;
@@ -45,8 +44,7 @@ DirectX12Buffer::DirectX12Buffer(DirectX12Buffer&& other) noexcept
       m_mappedData(other.m_mappedData),
       m_constantData(std::move(other.m_constantData)),
       m_frameSerial(other.m_frameSerial),
-      m_frameAddress(other.m_frameAddress)
-{
+      m_frameAddress(other.m_frameAddress) {
     other.m_commandQueue = nullptr;
     other.m_uploader = nullptr;
     other.m_mappedData = nullptr;
@@ -174,8 +172,7 @@ bool DirectX12Buffer::Initialize(const void* data, size_t size)
         return false;
     }
 
-    if (Type == BufferType::Constant)
-        m_constantData.assign(Size, 0);
+    if (Type == BufferType::Constant) m_constantData.assign(Size, 0);
 
     if (data) {
         // If we have initial data, update the buffer
@@ -192,20 +189,17 @@ bool DirectX12Buffer::Initialize(const void* data, size_t size)
     return true;
 }
 
-bool DirectX12Buffer::UploadToDefaultHeap(const void* data, size_t dataSize)
-{
+bool DirectX12Buffer::UploadToDefaultHeap(const void* data, size_t dataSize) {
     DirectX12UploadContext local;
     DirectX12UploadContext* uploader = m_uploader;
     if (!uploader) {
-        if (!local.Initialize(m_device.Get(), m_commandQueue))
-            return false;
+        if (!local.Initialize(m_device.Get(), m_commandQueue)) return false;
         uploader = &local;
     }
 
     ID3D12Resource* staging = nullptr;
     void* mapped = uploader->AllocateStaging(dataSize, &staging);
-    if (!mapped)
-        return false;
+    if (!mapped) return false;
     memcpy(mapped, data, dataSize);
 
     ID3D12GraphicsCommandList* commandList = uploader->GetCommandList();
@@ -242,8 +236,7 @@ bool DirectX12Buffer::UploadToDefaultHeap(const void* data, size_t dataSize)
 
     m_currentState = m_resourceState;
 
-    if (uploader == &local)
-        local.Flush();
+    if (uploader == &local) local.Flush();
     return true;
 }
 
@@ -257,7 +250,8 @@ void DirectX12Buffer::Cleanup()
         Unmap();
     }
 
-    // Defer GPU buffer destruction — may still be referenced by in-flight commands.
+    // Defer GPU buffer destruction — may still be referenced by in-flight
+    // commands.
     if (m_buffer) {
         DeferCleanup(std::move(m_buffer));
         m_buffer = nullptr;
@@ -311,11 +305,9 @@ void DirectX12Buffer::Update(void* data, size_t size)
 
     if (Type == BufferType::Constant) {
         // Store CPU shadow copy for transform CBs (needed by shadow pass)
-        if (size <= 128)
-            StoreCPUShadowCopy(data, size);
+        if (size <= 128) StoreCPUShadowCopy(data, size);
 
-        if (m_constantData.size() < size)
-            m_constantData.resize(size);
+        if (m_constantData.size() < size) m_constantData.resize(size);
         memcpy(m_constantData.data(), data, size);
         m_frameSerial = 0;
         m_frameAddress = 0;
@@ -323,11 +315,9 @@ void DirectX12Buffer::Update(void* data, size_t size)
     }
 
     if (m_heapType == D3D12_HEAP_TYPE_UPLOAD) {
-        if (!bIsMapped && !Map())
-            return;
+        if (!bIsMapped && !Map()) return;
         memcpy(m_mappedData, data, size);
-    }
-    else {
+    } else {
         UploadToDefaultHeap(data, size);
     }
 }
@@ -348,8 +338,7 @@ std::vector<DeferredObject> s_tagged;
 
 void DirectX12Buffer::DeferCleanup(
     Microsoft::WRL::ComPtr<ID3D12Pageable> object) {
-    if (object)
-        s_untagged.push_back(std::move(object));
+    if (object) s_untagged.push_back(std::move(object));
 }
 
 void DirectX12Buffer::TagDeferredCleanup(uint64_t fenceValue) {
@@ -365,4 +354,4 @@ void DirectX12Buffer::ProcessDeferredCleanup(uint64_t completedValue) {
 }
 
 } // namespace RenderEngine
-} // namespace Sleak
+}  // namespace Sleak

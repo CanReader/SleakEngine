@@ -2,10 +2,11 @@
 
 #ifdef PLATFORM_WIN
 
+#include <stb_image.h>
+
 #include <Core/Logger.hpp>
 #include <Graphics/DirectX12/DirectX12Buffer.hpp>
 #include <Graphics/DirectX12/DirectX12UploadContext.hpp>
-#include <stb_image.h>
 #include <algorithm>
 #include <cstring>
 #include <utility>

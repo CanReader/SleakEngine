@@ -1,20 +1,22 @@
 #include "../../include/private/Graphics/DirectX12/DirectX12Renderer.hpp"
 #ifdef PLATFORM_WIN
 
-#include <Core/Window.hpp>
 #include <SDL3/SDL_system.h>
-#include <Runtime/MeshData.hpp>
-#include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
+#include <d3dcompiler.h>
+
 #include <Core/Logger.hpp>
+#include <Core/Window.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/DirectX12/DirectX12Buffer.hpp>
+#include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
+#include <Runtime/MeshData.hpp>
+#include <codecvt>
 #include <cstdint>
 #include <cstring>
+#include <locale>
 #include <stdexcept>
 #include <string>
-#include <locale>
-#include <codecvt>
-#include <d3dcompiler.h>
-#include <Graphics/DirectX12/DirectX12Buffer.hpp>
+
 #include "Graphics/Common/RenderCommandQueue.hpp"
 
 namespace Sleak {
@@ -87,10 +89,14 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &DirectX12Renderer::CreateCubemapTextureFromPanorama);
     ResourceManager::RegisterCreateTextureFromMemory(
-        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t) -> Texture* {
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt,
+               uint32_t) -> Texture* {
             auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(),
                                              commandList.Get(), &m_uploader);
-            if (!tex->LoadFromMemory(data, w, h, fmt)) { delete tex; return nullptr; }
+            if (!tex->LoadFromMemory(data, w, h, fmt)) {
+                delete tex;
+                return nullptr;
+            }
             UINT slot = AllocateSRVSlot();
             tex->CreateSRVIntoHandle(DXGI_FORMAT_R8G8B8A8_UNORM,
                 GetSharedSrvCPUHandle(slot));

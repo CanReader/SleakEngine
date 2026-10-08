@@ -12,11 +12,10 @@
 #include <imgui.h>
 #include <wrl/client.h>
 
+#include <Core/Window.hpp>
 #include <cstdint>
 #include <utility>
 #include <vector>
-
-#include <Core/Window.hpp>
 
 #include "Graphics/Common/RenderContext.hpp"
 #include "Graphics/Common/Renderer.hpp"
@@ -112,7 +111,7 @@ public:
     /// Sets a shader's PSO unless a skybox or debug line pass owns it.
     void BindShaderPipeline(ID3D12PipelineState* pso);
 
-private:
+   private:
     /// Fixed-function state that, with the shader bytecode, identifies a PSO.
     struct PipelineKey {
         uint64_t vsHash = 0;
@@ -186,8 +185,8 @@ private:
 
     // Pipeline state (PSOs are owned by the cache)
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
-    std::vector<std::pair<PipelineKey,
-                          Microsoft::WRL::ComPtr<ID3D12PipelineState>>>
+    std::vector<
+        std::pair<PipelineKey, Microsoft::WRL::ComPtr<ID3D12PipelineState>>>
         m_pipelineCache;
     ID3D12PipelineState* m_defaultPipelineState = nullptr;
     ID3D12PipelineState* m_shaderPipeline = nullptr;
@@ -249,11 +248,11 @@ private:
     bool                                           m_hasPendingLightVP = false;
     bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
-    ID3D12PipelineState*                           m_shadowPassPSO = nullptr;
-    Microsoft::WRL::ComPtr<ID3DBlob>               m_shadowVSBlob;
-    bool                                           m_shadowVSCompiled = false;
+    ID3D12PipelineState* m_shadowPassPSO = nullptr;
+    Microsoft::WRL::ComPtr<ID3DBlob> m_shadowVSBlob;
+    bool m_shadowVSCompiled = false;
     // First shader VS, fallback for the shadow PSO
-    Microsoft::WRL::ComPtr<ID3DBlob>               m_cachedVSBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> m_cachedVSBlob;
     void SetLightVP(const float* mat) override;
     /// Allocates the shadow-pass depth buffer, DSV, and shared-heap SRV slot.
     bool CreateShadowMapResources();
