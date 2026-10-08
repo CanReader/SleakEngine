@@ -1172,6 +1172,13 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     // 5. Bind lighting pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline);
 
+    // IBL is not baked here
+    static bool iblWarned = false;
+    if (m_iblEnabled && !iblWarned) {
+        SLEAK_WARN("Vulkan: IBL is not implemented, using hemisphere ambient");
+        iblWarned = true;
+    }
+
     // 6. Bind descriptor sets:
     //    set 0: GBuffer samplers (RTs + shadow maps)
     //    set 1: DeferredCB (InvViewProj + screen size)
