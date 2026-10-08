@@ -169,8 +169,8 @@ bool VulkanRenderer::Initialize() {
 }
 
 /// Acquires a swapchain image and begins the shadow/GBuffer/forward passes
-/// for the RenderCommandQueue to record into. A failed acquire returns early,
-/// leaving deferred deletions unaged and the upload batch open.
+/// for the RenderCommandQueue to record into. A failed acquire returns early
+/// with only a UI frame open, leaving deletions unaged and uploads batched.
 void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
     m_inGeometryPass = false;
@@ -228,15 +228,27 @@ void VulkanRenderer::BeginRender() {
     // created and destroyed before a flush.
     VulkanBuffer::SetBatchingEnabled(true);
 
+    // UI frame for skipped frames
+    auto beginSkippedUIFrame = [this]() {
+        bImFrameActive = false;
+        if (!bImInitialized) return;
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        bImFrameActive = true;
+    };
+
     // Acquire the next image from the swapchain
     result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
                                     imageAvailableSemaphores[m_semaphoreIndex],
                                     VK_NULL_HANDLE, &CurrentFrameIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         RecreateSwapChain();
+        beginSkippedUIFrame();
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         SLEAK_ERROR("Failed to acquire swapchain image!");
+        beginSkippedUIFrame();
         return;
     }
 
@@ -480,9 +492,14 @@ void VulkanRenderer::BeginRender() {
 }
 
 /// Ends the active render pass, submits the command buffer, and presents.
+/// A skipped frame only closes its UI frame.
 void VulkanRenderer::EndRender() {
-    if (!bRender || !bFrameStarted)
+    if (!bRender || !bFrameStarted) {
+        // Skipped frame, no UI draw
+        if (bImFrameActive && bImInitialized) ImGui::EndFrame();
+        bImFrameActive = false;
         return;
+    }
 
     const bool deferredPath =
         m_gbufferResourcesCreated && m_deferredEnabled && m_bloomResourcesCreated;
