@@ -255,13 +255,13 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
         static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
 
-    // Vertex input — matches Sleak::Vertex (64 bytes)
+    // Vertex input (locations 0-4)
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
+    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
 
     // Position: float3 at offset 0
     attributeDescs[0].binding = 0;
@@ -292,18 +292,6 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
     attributeDescs[4].location = 4;
     attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescs[4].offset = offsetof(Vertex, u);
-
-    // BoneIDs: int4
-    attributeDescs[5].binding = 0;
-    attributeDescs[5].location = 5;
-    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SINT;
-    attributeDescs[5].offset = offsetof(Vertex, boneIDs);
-
-    // BoneWeights: float4
-    attributeDescs[6].binding = 0;
-    attributeDescs[6].location = 6;
-    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescs[6].offset = offsetof(Vertex, boneWeights);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
@@ -601,13 +589,13 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
         static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
 
-    // Same vertex layout as main pipeline
+    // Same vertex layout as main pipeline (locations 0-4)
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
+    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -632,16 +620,6 @@ bool VulkanRenderer::CreateSkyboxPipeline() {
     attributeDescs[4].location = 4;
     attributeDescs[4].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescs[4].offset = offsetof(Vertex, u);
-
-    attributeDescs[5].binding = 0;
-    attributeDescs[5].location = 5;
-    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SINT;
-    attributeDescs[5].offset = offsetof(Vertex, boneIDs);
-
-    attributeDescs[6].binding = 0;
-    attributeDescs[6].location = 6;
-    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescs[6].offset = offsetof(Vertex, boneWeights);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
@@ -765,14 +743,12 @@ bool VulkanRenderer::CreateDebugLinePipeline() {
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 7> attributeDescs{};
+    std::array<VkVertexInputAttributeDescription, 5> attributeDescs{};
     attributeDescs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, px)};
     attributeDescs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, nx)};
     attributeDescs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, tx)};
     attributeDescs[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, r)};
     attributeDescs[4] = {4, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)};
-    attributeDescs[5] = {5, 0, VK_FORMAT_R32G32B32A32_SINT, offsetof(Vertex, boneIDs)};
-    attributeDescs[6] = {6, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, boneWeights)};
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
