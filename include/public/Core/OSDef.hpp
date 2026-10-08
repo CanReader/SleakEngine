@@ -30,14 +30,14 @@
   #define PLATFORM_IOS
   #define OS "ios"
   #define WINDOW_SYSTEM "quartz"
-  #define SLEAK_API
+#define SLEAK_API
 
 /* Android devices (need to be defined before linux) */
 #elif defined(__ANDROID__)
   #define PLATFORM_ANDROID
   #define OS "android"
-  #define WINDOW_SYSTEM "surfaceflinger"  
-  #define SLEAK_API
+  #define WINDOW_SYSTEM "surfaceflinger"
+#define SLEAK_API
 
 /* Berkley Software Distribution */
 #elif defined(__FreeBSD__)
@@ -47,7 +47,7 @@
   #define PLATFORM_LINUX
   #define OS "linux"
   #define WINDOW_SYSTEM std::getenv("XDG_SESSION_TYPE")
-  #define SLEAK_API
+#define SLEAK_API
 
 #else
   #error "Undefined OS"
