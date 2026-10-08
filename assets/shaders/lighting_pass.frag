@@ -318,7 +318,9 @@ void main() {
             float NdLx = max(dot(N, Lx), 0.0);
             direct += uExtraColor[li].rgb * uExtraColor[li].a * NdLx;
         }
-        ambient = albedo * mix(groundAmbient, skyAmbient, hemisphere) * bakedAO;
+        // SSAO remapped like GL
+        float aoGL = bakedAO * (0.5 + 0.5 * ssao);
+        ambient = albedo * mix(groundAmbient, skyAmbient, hemisphere) * aoGL;
         Lo      = albedo * direct;
     }
 
