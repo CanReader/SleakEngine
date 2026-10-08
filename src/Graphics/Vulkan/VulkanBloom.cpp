@@ -609,6 +609,7 @@ void VulkanRenderer::RenderBloomPass() {
     //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
     // BLOOM_TRANSITION_COUNT = 1 + (MIP-1) + (MIP-1) = 11 for MIP=6.
     auto& setArray = m_bloomFilterSets[currentFrame];
+    BeginGpuPass(GpuPass::Bloom);
 
     // ---------- 1. Threshold / prefilter pass ----------
     //   Input: sceneHDR (already SHADER_READ_ONLY_OPTIMAL via forward RP finalLayout)
@@ -695,6 +696,7 @@ void VulkanRenderer::RenderBloomPass() {
         vkCmdDraw(command, 3, 1, 0, 0);
         vkCmdEndRenderPass(command);
     }
+    EndGpuPass(GpuPass::Bloom);
 }
 
 /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
@@ -748,6 +750,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     rp.renderArea.extent = scExtent;
     rp.clearValueCount   = 0;
 
+    BeginGpuPass(GpuPass::Tonemap);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomCompositePipeline);
@@ -767,12 +770,20 @@ void VulkanRenderer::RenderBloomCompositePass() {
     vkCmdDraw(command, 3, 1, 0, 0);
 
     // ImGui draws inside the composite pass, AFTER the HDR → LDR tonemap.
+    // Captures skip UI
+    const bool drawUI = bImFrameActive && m_capturePath.empty();
+    if (drawUI) {
+        EndGpuPass(GpuPass::Tonemap);
+        BeginGpuPass(GpuPass::UI);
+    }
     if (bImFrameActive) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
+        if (drawUI)
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
     }
 
     vkCmdEndRenderPass(command);
+    EndGpuPass(drawUI ? GpuPass::UI : GpuPass::Tonemap);
 }
 
 }  // namespace RenderEngine

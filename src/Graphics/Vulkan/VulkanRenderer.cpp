@@ -78,6 +78,8 @@ VulkanRenderer::~VulkanRenderer() {
 /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
 /// pipelines, and sync objects.
 bool VulkanRenderer::Initialize() {
+    m_captureMode = !CommandLine::GetValue("-capture").empty();
+
     if (!InitVulkan())
         SLEAK_RETURN_ERR("Failed to initialize Vulkan Instance!");
 
@@ -151,6 +153,8 @@ bool VulkanRenderer::Initialize() {
     if (!CreateSyncObjects())
         SLEAK_RETURN_ERR("Failed to synchronization objects of renderer!");
 
+    if (CommandLine::HasFlag("--gpuprofile")) CreateGpuProfiler();
+
     SetPerformanceCounter(true);
 
     SLEAK_INFO("Vulkan renderer has been initialized successfully!");
@@ -190,6 +194,7 @@ void VulkanRenderer::BeginRender() {
         vkWaitForFences(device, 1, &inFlightFences[currentFrame],
                         VK_TRUE, UINT64_MAX);
     }
+    CollectGpuProfile();
 
     // Clean up staging buffers from the previous use of this frame slot.
     // The fence wait above guarantees the GPU finished both the transfer
@@ -259,6 +264,7 @@ void VulkanRenderer::BeginRender() {
 
     bFrameStarted = true;
     m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
+    BeginGpuFrame();
 
     // Skip shadow pass if no cached draws — preserve previous frame's shadow map
     auto* shadowQueue = RenderCommandQueue::GetInstance();
@@ -277,6 +283,7 @@ void VulkanRenderer::BeginRender() {
         shadowPassInfo.clearValueCount = 1;
         shadowPassInfo.pClearValues = &shadowClear;
 
+        BeginGpuPass(GpuPass::Shadow);
         vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
 
@@ -313,6 +320,7 @@ void VulkanRenderer::BeginRender() {
         m_shadowPassActive = false;
 
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::Shadow);
     }
 
     // ---- Deferred path: begin GBuffer render pass ----
@@ -333,6 +341,7 @@ void VulkanRenderer::BeginRender() {
         gbufferPassInfo.clearValueCount   = GBUFFER_COUNT + 1;
         gbufferPassInfo.pClearValues      = gbufferClears;
 
+        BeginGpuPass(GpuPass::GBuffer);
         vkCmdBeginRenderPass(command, &gbufferPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
 
@@ -407,6 +416,7 @@ void VulkanRenderer::BeginRender() {
     passInfo.clearValueCount = clearValueCount;
     passInfo.pClearValues = clearValues;
 
+    BeginGpuPass(GpuPass::Forward);
     vkCmdBeginRenderPass(command, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -471,6 +481,7 @@ void VulkanRenderer::EndRender() {
     // end it now so we don't have a dangling render pass.
     if (m_gbufferResourcesCreated && m_deferredEnabled && m_inGeometryPass) {
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::GBuffer);
         m_inGeometryPass = false;
     }
 
@@ -486,6 +497,7 @@ void VulkanRenderer::EndRender() {
         rpBegin.renderArea.offset = {0, 0};
         rpBegin.renderArea.extent = scExtent;
         rpBegin.clearValueCount   = 0;
+        BeginGpuPass(GpuPass::Forward);
         vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
         m_forwardPassOpen = true;
     }
@@ -493,6 +505,7 @@ void VulkanRenderer::EndRender() {
     // Close the forward pass (HDR scene → SHADER_READ_ONLY_OPTIMAL via finalLayout).
     if (m_forwardPassOpen) {
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::Forward);
         m_forwardPassOpen = false;
     }
 
@@ -510,12 +523,22 @@ void VulkanRenderer::EndRender() {
         RenderBloomCompositePass();
     } else {
         // Forward (non-deferred) path — ImGui inside main render pass.
+        const bool drawUI = bImFrameActive && m_capturePath.empty();
+        if (drawUI) {
+            EndGpuPass(GpuPass::Forward);
+            BeginGpuPass(GpuPass::UI);
+        }
         if (bImFrameActive) {
             ImGui::Render();
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
+            if (drawUI)
+                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
         }
         vkCmdEndRenderPass(command);
+        EndGpuPass(drawUI ? GpuPass::UI : GpuPass::Forward);
     }
+
+    if (!m_capturePath.empty()) RecordFrameCaptureCopy();
+    EndGpuFrame();
 
     if (vkEndCommandBuffer(command) != VK_SUCCESS) {
         SLEAK_ERROR("Failed to end command buffer!");
@@ -558,6 +581,8 @@ void VulkanRenderer::EndRender() {
     if (vkQueueSubmit(graphicsQueue, 1, &submitInfo,
                        inFlightFences[currentFrame]) != VK_SUCCESS) {
         SLEAK_ERROR("Failed to submit draw command buffer!");
+    } else {
+        MarkGpuFrameSubmitted();
     }
 
     // Present
@@ -573,12 +598,16 @@ void VulkanRenderer::EndRender() {
 
     VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
 
+    // Capture pins the extent
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
-        presentResult == VK_SUBOPTIMAL_KHR) {
+        (presentResult == VK_SUBOPTIMAL_KHR && !m_captureMode)) {
         RecreateSwapChain();
-    } else if (presentResult != VK_SUCCESS) {
+    } else if (presentResult != VK_SUCCESS &&
+               presentResult != VK_SUBOPTIMAL_KHR) {
         SLEAK_ERROR("Failed to present render!");
     }
+
+    if (m_captureRecorded) FinishFrameCapture();
 
     // Reset per-frame deferred state flags
     m_forwardPassOpen = false;
@@ -1256,6 +1285,9 @@ void VulkanRenderer::Cleanup() {
         vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         debugMessenger = VK_NULL_HANDLE;
     }
+
+    CleanupGpuProfiler();
+    CleanupFrameCapture();
 
     // Drain any buffers freed during teardown, then destroy the VMA allocator
     // (it must outlive every vmaDestroyBuffer, and both precede vkDestroyDevice).

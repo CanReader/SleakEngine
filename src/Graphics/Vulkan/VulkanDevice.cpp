@@ -263,6 +263,8 @@ bool VulkanRenderer::CreateDevice() {
     // Query max MSAA sample count
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    SLEAK_INFO("Selected GPU: {} (driver {:#x})", deviceProperties.deviceName,
+               deviceProperties.driverVersion);
     VkSampleCountFlags counts = deviceProperties.limits.framebufferColorSampleCounts
                               & deviceProperties.limits.framebufferDepthSampleCounts;
     m_maxMsaaSampleCount = 1;

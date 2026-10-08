@@ -1124,6 +1124,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     // 1. End GBuffer render pass — transitions color RTs → SHADER_READ_ONLY,
     //    depth → DEPTH_STENCIL_READ_ONLY via finalLayout in CreateGBufferRenderPass
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::GBuffer);
     m_inGeometryPass = false;
     m_activeCustomFormat = 0;  // geometry pass is over; pipeline state doesn't survive across render passes
 
@@ -1147,6 +1148,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     rpBegin.clearValueCount   = 1;
     rpBegin.pClearValues      = &clearVal;
 
+    BeginGpuPass(GpuPass::Lighting);
     vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     // 4. Set viewport and scissor
@@ -1187,6 +1189,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 
     // 8. End lighting render pass
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::Lighting);
 
     // 9. Transition depth back to DEPTH_STENCIL_ATTACHMENT_OPTIMAL for forward pass
     VkImageMemoryBarrier depthBarrier{};
@@ -1219,6 +1222,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
     rpBegin.renderArea.extent = scExtent;
     rpBegin.clearValueCount   = 0;  // LOAD_OP — no clear needed
 
+    BeginGpuPass(GpuPass::Forward);
     vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport{};

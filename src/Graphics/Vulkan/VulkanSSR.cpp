@@ -554,6 +554,7 @@ void VulkanRenderer::RenderSSRPass() {
     rp.renderArea.extent = scExtent;
     rp.clearValueCount   = 0;  // DONT_CARE load — we write every pixel
 
+    BeginGpuPass(GpuPass::SSR);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ssrPipeline);
@@ -563,6 +564,7 @@ void VulkanRenderer::RenderSSRPass() {
                             m_ssrPipelineLayout, 0, 2, sets, 0, nullptr);
     vkCmdDraw(command, 3, 1, 0, 0);
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::SSR);
 }
 
 }  // namespace RenderEngine

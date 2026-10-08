@@ -67,6 +67,7 @@ private:
   bool bIsFullScreen = false;
   bool bShouldClose = false;
   bool m_imguiReady = false;
+  bool m_inputLocked = false;
   std::string WindowName;
 
   SDL_Window* SDLWindow = nullptr;

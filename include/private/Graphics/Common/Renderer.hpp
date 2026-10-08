@@ -7,6 +7,8 @@
 
 namespace Sleak {
 
+class Benchmark;
+
 namespace RenderEngine {
     
 /// Selects which graphics API a Renderer instance targets.
@@ -62,6 +64,18 @@ public:
 
     /// Returns the backend's command-recording interface.
     virtual RenderContext* GetContext() = 0;
+
+    /// Adds the backend's GPU timing columns to a benchmark session.
+    virtual void RegisterBenchmarkMetrics(Benchmark& bench) { (void)bench; }
+
+    /// Arms a readback of the next rendered frame, UI excluded, into a
+    /// binary PPM. Returns false when the backend cannot capture.
+    virtual bool RequestFrameCapture(const std::string& path) {
+        (void)path;
+        return false;
+    }
+    /// True while an armed frame capture has not been written yet.
+    virtual bool IsFrameCapturePending() const { return false; }
 
     inline RendererType GetType() const
     {

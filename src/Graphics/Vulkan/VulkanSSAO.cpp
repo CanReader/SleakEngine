@@ -860,6 +860,7 @@ void VulkanRenderer::RenderSSAOPasses() {
     rp.renderArea.extent = m_ssaoExtent;
     rp.clearValueCount   = 0;
 
+    BeginGpuPass(GpuPass::SSAO);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, m_ssaoExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ssaoPipeline);
@@ -879,6 +880,7 @@ void VulkanRenderer::RenderSSAOPasses() {
                             &m_ssaoBlurSets[currentFrame], 0, nullptr);
     vkCmdDraw(command, 3, 1, 0, 0);
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::SSAO);
 }
 
 }  // namespace RenderEngine

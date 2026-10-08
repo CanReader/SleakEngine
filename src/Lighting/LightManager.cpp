@@ -340,10 +340,14 @@ void LightManager::UpdateShadowData() {
     // nowhere else to stash time). Using a static Timer keeps this
     // self-contained and independent of Application state.
     static Sleak::Timer s_sceneClock;
+    static const bool s_fixedStep = !CommandLine::GetValue("-capture").empty();
+    static uint64_t s_sceneFrames = 0;
     ubo.CameraPos[0] = camPos.GetX();
     ubo.CameraPos[1] = camPos.GetY();
     ubo.CameraPos[2] = camPos.GetZ();
-    ubo.CameraPos[3] = s_sceneClock.Elapsed();
+    // Capture: frame-driven clock
+    ubo.CameraPos[3] = s_fixedStep ? static_cast<float>(s_sceneFrames++) / 60.0f
+                                   : s_sceneClock.Elapsed();
 
     // CURRENT lightVP — renderers stage SetLightVP and commit at BeginRender,
     // so this frame's shadow map IS rendered with this matrix. The old

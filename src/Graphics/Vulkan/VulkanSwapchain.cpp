@@ -12,6 +12,26 @@
 namespace Sleak {
     namespace RenderEngine {
 
+namespace {
+
+/// Short name of a present mode for logs.
+const char* PresentModeName(VkPresentModeKHR mode) {
+    switch (mode) {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR:
+            return "IMMEDIATE";
+        case VK_PRESENT_MODE_MAILBOX_KHR:
+            return "MAILBOX";
+        case VK_PRESENT_MODE_FIFO_KHR:
+            return "FIFO";
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+            return "FIFO_RELAXED";
+        default:
+            return "OTHER";
+    }
+}
+
+}  // namespace
+
 /// Creates the swapchain from the queried surface capabilities.
 bool VulkanRenderer::CreateSwapChain() {
     auto details = QuerySwapchain();
@@ -39,6 +59,11 @@ bool VulkanRenderer::CreateSwapChain() {
     info.imageArrayLayers = 1;
     info.presentMode = mode;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    m_swapchainTransferSrc =
+        m_captureMode &&
+        (details->caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    if (m_swapchainTransferSrc)
+        info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     uint32_t indices[] = {QueueIDs.GraphicsIndex, QueueIDs.PresentIndex};
 
@@ -70,6 +95,9 @@ bool VulkanRenderer::CreateSwapChain() {
     scImageFormat = format.format;
     scExtent = extent;
 
+    SLEAK_INFO("Swapchain: {}x{}, {} images, format {}, present mode {}",
+               extent.width, extent.height, scImageCount,
+               static_cast<int>(format.format), PresentModeName(mode));
     return true;
 }
 

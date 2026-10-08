@@ -219,6 +219,16 @@ public:
     /// Recreates the extent-dependent shadow map objects at the queued resolution.
     void ApplyShadowResolutionChange() override;
 
+    // Measurement
+    /// Adds per-pass GPU millisecond columns when --gpuprofile is on.
+    void RegisterBenchmarkMetrics(Benchmark& bench) override;
+    /// Arms a UI-free readback of the next presented frame into a binary PPM.
+    bool RequestFrameCapture(const std::string& path) override;
+    /// True while an armed capture has not been written yet.
+    bool IsFrameCapturePending() const override {
+        return !m_capturePath.empty();
+    }
+
 private:
     /// Compiles the skybox shaders and creates the skybox descriptor set and pipeline.
     bool CreateSkyboxPipeline();
@@ -931,6 +941,88 @@ private:
 
     /// Sets the dynamic viewport and scissor to fill the given extent. Defined in VulkanBloom.cpp (most call sites of the four post-effect TUs).
     static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
+
+    // ---- GPU timestamp profiler (--gpuprofile) ----
+    /// Frame passes bracketed by timestamp pairs, in log-table order.
+    enum class GpuPass : uint8_t {
+        Shadow,
+        GBuffer,
+        SSAO,
+        Lighting,
+        Forward,
+        TAA,
+        SSR,
+        Bloom,
+        Tonemap,
+        UI,
+        Count
+    };
+    static constexpr uint32_t GPU_PASS_COUNT =
+        static_cast<uint32_t>(GpuPass::Count);
+    static constexpr uint32_t GPU_ROW_OTHER = GPU_PASS_COUNT;
+    static constexpr uint32_t GPU_ROW_TOTAL = GPU_PASS_COUNT + 1;
+    static constexpr uint32_t GPU_ROW_COUNT = GPU_PASS_COUNT + 2;
+    static constexpr uint32_t GPU_MAX_PAIRS = 16;
+    static constexpr uint32_t GPU_QUERIES_PER_FRAME = 2 + 2 * GPU_MAX_PAIRS;
+
+    /// Timestamp pairs recorded into one frame-in-flight slot of the pool.
+    struct GpuProfileSlot {
+        std::array<GpuPass, GPU_MAX_PAIRS> pairPass{};
+        uint32_t pairCount = 0;
+        bool pairOpen = false;
+        bool recording = false;
+        bool submitted = false;
+    };
+
+    VkQueryPool m_gpuQueryPool = VK_NULL_HANDLE;
+    bool m_gpuProfilerEnabled = false;
+    double m_gpuTickNs = 0.0;
+    uint64_t m_gpuTickMask = 0;
+    std::array<GpuProfileSlot, MAX_FRAMES_IN_FLIGHT> m_gpuSlots{};
+    std::array<double, GPU_ROW_COUNT> m_gpuSumMs{};
+    std::array<float, GPU_ROW_COUNT> m_gpuMaxMs{};
+    std::array<uint32_t, GPU_ROW_COUNT> m_gpuRuns{};
+    std::array<float, GPU_ROW_COUNT> m_gpuLastMs{};
+    uint32_t m_gpuWindowFrames = 0;
+    Timer m_gpuWindowTimer;
+
+    /// Creates the timestamp query pool; leaves profiling off when the
+    /// graphics queue has no timestamp support.
+    bool CreateGpuProfiler();
+    /// Destroys the timestamp query pool.
+    void CleanupGpuProfiler();
+    /// Folds this slot's finished timestamps into the running window and
+    /// logs the table once the window elapses. Call after the slot's fence.
+    void CollectGpuProfile();
+    /// Resets this slot's queries and stamps the frame start.
+    void BeginGpuFrame();
+    /// Closes any pass left open and stamps the frame end.
+    void EndGpuFrame();
+    /// Flags this slot's queries for readback on its next fence wait.
+    void MarkGpuFrameSubmitted();
+    /// Stamps the start of a pass.
+    void BeginGpuPass(GpuPass pass);
+    /// Stamps the end of the pass opened by the matching BeginGpuPass.
+    void EndGpuPass(GpuPass pass);
+    /// Logs the averaged per-pass table for the current window.
+    void LogGpuProfile(float seconds) const;
+
+    // ---- Frame capture (-capture) ----
+    bool m_captureMode = false;
+    bool m_swapchainTransferSrc = false;
+    std::string m_capturePath;
+    bool m_captureRecorded = false;
+    VkBuffer m_captureBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_captureMemory = VK_NULL_HANDLE;
+    VkExtent2D m_captureExtent = {0, 0};
+    VkFormat m_captureFormat = VK_FORMAT_UNDEFINED;
+
+    /// Records the swapchain-image-to-buffer copy for an armed capture.
+    void RecordFrameCaptureCopy();
+    /// Waits for the captured frame, writes the PPM, and disarms the capture.
+    void FinishFrameCapture();
+    /// Frees the capture readback buffer.
+    void CleanupFrameCapture();
 };
 
 }  // namespace RenderEngine

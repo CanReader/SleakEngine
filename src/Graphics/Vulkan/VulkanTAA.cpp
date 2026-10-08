@@ -441,6 +441,7 @@ void VulkanRenderer::RenderTAAPass() {
 
     const uint32_t writeIdx = static_cast<uint32_t>(m_taaFrameIdx % 2);
     const uint32_t readIdx  = 1u - writeIdx;
+    BeginGpuPass(GpuPass::TAA);
 
     // ---- 1. Depth barrier: DEPTH_STENCIL_ATTACHMENT → READ_ONLY ----
     // (SSR will skip its own depth barrier since TAA already handles it)
@@ -578,6 +579,7 @@ void VulkanRenderer::RenderTAAPass() {
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 2, toRead);
     }
+    EndGpuPass(GpuPass::TAA);
 
     // Advance ping-pong for next frame
     m_taaFrameIdx++;
