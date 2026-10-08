@@ -298,6 +298,8 @@ private:
     bool CreateSwapChain();
     /// Rebuilds the swapchain and its dependents after resize or resolution change.
     bool RecreateSwapChain();
+    /// True when the surface wants a different extent than the swapchain.
+    bool SurfaceExtentChanged();
     /// Creates an image view for each swapchain image.
     bool CreateImageViews();
     /// Creates the layout shared by the forward, skybox, debug line, skinned,
@@ -372,7 +374,7 @@ private:
     VkPresentModeKHR ChoosePresentMode(
         const std::vector<VkPresentModeKHR>& modes);
     /// Clamps the window size to the surface's supported extent.
-    VkExtent2D ChooseExtend(SwapchainDetails details);
+    VkExtent2D ChooseExtend(const VkSurfaceCapabilitiesKHR& caps);
 
     /// Picks the first supported depth-stencil format from the candidate list.
     VkFormat FindDepthFormat();

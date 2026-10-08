@@ -43,7 +43,7 @@ bool VulkanRenderer::CreateSwapChain() {
 
     auto format = ChooseFormat(details->formats);
     auto mode = ChoosePresentMode(details->presentModes);
-    auto extent = ChooseExtend(details.value());
+    auto extent = ChooseExtend(details->caps);
 
     uint32_t imageCount = details->caps.minImageCount + 1;
     if (details->caps.maxImageCount > 0 &&
@@ -439,10 +439,9 @@ VkPresentModeKHR VulkanRenderer::ChoosePresentMode(
 
 /// Clamps the window size to the surface's supported extent.
 // Fixed: clamp height using height, not width
-VkExtent2D VulkanRenderer::ChooseExtend(SwapchainDetails details) {
-    if (details.caps.currentExtent.width !=
-        std::numeric_limits<uint32_t>::max())
-        return details.caps.currentExtent;
+VkExtent2D VulkanRenderer::ChooseExtend(const VkSurfaceCapabilitiesKHR& caps) {
+    if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max())
+        return caps.currentExtent;
 
     int width, height;
     SDL_GetWindowSizeInPixels(sdlWindow->GetSDLWindow(), &width, &height);
@@ -451,16 +450,25 @@ VkExtent2D VulkanRenderer::ChooseExtend(SwapchainDetails details) {
                                 static_cast<uint32_t>(height)};
 
     actualExtent.width =
-        std::clamp(actualExtent.width,
-                   details.caps.minImageExtent.width,
-                   details.caps.maxImageExtent.width);
+        std::clamp(actualExtent.width, caps.minImageExtent.width,
+                   caps.maxImageExtent.width);
 
     actualExtent.height =
-        std::clamp(actualExtent.height,
-                   details.caps.minImageExtent.height,
-                   details.caps.maxImageExtent.height);
+        std::clamp(actualExtent.height, caps.minImageExtent.height,
+                   caps.maxImageExtent.height);
 
     return actualExtent;
+}
+
+/// True when the surface now wants a different extent than the swapchain
+/// has. A failed query keeps the current swapchain.
+bool VulkanRenderer::SurfaceExtentChanged() {
+    VkSurfaceCapabilitiesKHR caps{};
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
+                                                  &caps) != VK_SUCCESS)
+        return false;
+    const VkExtent2D extent = ChooseExtend(caps);
+    return extent.width != scExtent.width || extent.height != scExtent.height;
 }
 
 }

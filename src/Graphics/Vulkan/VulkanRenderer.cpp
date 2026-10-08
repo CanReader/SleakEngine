@@ -612,7 +612,8 @@ void VulkanRenderer::EndRender() {
 
     // Capture pins the extent
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
-        (presentResult == VK_SUBOPTIMAL_KHR && !m_captureMode)) {
+        (presentResult == VK_SUBOPTIMAL_KHR && !m_captureMode &&
+         SurfaceExtentChanged())) {
         RecreateSwapChain();
     } else if (presentResult != VK_SUCCESS &&
                presentResult != VK_SUBOPTIMAL_KHR) {
@@ -1334,9 +1335,9 @@ void VulkanRenderer::Cleanup() {
     }
 }
 
-/// Recreates the swapchain for the new window dimensions.
+/// Recreates the swapchain when the surface extent no longer matches it.
 void VulkanRenderer::Resize(uint32_t width, uint32_t height) {
-    if (device) {
+    if (device && (swapChain == VK_NULL_HANDLE || SurfaceExtentChanged())) {
         RecreateSwapChain();
     }
 }
