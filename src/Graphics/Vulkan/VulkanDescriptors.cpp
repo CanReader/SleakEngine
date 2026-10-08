@@ -493,37 +493,7 @@ bool VulkanRenderer::CreatePBRMaterialResources() {
         return false;
     }
 
-    // --- Descriptor Pool: samplers + UBOs, PBR_SET_COUNT ring sets ---
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
-    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[0].descriptorCount = 6 * PBR_SET_COUNT;
-    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[1].descriptorCount = 1 * PBR_SET_COUNT;
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    poolInfo.pPoolSizes    = poolSizes.data();
-    poolInfo.maxSets       = PBR_SET_COUNT;
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_pbrMaterialPool) != VK_SUCCESS) {
-        SLEAK_ERROR("PBR: Failed to create PBR material pool!");
-        return false;
-    }
-
-    // --- Allocate the full ring of descriptor sets ---
-    std::array<VkDescriptorSetLayout, PBR_SET_COUNT> layouts;
-    layouts.fill(m_pbrMaterialDSL);
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_pbrMaterialPool;
-    allocInfo.descriptorSetCount = PBR_SET_COUNT;
-    allocInfo.pSetLayouts        = layouts.data();
-    if (vkAllocateDescriptorSets(device, &allocInfo, m_pbrMaterialSets.data()) != VK_SUCCESS) {
-        SLEAK_ERROR("PBR: Failed to allocate PBR material descriptor sets!");
-        return false;
-    }
-
-    // --- Per-frame material params UBO: PBR_SETS_PER_FRAME slots, offset-addressed ---
+    // --- Material params UBO stride, then one starting chunk per frame ---
     VkPhysicalDeviceProperties props{};
     vkGetPhysicalDeviceProperties(physicalDevice, &props);
     VkDeviceSize minAlign = props.limits.minUniformBufferOffsetAlignment;
@@ -531,31 +501,8 @@ bool VulkanRenderer::CreatePBRMaterialResources() {
     if (minAlign > 0)
         stride = ((stride + minAlign - 1) / minAlign) * minAlign;
     m_pbrMaterialUBOStride = stride;
-    const VkDeviceSize uboSize = stride * PBR_SETS_PER_FRAME;
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkBufferCreateInfo bufInfo{};
-        bufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufInfo.size        = uboSize;
-        bufInfo.usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        if (vkCreateBuffer(device, &bufInfo, nullptr, &m_pbrMaterialCBBuffers[i]) != VK_SUCCESS) {
-            SLEAK_ERROR("PBR: Failed to create material UBO buffer {}!", i);
-            return false;
-        }
-
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(device, m_pbrMaterialCBBuffers[i], &memReqs);
-        VkMemoryAllocateInfo memInfo{};
-        memInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        memInfo.allocationSize  = memReqs.size;
-        memInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (vkAllocateMemory(device, &memInfo, nullptr, &m_pbrMaterialCBMemory[i]) != VK_SUCCESS) {
-            SLEAK_ERROR("PBR: Failed to allocate material UBO memory {}!", i);
-            return false;
-        }
-        vkBindBufferMemory(device, m_pbrMaterialCBBuffers[i], m_pbrMaterialCBMemory[i], 0);
-        vkMapMemory(device, m_pbrMaterialCBMemory[i], 0, uboSize, 0, &m_pbrMaterialCBMapped[i]);
+        if (!AddPBRMaterialChunk(i)) return false;
     }
 
     // --- GBuffer geometry pipeline layout ---
@@ -588,6 +535,95 @@ bool VulkanRenderer::CreatePBRMaterialResources() {
     return true;
 }
 
+/// Allocates a descriptor pool, PBR_SETS_PER_FRAME sets and a mapped UBO for
+/// one frame.
+bool VulkanRenderer::AddPBRMaterialChunk(uint32_t frame) {
+    PBRMaterialChunk chunk{};
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[0].descriptorCount = 6 * PBR_SETS_PER_FRAME;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[1].descriptorCount = 1 * PBR_SETS_PER_FRAME;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = PBR_SETS_PER_FRAME;
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &chunk.pool) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("PBR: Failed to create PBR material pool!");
+        return false;
+    }
+
+    std::array<VkDescriptorSetLayout, PBR_SETS_PER_FRAME> layouts;
+    layouts.fill(m_pbrMaterialDSL);
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = chunk.pool;
+    allocInfo.descriptorSetCount = PBR_SETS_PER_FRAME;
+    allocInfo.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(device, &allocInfo, chunk.sets.data()) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("PBR: Failed to allocate PBR material descriptor sets!");
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        return false;
+    }
+
+    const VkDeviceSize uboSize = m_pbrMaterialUBOStride * PBR_SETS_PER_FRAME;
+    VkBufferCreateInfo bufInfo{};
+    bufInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufInfo.size = uboSize;
+    bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(device, &bufInfo, nullptr, &chunk.ubo) != VK_SUCCESS) {
+        SLEAK_ERROR("PBR: Failed to create material UBO buffer for frame {}!",
+                    frame);
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        return false;
+    }
+
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(device, chunk.ubo, &memReqs);
+    VkMemoryAllocateInfo memInfo{};
+    memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memInfo.allocationSize = memReqs.size;
+    memInfo.memoryTypeIndex = FindMemoryType(
+        memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (vkAllocateMemory(device, &memInfo, nullptr, &chunk.memory) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("PBR: Failed to allocate material UBO memory for frame {}!",
+                    frame);
+        vkDestroyBuffer(device, chunk.ubo, nullptr);
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        return false;
+    }
+    vkBindBufferMemory(device, chunk.ubo, chunk.memory, 0);
+    vkMapMemory(device, chunk.memory, 0, uboSize, 0, &chunk.mapped);
+
+    m_pbrMaterialChunks[frame].push_back(chunk);
+    if (m_pbrMaterialChunks[frame].size() > 1)
+        SLEAK_INFO("PBR: frame {} material ring grew to {} sets", frame,
+                   m_pbrMaterialChunks[frame].size() * PBR_SETS_PER_FRAME);
+    return true;
+}
+
+/// Frees every chunk's UBO, memory and descriptor pool for all frames.
+void VulkanRenderer::DestroyPBRMaterialChunks() {
+    for (auto& chunks : m_pbrMaterialChunks) {
+        for (auto& chunk : chunks) {
+            if (chunk.mapped) vkUnmapMemory(device, chunk.memory);
+            if (chunk.ubo) vkDestroyBuffer(device, chunk.ubo, nullptr);
+            if (chunk.memory) vkFreeMemory(device, chunk.memory, nullptr);
+            if (chunk.pool)
+                vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        }
+        chunks.clear();
+    }
+}
+
 /// Writes a material's textures and params into its ring slot and binds it at set 0.
 void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     if (!bFrameStarted || !m_pbrMaterialResourcesCreated || !material) return;
@@ -598,10 +634,14 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
 
     // Claim this material's own ring slot (own set + own UBO region) so the
     // set is never rewritten while already bound by a prior draw this frame.
-    uint32_t slot = m_pbrMaterialSlot[currentFrame];
-    if (slot >= PBR_SETS_PER_FRAME) slot = PBR_SETS_PER_FRAME - 1;  // clamp (rare)
-    const uint32_t setIdx = currentFrame * PBR_SETS_PER_FRAME + slot;
-    const VkDeviceSize uboOffset = slot * m_pbrMaterialUBOStride;
+    const uint32_t slot = m_pbrMaterialSlot[currentFrame];
+    auto& chunks = m_pbrMaterialChunks[currentFrame];
+    const uint32_t chunkIdx = slot / PBR_SETS_PER_FRAME;
+    if (chunkIdx >= chunks.size() && !AddPBRMaterialChunk(currentFrame)) return;
+    PBRMaterialChunk& chunk = chunks[chunkIdx];
+    const uint32_t local = slot % PBR_SETS_PER_FRAME;
+    const VkDescriptorSet set = chunk.sets[local];
+    const VkDeviceSize uboOffset = local * m_pbrMaterialUBOStride;
 
     // Build PBRMaterialParams from Material properties
     PBRMaterialParams params{};
@@ -631,9 +671,9 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     params.hasAOMap          = material->HasAOTexture()        ? 1u : 0u;
     params.hasEmissiveMap    = material->HasEmissiveTexture()  ? 1u : 0u;
 
-    if (m_pbrMaterialCBMapped[currentFrame])
-        memcpy(static_cast<char*>(m_pbrMaterialCBMapped[currentFrame]) + uboOffset,
-               &params, sizeof(params));
+    if (chunk.mapped)
+        memcpy(static_cast<char*>(chunk.mapped) + uboOffset, &params,
+               sizeof(params));
 
     // Resolve textures — fall back to the default white 1×1 texture if absent
     auto resolveView = [&](Texture* tex) -> VkImageView {
@@ -664,14 +704,14 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     }
 
     VkDescriptorBufferInfo bufInfo{};
-    bufInfo.buffer = m_pbrMaterialCBBuffers[currentFrame];
+    bufInfo.buffer = chunk.ubo;
     bufInfo.offset = uboOffset;
     bufInfo.range  = sizeof(PBRMaterialParams);
 
     std::array<VkWriteDescriptorSet, 7> writes{};
     for (uint32_t i = 0; i < 6; ++i) {
         writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet          = m_pbrMaterialSets[setIdx];
+        writes[i].dstSet = set;
         writes[i].dstBinding      = i;
         writes[i].dstArrayElement = 0;
         writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -679,7 +719,7 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         writes[i].pImageInfo      = &imageInfos[i];
     }
     writes[6].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[6].dstSet          = m_pbrMaterialSets[setIdx];
+    writes[6].dstSet = set;
     writes[6].dstBinding      = 6;
     writes[6].dstArrayElement = 0;
     writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -689,8 +729,7 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     vkUpdateDescriptorSets(device, 7, writes.data(), 0, nullptr);
 
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_gbufferGeomLayout, 0, 1,
-                            &m_pbrMaterialSets[setIdx], 0, nullptr);
+                            m_gbufferGeomLayout, 0, 1, &set, 0, nullptr);
 
     // Advance the ring for the next material this frame.
     m_pbrMaterialSlot[currentFrame] = slot + 1;

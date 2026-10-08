@@ -304,6 +304,15 @@ public:
     bool m_taaEnabled = false;
     bool m_bloomEnabled = true;
 
+    float m_ssrMaxDistance = 20.0f;
+    float m_ssrThickness = 0.5f;
+    int m_ssrSteps = 20;
+    int m_ssrBinarySteps = 6;
+    float m_ssrRoughnessThreshold = 0.9f;
+    float m_taaBlendFactor = 0.1f;
+    float m_bloomRadius = 1.0f;
+    float m_bloomIntensity = 1.0f;
+
     // PCSS
     bool m_pcssEnabled = true;
 

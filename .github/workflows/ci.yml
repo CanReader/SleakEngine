@@ -120,6 +120,15 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ matrix.config }}
 
+      - name: Build leaves the source tree clean
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "The build modified or created tracked files."
+            exit 1
+          fi
+
       - name: Report ccache statistics
         if: runner.os == 'Linux'
         run: ccache -s | head -8
@@ -141,14 +150,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install glslc
         run: sudo apt-get update && sudo apt-get install -y glslc
 
-      # Byte comparison against the committed .spv is not usable here: glslc
-      # embeds its own generator version, so a different toolchain produces
-      # different bytes from identical source. What matters is that every
-      # shader still compiles and that none is missing its committed SPIR-V.
       - name: Every Vulkan shader compiles
         run: |
           cd assets/shaders
@@ -177,6 +184,52 @@ jobs:
           done
           [ $missing -eq 0 ] && echo "All Vulkan shaders have committed SPIR-V."
           exit $missing
+
+      - name: No SPIR-V without a source
+        run: |
+          cd assets/shaders
+          orphan=0
+          for spv in *.spv; do
+            [ -e "$spv" ] || continue
+            if [ ! -f "${spv%.spv}" ]; then
+              echo "Orphan SPIR-V with no source: $spv"
+              orphan=1
+            fi
+          done
+          exit $orphan
+
+      # The committed .spv are what a machine without glslc ships. glslc
+      # releases emit different code for the same source, so instead of a
+      # byte compare, any GLSL edit has to come with its recompiled .spv.
+      - name: Edited GLSL comes with its SPIR-V
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+          fi
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "No base commit to compare against."
+            exit 0
+          fi
+          BASE=$(git merge-base "$BASE" HEAD)
+          changed=$(git diff --name-only "$BASE" HEAD -- assets/shaders)
+          stale=0
+          for src in $(echo "$changed" | grep -E '\.(vert|frag)$' | grep -vE '_gl\.(vert|frag)$'); do
+            [ -f "$src" ] || continue
+            echo "$changed" | grep -qx "$src.spv" && continue
+            # Edits that compile to the same code (comments) need no new .spv
+            ext="${src##*.}"
+            if git show "$BASE:$src" > "/tmp/base.$ext" 2>/dev/null &&
+               glslc "/tmp/base.$ext" -o /tmp/base.spv &&
+               glslc "$src" -o /tmp/head.spv &&
+               cmp -s /tmp/base.spv /tmp/head.spv; then
+              continue
+            fi
+            echo "$src changed but $src.spv did not. Run: glslc $src -o $src.spv"
+            stale=1
+          done
+          exit $stale
 
   # An engine change that breaks the game should be caught at review time, not
   # by the game's nightly job the following morning.

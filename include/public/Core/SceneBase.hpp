@@ -29,7 +29,8 @@ namespace Sleak {
     namespace Physics { class PhysicsWorld; }
 
     /// Non-templated scene interface: object ownership, state machine, and
-    /// per-frame update hooks. Game scenes derive from Scene, not this directly.
+    /// per-frame update hooks. Game scenes derive from Scene, not this
+    /// directly.
     ///
     /// SceneBase defines what every scene can do regardless of subclass:
     /// hold objects, move through the SceneState machine, and answer
@@ -42,9 +43,10 @@ namespace Sleak {
     /// object (and its children) for deletion at the end of the frame,
     /// which is the safe choice while iterating.
     ///
-    /// Objects added to the scene are registered with the LightManager if
-    /// they report IsLight(), and their colliders are registered with the
-    /// PhysicsWorld, hierarchy included.
+    /// Children of an added object that were never added themselves are
+    /// owned by their parent and belong to the scene through it. Lights and
+    /// colliders anywhere in that hierarchy are registered with the
+    /// LightManager and PhysicsWorld, and the queries below search it too.
     ///
     /// @code{.cpp}
     /// // Destroy safely from inside an update
@@ -90,7 +92,7 @@ namespace Sleak {
         // Initialization
         /// Runs once before the scene's first Begin()/Update().
         virtual bool Initialize();
-        /// Activates every owned object; runs once after Initialize().
+        /// Activates every owned object; runs once per Load().
         virtual void Begin() = 0;
 
         // Update loops
@@ -112,7 +114,7 @@ namespace Sleak {
         void Load();
         /// Deactivates if active, calls OnUnload(), and destroys all owned objects.
         void Unload();
-        /// Marks the scene active and calls OnActivate().
+        /// Marks the scene active, calls OnActivate(), then Begin() once.
         void Activate();
         /// Marks the scene inactive and calls OnDeactivate().
         void Deactivate();
@@ -124,19 +126,19 @@ namespace Sleak {
         // Object management — scene takes ownership of added objects
         /// Takes ownership of object, registering it with lighting and physics as needed.
         virtual void AddObject(GameObject* object);
-        /// Unregisters and deletes object immediately.
-        /// Cancels a queued DestroyObject() on the same object.
+        /// Unregisters and deletes object and its whole hierarchy immediately.
+        /// Cancels a queued DestroyObject() on anything it deletes.
         virtual void RemoveObject(GameObject* object);
         /// Queues an object for destruction; actually freed on the next ProcessPendingDestroy().
         void DestroyObject(GameObject* object);
         const List<GameObject*>& GetObjects() const { return Objects; }
 
         // Object queries
-        /// Linear search for the first object with a matching name.
+        /// First object with a matching name, children included.
         GameObject* FindObjectByName(const std::string& name);
-        /// Linear search for the object with a matching unique ID.
+        /// Object with a matching unique ID, children included.
         GameObject* FindObjectByID(uint64_t id);
-        /// Collects every object whose tag matches.
+        /// Collects every object whose tag matches, children included.
         List<GameObject*> FindObjectsByTag(const std::string& tag);
         size_t GetObjectCount() const { return Objects.GetSize(); }
 
@@ -160,6 +162,7 @@ namespace Sleak {
         SceneState state;
         bool bInitialized;
         bool bActive;
+        bool bHasBegun = false;
 
         List<GameObject*> Objects;
         List<GameObject*> m_pendingDestroy;

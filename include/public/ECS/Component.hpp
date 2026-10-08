@@ -77,10 +77,15 @@ namespace Sleak {
                 return owner;
             }
 
-        protected:
+            /// True once Initialize() has run and succeeded.
+            bool IsInitialized() const { return bIsInitialized; }
+
+           protected:
             GameObject* owner;
             bool bIsInitialized;
 
+           private:
+            friend class GameObject;
     };
 }
 

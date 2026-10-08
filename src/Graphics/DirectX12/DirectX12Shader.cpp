@@ -1,8 +1,12 @@
 #include "../../include/private/Graphics/DirectX12/DirectX12Shader.hpp"
+
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
+
 #include <Core/Logger.hpp>
+
+#include "../../include/private/Graphics/DirectX12/DirectX12Renderer.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -53,7 +57,10 @@ bool DirectX12Shader::compile(const std::string& vertPath,
 }
 
 void DirectX12Shader::bind() {
-    if (m_pipelineState && m_commandList) {
+    if (!m_pipelineState) return;
+    if (m_renderer) {
+        m_renderer->BindShaderPipeline(m_pipelineState.Get());
+    } else if (m_commandList) {
         m_commandList->SetPipelineState(m_pipelineState.Get());
     }
 }
@@ -76,6 +83,10 @@ ID3D12PipelineState* DirectX12Shader::GetPipelineState() const {
 
 void DirectX12Shader::SetCommandList(ID3D12GraphicsCommandList* cmdList) {
     m_commandList = cmdList;
+}
+
+void DirectX12Shader::SetRenderer(DirectX12Renderer* renderer) {
+    m_renderer = renderer;
 }
 
 bool DirectX12Shader::compileShader(const std::string& filePath,

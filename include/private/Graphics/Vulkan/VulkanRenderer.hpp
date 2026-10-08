@@ -95,14 +95,24 @@ public:
     // RenderContext interface
     /// Issues a non-indexed draw call and updates the vertex/triangle counters.
     virtual void Draw(uint32_t vertexCount) override;
+    /// Non-indexed draw starting at firstVertex.
+    virtual void Draw(uint32_t vertexCount, uint32_t firstVertex) override;
     /// Issues an indexed draw call and updates the vertex/triangle counters.
     virtual void DrawIndexed(uint32_t indexCount) override;
+    /// Indexed draw starting at firstIndex with a base vertex offset.
+    virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                             int32_t baseVertex) override;
     /// Issues an instanced, non-indexed draw call.
     virtual void DrawInstance(uint32_t instanceCount,
                               uint32_t vertexPerInstance) override;
     /// Issues an instanced, indexed draw call.
     virtual void DrawIndexedInstance(uint32_t instanceCount,
                                      uint32_t indexPerInstance) override;
+    /// Instanced indexed draw starting at firstIndex with a base vertex offset.
+    virtual void DrawIndexedInstance(uint32_t instanceCount,
+                                     uint32_t indexPerInstance,
+                                     uint32_t firstIndex,
+                                     int32_t baseVertex) override;
 
     /// Stores the cull face for the next pipeline rebuild (Vulkan state is baked).
     virtual void SetRenderFace(RenderFace face) override;
@@ -243,6 +253,10 @@ private:
     bool CreateDeferredCBResources();
     /// Creates the PBR material descriptor layout, pool, ring of sets, and GBuffer geometry pipeline layout.
     bool CreatePBRMaterialResources();
+    /// Appends one chunk of PBR material sets and UBO slots to a frame's ring.
+    bool AddPBRMaterialChunk(uint32_t frame);
+    /// Destroys every PBR material chunk of every frame.
+    void DestroyPBRMaterialChunks();
     /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and descriptor set.
     bool CreateIBLResources();
     /// Destroys all GBuffer, lighting, and forward transparent pass resources.
@@ -590,16 +604,19 @@ private:
     };
     // Per-frame RING of PBR material sets: each material drawn in a frame gets
     // its own set + its own UBO sub-region, so a set/region is never rewritten
-    // while already bound in the recording command buffer (UPDATE_AFTER_BIND VUID).
+    // while already bound in the recording command buffer (UPDATE_AFTER_BIND
+    // VUID). The ring grows by one chunk when a frame runs out of slots.
     static constexpr uint32_t PBR_SETS_PER_FRAME = 64;
-    static constexpr uint32_t PBR_SET_COUNT = MAX_FRAMES_IN_FLIGHT * PBR_SETS_PER_FRAME;
+    struct PBRMaterialChunk {
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, PBR_SETS_PER_FRAME> sets = {};
+        VkBuffer ubo = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+    };
     VkDescriptorSetLayout m_pbrMaterialDSL         = VK_NULL_HANDLE;
-    VkDescriptorPool      m_pbrMaterialPool        = VK_NULL_HANDLE;
-    // One params UBO per frame, sub-addressed by slot at m_pbrMaterialUBOStride.
-    std::array<VkBuffer,        MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBBuffers = {};
-    std::array<VkDeviceMemory,  MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMemory  = {};
-    std::array<void*,           MAX_FRAMES_IN_FLIGHT> m_pbrMaterialCBMapped  = {};
-    std::array<VkDescriptorSet, PBR_SET_COUNT>        m_pbrMaterialSets      = {};
+    std::array<std::vector<PBRMaterialChunk>, MAX_FRAMES_IN_FLIGHT>
+        m_pbrMaterialChunks;
     VkDeviceSize m_pbrMaterialUBOStride = 0;
     uint32_t m_pbrMaterialSlot[MAX_FRAMES_IN_FLIGHT] = {};
     bool m_pbrMaterialResourcesCreated = false;
