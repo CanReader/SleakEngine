@@ -45,11 +45,9 @@ bool VulkanRenderer::CreateHDRSceneResources() {
     info.format        = m_hdrSceneFormat;
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // TRANSFER_DST_BIT: TAA copies its resolved result back into hdrScene.
     // TRANSFER_SRC_BIT: MSAA resolve from the forward render pass.
     info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
                        | VK_IMAGE_USAGE_SAMPLED_BIT
-                       | VK_IMAGE_USAGE_TRANSFER_DST_BIT
                        | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     info.samples       = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
@@ -620,9 +618,10 @@ void VulkanRenderer::RenderBloomPass() {
     BeginGpuPass(GpuPass::Bloom);
 
     // ---------- 1. Threshold / prefilter pass ----------
-    //   Input: sceneHDR (already SHADER_READ_ONLY_OPTIMAL via forward RP finalLayout)
+    //   Input: scene color (TAA resolve or HDR scene, SHADER_READ_ONLY_OPTIMAL)
     //   Output: bloomMip[0]
-    WriteSingleImageSampler(device, setArray[0], m_hdrSceneView, m_bloomSampler,
+    WriteSingleImageSampler(device, setArray[0], PostSceneView(),
+                            m_bloomSampler,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     {
@@ -718,7 +717,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     VkDescriptorSet compSet = m_bloomCompositeSets[currentFrame];
     std::array<VkDescriptorImageInfo, 3> infos{};
     infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    infos[0].imageView   = m_hdrSceneView;
+    infos[0].imageView = PostSceneView();
     infos[0].sampler     = m_bloomSampler;
 
     infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

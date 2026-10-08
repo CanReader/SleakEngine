@@ -870,6 +870,8 @@ private:
     VkFramebuffer  m_taaFramebufs[2]  = {};
     VkSampler      m_taaSampler       = VK_NULL_HANDLE;
 
+    VkImageView m_taaResolvedView = VK_NULL_HANDLE;  // null if TAA is off
+
     VkDescriptorSetLayout m_taaInputDSL = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_taaUboDSL   = VK_NULL_HANDLE;
     VkDescriptorPool      m_taaPool     = VK_NULL_HANDLE;
@@ -893,8 +895,10 @@ private:
     void CleanupTAAResources();
     /// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
     void UpdateTAAUBO();
-    /// Resolves the current frame against TAA history and copies the result back into the HDR scene image.
+    /// Resolves the frame against TAA history into the ping-pong target.
     void RenderTAAPass();
+    /// HDR scene color for the post passes: the TAA resolve when TAA ran.
+    VkImageView PostSceneView() const;
 
     // Per-image "fallback content is valid" flags. Set true once the image is
     // primed (static black/white in SHADER_READ_ONLY) by either

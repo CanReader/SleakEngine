@@ -520,11 +520,11 @@ void VulkanRenderer::EndRender() {
     }
 
     if (deferredPath) {
-        // TAA: accumulate current HDR frame with history, write resolved result
-        // back into hdrScene. Also handles the depth barrier (ATTACHMENT → READ_ONLY)
-        // so SSR can skip its own barrier when TAA is enabled.
+        // TAA: accumulate current HDR frame with history into a ping-pong
+        // target that SSR, bloom and the composite read. Also handles the depth
+        // barrier (ATTACHMENT → READ_ONLY) so SSR can skip its own barrier.
         RenderTAAPass();
-        // Screen-space reflections — reads TAA-resolved hdrScene + GBuffer.
+        // Screen-space reflections — reads the TAA-resolved scene + GBuffer.
         RenderSSRPass();
         // Bloom pyramid generates the bloom result from the HDR scene.
         RenderBloomPass();

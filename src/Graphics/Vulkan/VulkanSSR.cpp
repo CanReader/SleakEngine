@@ -427,7 +427,7 @@ void VulkanRenderer::UpdateSSRDescriptors() {
         infos[3].imageView   = m_gbufferViews[0];
         infos[3].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
 
-        // sceneHDR — forward pass finalLayout is SHADER_READ_ONLY_OPTIMAL.
+        // sceneHDR — RenderSSRPass retargets it to the TAA resolve.
         infos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         infos[4].imageView   = m_hdrSceneView;
         infos[4].sampler     = m_ssrSampler;
@@ -546,6 +546,20 @@ void VulkanRenderer::RenderSSRPass() {
     m_ssrFallbackPrimed = false;
 
     UpdateSSRUBO();
+
+    // Scene input for this frame
+    VkDescriptorImageInfo sceneInfo{};
+    sceneInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    sceneInfo.imageView = PostSceneView();
+    sceneInfo.sampler = m_ssrSampler;
+    VkWriteDescriptorSet sceneWrite{};
+    sceneWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    sceneWrite.dstSet = m_ssrInputSets[currentFrame];
+    sceneWrite.dstBinding = 4;
+    sceneWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sceneWrite.descriptorCount = 1;
+    sceneWrite.pImageInfo = &sceneInfo;
+    vkUpdateDescriptorSets(device, 1, &sceneWrite, 0, nullptr);
 
     VkRenderPassBeginInfo rp{};
     rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
