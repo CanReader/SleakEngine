@@ -48,11 +48,11 @@ vec3 SampleHistoryCatmullRom(vec2 uv) {
     vec2 tc12 = (texPos1 + w2 / w12)       / ScreenSize;
 
     vec3  result =
-        texture(historyTex, vec2(tc12.x, tc0.y )).rgb * (w12.x * w0.y ) +
-        texture(historyTex, vec2(tc0.x,  tc12.y)).rgb * (w0.x  * w12.y) +
-        texture(historyTex, vec2(tc12.x, tc12.y)).rgb * (w12.x * w12.y) +
-        texture(historyTex, vec2(tc3.x,  tc12.y)).rgb * (w3.x  * w12.y) +
-        texture(historyTex, vec2(tc12.x, tc3.y )).rgb * (w12.x * w3.y );
+        textureLod(historyTex, vec2(tc12.x, tc0.y ), 0.0).rgb * (w12.x * w0.y ) +
+        textureLod(historyTex, vec2(tc0.x,  tc12.y), 0.0).rgb * (w0.x  * w12.y) +
+        textureLod(historyTex, vec2(tc12.x, tc12.y), 0.0).rgb * (w12.x * w12.y) +
+        textureLod(historyTex, vec2(tc3.x,  tc12.y), 0.0).rgb * (w3.x  * w12.y) +
+        textureLod(historyTex, vec2(tc12.x, tc3.y ), 0.0).rgb * (w12.x * w3.y );
     float wsum = (w12.x * w0.y) + (w0.x * w12.y) + (w12.x * w12.y) +
                  (w3.x * w12.y) + (w12.x * w3.y);
     return max(result / wsum, vec3(0.0));
@@ -61,32 +61,36 @@ vec3 SampleHistoryCatmullRom(vec2 uv) {
 void main() {
     vec2 texelSize = 1.0 / ScreenSize;
 
-    vec3 current = texture(currentTex, fragUV).rgb;
-
     ivec2 ip     = ivec2(fragUV * ScreenSize);
     ivec2 maxIp  = ivec2(ScreenSize) - 1;
-    float depth  = texelFetch(gDepth, clamp(ip, ivec2(0), maxIp), 0).r;
+    vec3 current = texelFetch(currentTex, clamp(ip, ivec2(0), maxIp), 0).rgb;
+
+    // 3x3 depth via gathers
+    vec2  cuv   = vec2(ip) * texelSize;
+    vec4  g00   = textureGather(gDepth, cuv);
+    float depth = g00.y;
     if (depth >= 0.9999) {
         outColor = vec4(current, 1.0);
         return;
     }
+    vec4 g10 = textureGatherOffset(gDepth, cuv, ivec2(1, 0));
+    vec4 g01 = textureGatherOffset(gDepth, cuv, ivec2(0, 1));
+    vec4 g11 = textureGatherOffset(gDepth, cuv, ivec2(1, 1));
 
     // Closest-depth dilation with UNFILTERED depth reads. Bilinear-filtered
     // depth at silhouettes yields positions on neither surface — the source
     // of edge shimmer at distance where every texel is a silhouette.
     vec2  closestOff   = vec2(0.0);
     float closestDepth = depth;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float d = texelFetch(gDepth,
-                                 clamp(ip + ivec2(x, y), ivec2(0), maxIp),
-                                 0).r;
-            if (d < closestDepth) {
-                closestDepth = d;
-                closestOff   = vec2(x, y);
-            }
-        }
-    }
+    // x-major order, strict <
+    if (g00.w < closestDepth) { closestDepth = g00.w; closestOff = vec2(-1.0, -1.0); }
+    if (g00.x < closestDepth) { closestDepth = g00.x; closestOff = vec2(-1.0,  0.0); }
+    if (g01.x < closestDepth) { closestDepth = g01.x; closestOff = vec2(-1.0,  1.0); }
+    if (g00.z < closestDepth) { closestDepth = g00.z; closestOff = vec2( 0.0, -1.0); }
+    if (g01.y < closestDepth) { closestDepth = g01.y; closestOff = vec2( 0.0,  1.0); }
+    if (g10.z < closestDepth) { closestDepth = g10.z; closestOff = vec2( 1.0, -1.0); }
+    if (g10.y < closestDepth) { closestDepth = g10.y; closestOff = vec2( 1.0,  0.0); }
+    if (g11.y < closestDepth) { closestDepth = g11.y; closestOff = vec2( 1.0,  1.0); }
 
     // Reproject the closest surface in the neighborhood and apply its motion
     // to this pixel — edges follow the foreground surface.
@@ -120,7 +124,8 @@ void main() {
     vec3 nMax = vec3(-1e10);
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
-            vec3 s = texture(currentTex, fragUV + vec2(x, y) * texelSize).rgb;
+            vec3 s = texelFetch(currentTex,
+                                clamp(ip + ivec2(x, y), ivec2(0), maxIp), 0).rgb;
             nMin = min(nMin, s);
             nMax = max(nMax, s);
         }
