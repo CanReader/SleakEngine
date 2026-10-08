@@ -688,8 +688,8 @@ void VulkanRenderer::RenderBloomPass() {
         struct { float tsx, tsy, radius, intensity; } pc;
         pc.tsx       = 1.0f / float(m_bloomMipExtents[m].width);
         pc.tsy       = 1.0f / float(m_bloomMipExtents[m].height);
-        pc.radius    = 1.0f;
-        pc.intensity = 1.0f;
+        pc.radius = m_bloomRadius;
+        pc.intensity = m_bloomIntensity;
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(command, 3, 1, 0, 0);
@@ -754,11 +754,13 @@ void VulkanRenderer::RenderBloomCompositePass() {
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
-    struct { float bloomStrength, exposure, p0, p1; } pc;
+    struct {
+        float bloomStrength, exposure, gamma, p1;
+    } pc;
     // bloom disabled -> 0 so the (black) mip contributes nothing
     pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
     pc.exposure      = m_exposure;
-    pc.p0            = 0.0f;
+    pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
     pc.p1            = 0.0f;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);

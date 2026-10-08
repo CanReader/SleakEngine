@@ -181,11 +181,12 @@ dependency and propagates edits on every build.
 ## Shaders
 
 Vulkan consumes SPIR-V, so GLSL sources have to be compiled before the
-binary can use them. The engine's own CMake handles its own folder: if
-`glslc` is found it adds a `CompileShaders` target that compiles
-`Engine/assets/shaders/*.vert` and `*.frag` to `.spv` and makes `Engine`
-depend on it. When `glslc` is missing it prints a status message and skips
-the step, so a build can succeed with stale SPIR-V.
+binary can use them. The engine's own CMake handles its own folder: its
+`CompileShaders` target compiles `Engine/assets/shaders/*.vert` and `*.frag`
+with `glslc` into the build tree (`<build>/Engine/shaders`), never into the
+source tree, and stages the result into `assets/shaders` next to every
+executable that links `Engine`. When `glslc` is missing, configure warns and
+the committed `.spv` are staged instead.
 
 That target is scoped to the engine's shader folder. It does not see
 `Game/assets/shaders`, so any shader your game owns needs a manual compile
@@ -206,7 +207,8 @@ filename stem:
 | DirectX 12 | `name_dx12.hlsl` |
 
 When you change a shader, grep for the stem and update every variant you
-ship. Commit the `.spv` files: a machine without `glslc` still needs them.
+ship. Commit the `.spv` files: a machine without `glslc` still needs them,
+and CI fails when a GLSL edit lands without its recompiled `.spv`.
 
 ---
 

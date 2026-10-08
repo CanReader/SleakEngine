@@ -2,7 +2,7 @@
 
 // ============================================================
 // Bloom Composite Pass — HDR scene + SSR + bloom, ACES tonemap
-// (no gamma — UNORM swapchain, matches GL reference output)
+// (gamma only when tonemapping is enabled, otherwise matches GL output)
 // ============================================================
 
 layout(location = 0) in vec2 fragUV;
@@ -15,7 +15,7 @@ layout(set = 0, binding = 2) uniform sampler2D ssrTex;
 layout(push_constant) uniform BloomCompositePC {
     float bloomStrength;   // bloom mix amount (typical 0.04..0.08 UE-style)
     float exposure;        // exposure multiplier for HDR scene
-    float _pad0;
+    float gamma;           // 1.0 unless tonemapping is enabled
     float _pad1;
 };
 
@@ -52,8 +52,9 @@ void main() {
     // Apply exposure before tone mapping.
     combined *= exposure;
 
-    // ACES only — no gamma, matching the OpenGL reference output
+    // Gamma stays 1.0 by default to match the OpenGL reference output
     vec3 ldr = ACESFilm(combined);
+    if (gamma != 1.0) ldr = pow(ldr, vec3(1.0 / max(gamma, 0.01)));
 
     outColor = vec4(ldr, 1.0);
 }

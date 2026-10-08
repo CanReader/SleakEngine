@@ -13,6 +13,7 @@
 
 namespace Sleak {
 namespace RenderEngine {
+class DirectX12Renderer;
 
 /// D3D12 vertex+pixel shader pair; the pipeline state object itself is owned per-shader.
 class DirectX12Shader : public Shader {
@@ -35,8 +36,10 @@ public:
     void SetPipelineState(Microsoft::WRL::ComPtr<ID3D12PipelineState> pso);
     ID3D12PipelineState* GetPipelineState() const;
     void SetCommandList(ID3D12GraphicsCommandList* cmdList);
+    /// Routes bind() through the renderer so pass-specific PSOs are respected.
+    void SetRenderer(DirectX12Renderer* renderer);
 
-private:
+   private:
     /// Compiles one HLSL entry point/profile via D3DCompileFromFile into bytecode.
     bool compileShader(const std::string& filePath,
                       const std::string& entryPoint,
@@ -49,6 +52,7 @@ private:
     Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShaderBlob;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pipelineState;
     ID3D12GraphicsCommandList* m_commandList = nullptr;
+    DirectX12Renderer* m_renderer = nullptr;
 };
 
 }  // namespace RenderEngine

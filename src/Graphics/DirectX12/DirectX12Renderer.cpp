@@ -1,22 +1,73 @@
 #include "../../include/private/Graphics/DirectX12/DirectX12Renderer.hpp"
 #ifdef PLATFORM_WIN
 
-#include <Core/Window.hpp>
 #include <SDL3/SDL_system.h>
-#include <Runtime/MeshData.hpp>
-#include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
+#include <d3dcompiler.h>
+
 #include <Core/Logger.hpp>
+#include <Core/Window.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/DirectX12/DirectX12Buffer.hpp>
+#include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
+#include <Runtime/MeshData.hpp>
+#include <codecvt>
+#include <cstdint>
+#include <cstring>
+#include <locale>
 #include <stdexcept>
 #include <string>
-#include <locale>
-#include <codecvt>
-#include <d3dcompiler.h>
-#include <Graphics/DirectX12/DirectX12Buffer.hpp>
+
 #include "Graphics/Common/RenderCommandQueue.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
+
+namespace {
+const D3D12_INPUT_ELEMENT_DESC kVertexInputLayout[] = {
+    {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+     static_cast<UINT>(offsetof(Sleak::Vertex, px)),
+     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
+     static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
+     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+     static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
+     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
+     static_cast<UINT>(offsetof(Sleak::Vertex, r)),
+     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
+     static_cast<UINT>(offsetof(Sleak::Vertex, u)),
+     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+};
+
+uint64_t HashBytecode(ID3DBlob* blob) {
+    if (!blob) return 0;
+    const auto* bytes = static_cast<const uint8_t*>(blob->GetBufferPointer());
+    uint64_t hash = 14695981039346656037ull;
+    for (SIZE_T i = 0; i < blob->GetBufferSize(); ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+Microsoft::WRL::ComPtr<ID3DBlob> CompileStage(const wchar_t* path,
+                                              const char* entry,
+                                              const char* profile) {
+    Microsoft::WRL::ComPtr<ID3DBlob> blob, errorBlob;
+    HRESULT hr = D3DCompileFromFile(path, nullptr, nullptr, entry, profile, 0,
+                                    0, &blob, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            SLEAK_ERROR("{} ({}) compile error: {}", entry, profile,
+                        (char*)errorBlob->GetBufferPointer());
+        }
+        return nullptr;
+    }
+    return blob;
+}
+}  // namespace
 
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
 DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
@@ -25,6 +76,7 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
         throw std::runtime_error("Failed to create fence event.");
     }
     this->Type = RendererType::DirectX12;
+    m_lightData.assign(sizeof(RenderEngine::ShadowLightUBO), 0);
 
     ResourceManager::RegisterCreateBuffer(
         this, &DirectX12Renderer::CreateBuffer);
@@ -37,9 +89,14 @@ DirectX12Renderer::DirectX12Renderer(Window* window) : window(window) {
     ResourceManager::RegisterCreateCubemapTextureFromPanorama(
         this, &DirectX12Renderer::CreateCubemapTextureFromPanorama);
     ResourceManager::RegisterCreateTextureFromMemory(
-        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt, uint32_t) -> Texture* {
-            auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(), commandList.Get());
-            if (!tex->LoadFromMemory(data, w, h, fmt)) { delete tex; return nullptr; }
+        [this](const void* data, uint32_t w, uint32_t h, TextureFormat fmt,
+               uint32_t) -> Texture* {
+            auto* tex = new DirectX12Texture(device.Get(), commandQueue.Get(),
+                                             commandList.Get(), &m_uploader);
+            if (!tex->LoadFromMemory(data, w, h, fmt)) {
+                delete tex;
+                return nullptr;
+            }
             UINT slot = AllocateSRVSlot();
             tex->CreateSRVIntoHandle(DXGI_FORMAT_R8G8B8A8_UNORM,
                 GetSharedSrvCPUHandle(slot));
@@ -69,6 +126,8 @@ bool DirectX12Renderer::Initialize() {
     if (!CreateRenderTargetViews()) return false;
     if (!CreateDepthStencilView()) return false;
     if (!CreateFence()) return false;
+    m_uploadRing.Initialize(device.Get(), FrameCount, 64 * 1024);
+    if (!m_uploader.Initialize(device.Get(), commandQueue.Get())) return false;
     if (!CreateRootSignature()) return false;
     if (!CreateSharedSrvHeap()) return false;
     // PSO is created lazily when CreateShader() is called
@@ -77,7 +136,7 @@ bool DirectX12Renderer::Initialize() {
     {
         uint32_t whitePixel = 0xFFFFFFFF;  // RGBA(255,255,255,255)
         m_defaultTexture = new DirectX12Texture(
-            device.Get(), commandQueue.Get(), commandList.Get());
+            device.Get(), commandQueue.Get(), commandList.Get(), &m_uploader);
         if (!m_defaultTexture->LoadFromMemory(
                 &whitePixel, 1, 1, TextureFormat::RGBA8)) {
             SLEAK_WARN("Failed to create default white texture for DX12");
@@ -304,6 +363,7 @@ bool DirectX12Renderer::CreateFence() {
         SLEAK_ERROR("Failed to create fence!");
         return false;
     }
+    m_fenceValue = 0;
     for (UINT i = 0; i < FrameCount; i++)
         fenceValues[i] = 0;
     return true;
@@ -445,177 +505,97 @@ bool DirectX12Renderer::CreateRootSignature() {
     return true;
 }
 
-bool DirectX12Renderer::CreatePipelineState() {
-    // Called from CreateShader when we have compiled shader blobs.
-    // Requires vertexShaderBlob and pixelShaderBlob to be set on
-    // the DirectX12Shader before calling this.
-    // This is a no-op placeholder — PSO creation happens in CreateShader.
-    return true;
-}
-
-bool DirectX12Renderer::CreatePipelineStateFromShader(
-    ID3DBlob* vertexShaderBlob, ID3DBlob* pixelShaderBlob) {
-    if (!vertexShaderBlob || !pixelShaderBlob) return false;
-
-    // Input layout matching Sleak::Vertex
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    };
+ID3D12PipelineState* DirectX12Renderer::GetPipeline(const PipelineKey& key,
+                                                    ID3DBlob* vs,
+                                                    ID3DBlob* ps) {
+    for (auto& [cachedKey, pso] : m_pipelineCache) {
+        if (cachedKey == key) return pso.Get();
+    }
+    if (!vs || key.vertexFormat != 0) return nullptr;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = {inputLayout, _countof(inputLayout)};
+    psoDesc.InputLayout = {kVertexInputLayout, _countof(kVertexInputLayout)};
     psoDesc.pRootSignature = rootSignature.Get();
-    psoDesc.VS = {vertexShaderBlob->GetBufferPointer(),
-                  vertexShaderBlob->GetBufferSize()};
-    psoDesc.PS = {pixelShaderBlob->GetBufferPointer(),
-                  pixelShaderBlob->GetBufferSize()};
+    psoDesc.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+    if (ps) psoDesc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
 
-    // Rasterizer state
     D3D12_RASTERIZER_DESC rasterDesc = {};
     rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterDesc.CullMode = D3D12_CULL_MODE_FRONT;
+    rasterDesc.CullMode = key.cullMode;
     rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthBias = 0;
-    rasterDesc.DepthBiasClamp = 0.0f;
-    rasterDesc.SlopeScaledDepthBias = 0.0f;
-    rasterDesc.DepthClipEnable = TRUE;
-    rasterDesc.MultisampleEnable = FALSE;
-    rasterDesc.AntialiasedLineEnable = FALSE;
-    rasterDesc.ForcedSampleCount = 0;
-    rasterDesc.ConservativeRaster =
-        D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+    rasterDesc.DepthBias = key.depthBias;
+    rasterDesc.DepthBiasClamp = key.depthBiasClamp;
+    rasterDesc.SlopeScaledDepthBias = key.slopeScaledDepthBias;
+    rasterDesc.DepthClipEnable = key.depthClip;
+    rasterDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
     psoDesc.RasterizerState = rasterDesc;
 
-    // Blend state — opaque (no blending)
-    D3D12_BLEND_DESC blendDesc = {};
-    blendDesc.AlphaToCoverageEnable = FALSE;
-    blendDesc.IndependentBlendEnable = FALSE;
-    D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-    rtBlendDesc.BlendEnable = FALSE;
-    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    const bool hasColor = key.rtvFormat != DXGI_FORMAT_UNKNOWN;
+    D3D12_RENDER_TARGET_BLEND_DESC rtBlend = {};
+    rtBlend.BlendEnable = key.blendEnable;
+    rtBlend.SrcBlend =
+        key.blendEnable ? D3D12_BLEND_SRC_ALPHA : D3D12_BLEND_ONE;
+    rtBlend.DestBlend =
+        key.blendEnable ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ZERO;
+    rtBlend.BlendOp = D3D12_BLEND_OP_ADD;
+    rtBlend.SrcBlendAlpha = D3D12_BLEND_ONE;
+    rtBlend.DestBlendAlpha =
+        key.blendEnable ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ZERO;
+    rtBlend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    rtBlend.LogicOp = D3D12_LOGIC_OP_NOOP;
+    rtBlend.RenderTargetWriteMask = hasColor ? D3D12_COLOR_WRITE_ENABLE_ALL : 0;
     for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
-        blendDesc.RenderTarget[i] = rtBlendDesc;
-    psoDesc.BlendState = blendDesc;
+        psoDesc.BlendState.RenderTarget[i] = rtBlend;
 
-    // Depth stencil state
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = TRUE;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-    depthStencilDesc.StencilEnable = FALSE;
-    psoDesc.DepthStencilState = depthStencilDesc;
+    psoDesc.DepthStencilState.DepthEnable = TRUE;
+    psoDesc.DepthStencilState.DepthWriteMask = key.depthWrite;
+    psoDesc.DepthStencilState.DepthFunc = key.depthFunc;
+    psoDesc.DepthStencilState.StencilEnable = FALSE;
 
     psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType =
-        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.PrimitiveTopologyType = key.topology;
+    psoDesc.NumRenderTargets = hasColor ? 1 : 0;
+    psoDesc.RTVFormats[0] = key.rtvFormat;
+    psoDesc.DSVFormat = key.dsvFormat;
     psoDesc.SampleDesc.Count = 1;
 
-    HRESULT hr = device->CreateGraphicsPipelineState(
-        &psoDesc, IID_PPV_ARGS(&pipelineState));
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> pso;
+    HRESULT hr =
+        device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pso));
     if (FAILED(hr)) {
         SLEAK_ERROR("Failed to create pipeline state! HRESULT: 0x{:08X}",
                     static_cast<unsigned int>(hr));
-        return false;
+        return nullptr;
     }
 
-    // Cache VS blob so we can build the depth-only shadow PSO later
-    m_cachedVSBlob = nullptr;
-    vertexShaderBlob->AddRef();
-    m_cachedVSBlob.Attach(vertexShaderBlob);
-
-    SLEAK_INFO("DirectX 12 pipeline state created successfully");
-    return true;
+    m_pipelineCache.emplace_back(key, pso);
+    return pso.Get();
 }
 
 bool DirectX12Renderer::CreateShadowPassPSO() {
     if (m_shadowPassPSO) return true;
-    if (!m_cachedVSBlob) {
-        SLEAK_WARN("CreateShadowPassPSO: no cached VS blob yet");
+
+    if (!m_shadowVSCompiled) {
+        m_shadowVSCompiled = true;
+        m_shadowVSBlob = CompileStage(
+            L"assets/shaders/default_shader_dx12.hlsl", "VS_Main", "vs_5_0");
+    }
+    ID3DBlob* vs = m_shadowVSBlob ? m_shadowVSBlob.Get() : m_cachedVSBlob.Get();
+    if (!vs) {
+        SLEAK_WARN("CreateShadowPassPSO: no vertex shader available yet");
         return false;
     }
 
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    };
+    PipelineKey key;
+    key.vsHash = HashBytecode(vs);
+    key.cullMode = D3D12_CULL_MODE_NONE;
+    key.depthBias = 1000;
+    key.depthBiasClamp = 0.01f;
+    key.slopeScaledDepthBias = 2.0f;
+    key.rtvFormat = DXGI_FORMAT_UNKNOWN;
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout    = {inputLayout, _countof(inputLayout)};
-    psoDesc.pRootSignature = rootSignature.Get();
-    psoDesc.VS = {m_cachedVSBlob->GetBufferPointer(),
-                  m_cachedVSBlob->GetBufferSize()};
-    // No pixel shader — depth-only pass
-    psoDesc.PS = {nullptr, 0};
-
-    D3D12_RASTERIZER_DESC rasterDesc = {};
-    rasterDesc.FillMode             = D3D12_FILL_MODE_SOLID;
-    rasterDesc.CullMode             = D3D12_CULL_MODE_NONE; // no culling: all faces cast shadow
-    rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthBias            = 1000;   // constant bias (units of depth buffer LSB)
-    rasterDesc.DepthBiasClamp       = 0.01f;
-    rasterDesc.SlopeScaledDepthBias = 2.0f;   // slope-scale bias for steep surfaces
-    rasterDesc.DepthClipEnable      = TRUE;
-    psoDesc.RasterizerState = rasterDesc;
-
-    // Blend: no render targets, all writes masked off
-    D3D12_BLEND_DESC blendDesc = {};
-    blendDesc.AlphaToCoverageEnable  = FALSE;
-    blendDesc.IndependentBlendEnable = FALSE;
-    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
-        blendDesc.RenderTarget[i].RenderTargetWriteMask = 0; // no color write
-    }
-    psoDesc.BlendState = blendDesc;
-
-    D3D12_DEPTH_STENCIL_DESC dsDesc = {};
-    dsDesc.DepthEnable    = TRUE;
-    dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    dsDesc.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
-    dsDesc.StencilEnable  = FALSE;
-    psoDesc.DepthStencilState = dsDesc;
-
-    psoDesc.SampleMask            = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets      = 0;  // depth-only — no RTV
-    psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleDesc.Count      = 1;
-
-    HRESULT hr = device->CreateGraphicsPipelineState(
-        &psoDesc, IID_PPV_ARGS(&m_shadowPassPSO));
-    if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to create shadow pass PSO! HRESULT: 0x{:08X}",
-                    static_cast<unsigned int>(hr));
-        return false;
-    }
+    m_shadowPassPSO = GetPipeline(key, vs, nullptr);
+    if (!m_shadowPassPSO) return false;
     SLEAK_INFO("D3D12 shadow pass PSO created");
     return true;
 }
@@ -628,32 +608,30 @@ void DirectX12Renderer::BeginRender() {
         memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
     }
 
-    // Wait for ALL pending GPU work to complete before starting a new frame.
-    // This prevents race conditions on shared constant buffers: without this,
-    // only the same-slot frame (N-2) is waited on, but frame N-1 may still be
-    // reading constant buffer data that the CPU is about to overwrite.
-    UINT64 waitValue = 0;
-    for (UINT i = 0; i < FrameCount; i++) {
-        if (fenceValues[i] > waitValue) waitValue = fenceValues[i];
-    }
-    if (fence->GetCompletedValue() < waitValue) {
-        fence->SetEventOnCompletion(waitValue, fenceEvent);
+    // Only the frame that last recorded into this slot has to be finished.
+    // Everything the CPU rewrites per frame lives in per-slot memory.
+    const UINT64 slotFence = fenceValues[frameIndex];
+    if (fence->GetCompletedValue() < slotFence) {
+        fence->SetEventOnCompletion(slotFence, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
 
-    // Process deferred GPU resource deletions now that GPU is idle
-    DirectX12Buffer::ProcessDeferredCleanup();
+    DirectX12Buffer::ProcessDeferredCleanup(fence->GetCompletedValue());
+    m_uploader.Retire();
+    m_uploader.Submit();
+    m_uploadRing.BeginFrame(frameIndex);
+    ++m_frameSerial;
+    m_frameActive = true;
+    m_shaderPipeline = nullptr;
+    m_passPipeline = nullptr;
 
     // Reset the command allocator and command list for this frame
     commandAllocators[frameIndex]->Reset();
     commandList->Reset(commandAllocators[frameIndex].Get(),
-                       pipelineState ? pipelineState.Get() : nullptr);
+                       m_defaultPipelineState);
 
-    // Set PSO if available (created by CreateShader)
-    if (pipelineState) {
-        commandList->SetPipelineState(pipelineState.Get());
-    } else {
-        SLEAK_WARN("BeginRender: pipeline state is null — nothing will draw");
+    if (!m_defaultPipelineState) {
+        SLEAK_WARN("BeginRender: no pipeline state yet, nothing will draw");
     }
 
     // Set root signature and viewport/scissor
@@ -693,6 +671,8 @@ void DirectX12Renderer::BeginRender() {
     // Shadow pass before main rendering
     if (m_shadowPassEnabled) {
         RenderShadowPass();
+        if (m_defaultPipelineState)
+            commandList->SetPipelineState(m_defaultPipelineState);
     }
 
     // Set render targets
@@ -718,11 +698,8 @@ void DirectX12Renderer::BeginRender() {
         m_defaultTexture->Bind(0);
     }
 
-    // Root param 3: CBV at b2 — light/shadow UBO
-    if (m_lightUBOCreated && m_lightUBO) {
-        commandList->SetGraphicsRootConstantBufferView(
-            3, m_lightUBO->GetGPUVirtualAddress());
-    }
+    // Root param 3: CBV at b2, light/shadow constants
+    BindLightConstants();
 
     // Root param 4: SRV table at t3 — shadow map
     if (m_shadowMapCreated) {
@@ -762,19 +739,21 @@ void DirectX12Renderer::EndRender() {
         D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &barrier);
 
-    // Close and execute the command list
+    // Uploads recorded this frame must land before the draws that use them
     commandList->Close();
+    m_uploader.Submit();
     ID3D12CommandList* ppCommandLists[] = {commandList.Get()};
     commandQueue->ExecuteCommandLists(_countof(ppCommandLists),
                                       ppCommandLists);
 
     swapChain->Present(m_vsync ? 1 : 0, 0);
 
-    // Signal the fence for this frame — do NOT wait here.
-    // The wait happens in BeginRender() when we need to reuse this
-    // frame's command allocator, allowing CPU/GPU overlap.
-    fenceValues[frameIndex]++;
-    commandQueue->Signal(fence.Get(), fenceValues[frameIndex]);
+    // No wait here: BeginRender waits for this value only when the slot
+    // comes around again.
+    fenceValues[frameIndex] = ++m_fenceValue;
+    commandQueue->Signal(fence.Get(), m_fenceValue);
+    DirectX12Buffer::TagDeferredCleanup(m_fenceValue);
+    m_frameActive = false;
 
     UpdateFrameMetrics();
 }
@@ -782,20 +761,15 @@ void DirectX12Renderer::EndRender() {
 void DirectX12Renderer::WaitForGPU() {
     if (!commandQueue || !fence || !fenceEvent) return;
 
-    // Find the highest fence value across all frames and wait for it
-    UINT64 maxFence = 0;
-    for (UINT i = 0; i < FrameCount; i++) {
-        if (fenceValues[i] > maxFence) maxFence = fenceValues[i];
-    }
-    const UINT64 waitValue = maxFence + 1;
+    m_uploader.Submit();
+    const UINT64 waitValue = ++m_fenceValue;
     commandQueue->Signal(fence.Get(), waitValue);
-    for (UINT i = 0; i < FrameCount; i++)
-        fenceValues[i] = waitValue;
 
     if (fence->GetCompletedValue() < waitValue) {
         fence->SetEventOnCompletion(waitValue, fenceEvent);
         WaitForSingleObject(fenceEvent, INFINITE);
     }
+    m_uploader.Retire();
 }
 
 bool DirectX12Renderer::CreateSharedSrvHeap() {
@@ -840,6 +814,8 @@ void DirectX12Renderer::Cleanup() {
     if (!m_Initialized) return;
 
     WaitForGPU();
+    DirectX12Buffer::TagDeferredCleanup(m_fenceValue);
+    DirectX12Buffer::ProcessDeferredCleanup(UINT64_MAX);
 
     if (bImInitialized) {
         ImGui_ImplDX12_Shutdown();
@@ -847,18 +823,19 @@ void DirectX12Renderer::Cleanup() {
         ImGui::DestroyContext();
         bImInitialized = false;
     }
-    if (m_lightUBO && m_lightUBOMapped) {
-        m_lightUBO->Unmap(0, nullptr);
-        m_lightUBOMapped = nullptr;
-    }
-    m_lightUBO.Reset();
-    m_lightUBOCreated = false;
+    m_uploader.Release();
+    m_uploadRing.Release();
 
     imguiSrvHeap.Reset();
     m_sharedSrvHeap.Reset();
 
-    m_skyboxPipelineState.Reset();
-    pipelineState.Reset();
+    m_skyboxPipelineState = nullptr;
+    m_debugLinePipelineState = nullptr;
+    m_shadowPassPSO = nullptr;
+    m_defaultPipelineState = nullptr;
+    m_shaderPipeline = nullptr;
+    m_passPipeline = nullptr;
+    m_pipelineCache.clear();
     rootSignature.Reset();
     depthStencilBuffer.Reset();
     dsvHeap.Reset();
@@ -1065,32 +1042,34 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         }
         memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
 
-        // Create dedicated shadow transform CB on first use
-        if (!m_shadowTransformCB) {
-            const UINT cbSize = 256; // 256-byte aligned
-            D3D12_HEAP_PROPERTIES heapProps = {};
-            heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-            D3D12_RESOURCE_DESC desc = {};
-            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            desc.Width = cbSize;
-            desc.Height = 1;
-            desc.DepthOrArraySize = 1;
-            desc.MipLevels = 1;
-            desc.Format = DXGI_FORMAT_UNKNOWN;
-            desc.SampleDesc.Count = 1;
-            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc,
-                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-                IID_PPV_ARGS(&m_shadowTransformCB));
-            m_shadowTransformCB->Map(0, nullptr, &m_shadowTransformMapped);
-        }
-
-        memcpy(m_shadowTransformMapped, shadowPC, sizeof(shadowPC));
-        commandList->SetGraphicsRootConstantBufferView(
-            slot, m_shadowTransformCB->GetGPUVirtualAddress());
+        DirectX12UploadRing::Allocation alloc;
+        if (!m_uploadRing.Allocate(sizeof(shadowPC), alloc)) return;
+        memcpy(alloc.cpu, shadowPC, sizeof(shadowPC));
+        commandList->SetGraphicsRootConstantBufferView(slot, alloc.gpu);
         return;
     }
 
+    // Constant contents are copied into this frame's ring slice on the
+    // first bind after an update, so frames in flight keep their own copy.
+    if (const void* data = dx12Buf->GetConstantData()) {
+        D3D12_GPU_VIRTUAL_ADDRESS address =
+            dx12Buf->GetFrameAddress(m_frameSerial);
+        if (!address) {
+            const size_t size = dx12Buf->GetConstantDataSize();
+            DirectX12UploadRing::Allocation alloc;
+            if (m_uploadRing.Allocate(size, alloc)) {
+                memcpy(alloc.cpu, data, size);
+                address = alloc.gpu;
+                dx12Buf->SetFrameAddress(m_frameSerial, address);
+            }
+        }
+        if (address) {
+            commandList->SetGraphicsRootConstantBufferView(slot, address);
+            return;
+        }
+    }
+
+    if (!dx12Buf->GetD3DBuffer()) return;
     commandList->SetGraphicsRootConstantBufferView(
         slot, dx12Buf->GetD3DBuffer()->GetGPUVirtualAddress());
 }
@@ -1098,49 +1077,44 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
 BufferBase* DirectX12Renderer::CreateBuffer(BufferType Type, uint32_t size,
                                              void* data) {
     assert(size > 0);
-    auto* buffer = new DirectX12Buffer(device.Get(), commandQueue.Get(), size, Type);
+    auto* buffer = new DirectX12Buffer(device.Get(), commandQueue.Get(), size,
+                                       Type, &m_uploader);
     if (!buffer->Initialize(data)) {
         delete buffer;
         return nullptr;
     }
-
-    // Execute the buffer's upload command list if it recorded any
-    // copy commands (DEFAULT heap buffers with initial data).
-    // Do NOT call WaitForGPU() here — the upload runs on the same
-    // command queue, so GPU FIFO ordering guarantees the copy
-    // completes before subsequent render commands execute.
-    if (buffer->HasPendingCommands()) {
-        ID3D12CommandList* ppCmdLists[] = {buffer->GetCommandList()};
-        commandQueue->ExecuteCommandLists(1, ppCmdLists);
-    }
-
     return buffer;
 }
 
 Shader* DirectX12Renderer::CreateShader(const std::string& shaderSource) {
     auto* shader = new DirectX12Shader(device.Get());
-    if (shader->compile(shaderSource)) {
-        // Create a per-shader PSO so each shader gets its own pipeline
-        if (shader->getVertexShaderBlob()) {
-            CreatePipelineStateFromShader(
-                shader->getVertexShaderBlob(),
-                shader->getPixelShaderBlob());
-            // Store the newly created PSO on this shader
-            shader->SetPipelineState(pipelineState);
-        }
-        // Give the shader access to the command list for bind()
-        shader->SetCommandList(commandList.Get());
-        return shader;
+    if (!shader->compile(shaderSource)) {
+        delete shader;
+        return nullptr;
     }
-    delete shader;
-    return nullptr;
+
+    ID3DBlob* vs = shader->getVertexShaderBlob();
+    ID3DBlob* ps = shader->getPixelShaderBlob();
+    PipelineKey key;
+    key.vsHash = HashBytecode(vs);
+    key.psHash = HashBytecode(ps);
+    if (ID3D12PipelineState* pso = GetPipeline(key, vs, ps)) {
+        shader->SetPipelineState(
+            Microsoft::WRL::ComPtr<ID3D12PipelineState>(pso));
+        if (!m_defaultPipelineState) {
+            m_defaultPipelineState = pso;
+            m_cachedVSBlob = vs;
+        }
+    }
+    shader->SetCommandList(commandList.Get());
+    shader->SetRenderer(this);
+    return shader;
 }
 
 Texture* DirectX12Renderer::CreateTexture(
     const std::string& TexturePath) {
-    auto* texture =
-        new DirectX12Texture(device.Get(), commandQueue.Get(),
-                             commandList.Get());
+    auto* texture = new DirectX12Texture(device.Get(), commandQueue.Get(),
+                                         commandList.Get(), &m_uploader);
     if (!texture->LoadFromFile(TexturePath)) {
         delete texture;
         return nullptr;
@@ -1157,9 +1131,8 @@ Texture* DirectX12Renderer::CreateTexture(
 Texture* DirectX12Renderer::CreateTextureFromData(uint32_t width,
                                                     uint32_t height,
                                                     void* data) {
-    auto* texture =
-        new DirectX12Texture(device.Get(), commandQueue.Get(),
-                             commandList.Get());
+    auto* texture = new DirectX12Texture(device.Get(), commandQueue.Get(),
+                                         commandList.Get(), &m_uploader);
     if (!texture->LoadFromMemory(data, width, height,
                                  TextureFormat::RGBA8)) {
         delete texture;
@@ -1175,8 +1148,8 @@ Texture* DirectX12Renderer::CreateTextureFromData(uint32_t width,
 
 Texture* DirectX12Renderer::CreateCubemapTexture(
     const std::array<std::string, 6>& facePaths) {
-    auto* texture = new DirectX12CubemapTexture(device.Get(),
-                                                 commandQueue.Get());
+    auto* texture = new DirectX12CubemapTexture(
+        device.Get(), commandQueue.Get(), &m_uploader);
     if (!texture->LoadCubemap(facePaths)) {
         delete texture;
         return nullptr;
@@ -1189,8 +1162,8 @@ Texture* DirectX12Renderer::CreateCubemapTexture(
 
 Texture* DirectX12Renderer::CreateCubemapTextureFromPanorama(
     const std::string& panoramaPath) {
-    auto* texture = new DirectX12CubemapTexture(device.Get(),
-                                                 commandQueue.Get());
+    auto* texture = new DirectX12CubemapTexture(
+        device.Get(), commandQueue.Get(), &m_uploader);
     if (!texture->LoadEquirectangular(panoramaPath)) {
         delete texture;
         return nullptr;
@@ -1229,54 +1202,22 @@ void DirectX12Renderer::BindTextureRaw(Sleak::Texture* texture, uint32_t slot) {
     }
 }
 
-bool DirectX12Renderer::CreateLightUBO() {
-    if (m_lightUBOCreated) return true;
-
-    // 256-byte aligned size (CB requirement)
-    const UINT uboSize = (sizeof(RenderEngine::ShadowLightUBO) + 255) & ~255;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-    D3D12_RESOURCE_DESC desc = {};
-    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = uboSize;
-    desc.Height = 1;
-    desc.DepthOrArraySize = 1;
-    desc.MipLevels = 1;
-    desc.Format = DXGI_FORMAT_UNKNOWN;
-    desc.SampleDesc.Count = 1;
-    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-    HRESULT hr = device->CreateCommittedResource(
-        &heapProps, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-        IID_PPV_ARGS(&m_lightUBO));
-    if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to create light UBO! HRESULT: 0x{:08X}",
-                    static_cast<unsigned int>(hr));
-        return false;
-    }
-
-    hr = m_lightUBO->Map(0, nullptr, &m_lightUBOMapped);
-    if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to map light UBO!");
-        return false;
-    }
-
-    memset(m_lightUBOMapped, 0, uboSize);
-    m_lightUBOCreated = true;
-    return true;
+void DirectX12Renderer::BindLightConstants() {
+    DirectX12UploadRing::Allocation alloc;
+    if (!m_uploadRing.Allocate(m_lightData.size(), alloc)) return;
+    memcpy(alloc.cpu, m_lightData.data(), m_lightData.size());
+    commandList->SetGraphicsRootConstantBufferView(3, alloc.gpu);
 }
 
 void DirectX12Renderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
-    if (!m_lightUBOCreated && !CreateLightUBO()) return;
     if (!data) return;
 
-    uint32_t copySize = size;
-    if (copySize > sizeof(RenderEngine::ShadowLightUBO))
-        copySize = sizeof(RenderEngine::ShadowLightUBO);
-    memcpy(m_lightUBOMapped, data, copySize);
+    size_t copySize = size;
+    if (copySize > m_lightData.size()) copySize = m_lightData.size();
+    memcpy(m_lightData.data(), data, copySize);
+
+    // The ring slice bound at BeginRender holds last frame's values
+    if (m_frameActive) BindLightConstants();
 }
 
 void DirectX12Renderer::SetLightVP(const float* mat) {
@@ -1356,6 +1297,7 @@ void DirectX12Renderer::RenderShadowPass() {
     if (!m_shadowMapCreated) {
         if (!CreateShadowMapResources()) return;
     }
+    if (!CreateShadowPassPSO()) return;
 
     // Transition shadow buffer to depth write
     D3D12_RESOURCE_BARRIER barrier = {};
@@ -1383,13 +1325,8 @@ void DirectX12Renderer::RenderShadowPass() {
     shadowScissor.bottom = m_shadowMapResolution;
     commandList->RSSetScissorRects(1, &shadowScissor);
 
-    // Use depth-only shadow PSO (no PS, no RTV, CULL_NONE + depth bias)
-    if (!m_shadowPassPSO) CreateShadowPassPSO();
-    if (m_shadowPassPSO) {
-        commandList->SetPipelineState(m_shadowPassPSO.Get());
-    } else if (pipelineState) {
-        commandList->SetPipelineState(pipelineState.Get());
-    }
+    // Depth-only shadow PSO (no PS, no RTV, CULL_NONE + depth bias)
+    commandList->SetPipelineState(m_shadowPassPSO);
     commandList->SetGraphicsRootSignature(rootSignature.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -1401,6 +1338,7 @@ void DirectX12Renderer::RenderShadowPass() {
     if (m_defaultTexture) {
         m_defaultTexture->Bind(0);
     }
+    BindLightConstants();
 
     // Execute shadow draw commands
     m_inShadowPass = true;
@@ -1417,109 +1355,44 @@ void DirectX12Renderer::RenderShadowPass() {
 
 bool DirectX12Renderer::CreateSkyboxPipelineState() {
     if (m_skyboxPipelineState) return true;
-    if (!pipelineState) return false;
+    if (m_skyboxPipelineFailed) return false;
+    m_skyboxPipelineFailed = true;
 
-    // Get the main PSO's description by compiling the skybox shader
-    // We need the same VS/PS blobs used for the main PSO
-    // Compile the skybox shader directly
-    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob, psBlob, errorBlob;
+    auto vs =
+        CompileStage(L"assets/shaders/skybox_dx12.hlsl", "VS_Main", "vs_5_0");
+    auto ps =
+        CompileStage(L"assets/shaders/skybox_dx12.hlsl", "PS_Main", "ps_5_0");
+    if (!vs || !ps) return false;
 
-    HRESULT hr = D3DCompileFromFile(
-        L"assets/shaders/skybox_dx12.hlsl", nullptr, nullptr,
-        "VS_Main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Skybox VS compile error: {}",
-                        (char*)errorBlob->GetBufferPointer());
-        }
-        SLEAK_WARN("Failed to compile skybox VS, using main PSO blobs");
-    }
+    // No culling, depth write off with LEQUAL, and depth clip off so the
+    // .xyww trick at z=1.0 is not clipped
+    PipelineKey key;
+    key.vsHash = HashBytecode(vs.Get());
+    key.psHash = HashBytecode(ps.Get());
+    key.cullMode = D3D12_CULL_MODE_NONE;
+    key.depthClip = FALSE;
+    key.depthWrite = D3D12_DEPTH_WRITE_MASK_ZERO;
+    key.depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
-    hr = D3DCompileFromFile(
-        L"assets/shaders/skybox_dx12.hlsl", nullptr, nullptr,
-        "PS_Main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Skybox PS compile error: {}",
-                        (char*)errorBlob->GetBufferPointer());
-        }
-        SLEAK_WARN("Failed to compile skybox PS");
-    }
+    m_skyboxPipelineState = GetPipeline(key, vs.Get(), ps.Get());
+    if (!m_skyboxPipelineState) return false;
 
-    if (!vsBlob || !psBlob) return false;
-
-    // Input layout matching Sleak::Vertex
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    };
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = {inputLayout, _countof(inputLayout)};
-    psoDesc.pRootSignature = rootSignature.Get();
-    psoDesc.VS = {vsBlob->GetBufferPointer(), vsBlob->GetBufferSize()};
-    psoDesc.PS = {psBlob->GetBufferPointer(), psBlob->GetBufferSize()};
-
-    // Rasterizer: no culling for skybox, depth clip OFF to avoid
-    // clipping at the z=1.0 boundary produced by the .xyww trick
-    D3D12_RASTERIZER_DESC rasterDesc = {};
-    rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
-    rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthClipEnable = FALSE;
-    psoDesc.RasterizerState = rasterDesc;
-
-    // Blend state — opaque (skybox is fully opaque)
-    D3D12_BLEND_DESC blendDesc = {};
-    blendDesc.AlphaToCoverageEnable = FALSE;
-    blendDesc.IndependentBlendEnable = FALSE;
-    D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-    rtBlendDesc.BlendEnable = FALSE;
-    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
-        blendDesc.RenderTarget[i] = rtBlendDesc;
-    psoDesc.BlendState = blendDesc;
-
-    // Depth stencil: depth write OFF, LESS_EQUAL compare
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = TRUE;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    depthStencilDesc.StencilEnable = FALSE;
-    psoDesc.DepthStencilState = depthStencilDesc;
-
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType =
-        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleDesc.Count = 1;
-
-    hr = device->CreateGraphicsPipelineState(
-        &psoDesc, IID_PPV_ARGS(&m_skyboxPipelineState));
-    if (FAILED(hr)) {
-        SLEAK_ERROR(
-            "Failed to create skybox pipeline state! HRESULT: 0x{:08X}",
-            static_cast<unsigned int>(hr));
-        return false;
-    }
-
+    m_skyboxPipelineFailed = false;
     SLEAK_INFO("DirectX 12 skybox pipeline state created successfully");
     return true;
+}
+
+void DirectX12Renderer::BindShaderPipeline(ID3D12PipelineState* pso) {
+    if (!pso || !commandList) return;
+    m_shaderPipeline = pso;
+    if (m_passPipeline) return;
+    commandList->SetPipelineState(pso);
+}
+
+void DirectX12Renderer::RestoreShaderPipeline() {
+    ID3D12PipelineState* pso =
+        m_shaderPipeline ? m_shaderPipeline : m_defaultPipelineState;
+    if (pso) commandList->SetPipelineState(pso);
 }
 
 void DirectX12Renderer::BeginSkyboxPass() {
@@ -1527,107 +1400,37 @@ void DirectX12Renderer::BeginSkyboxPass() {
         SLEAK_WARN("BeginSkyboxPass: failed to create skybox PSO");
         return;
     }
-    commandList->SetPipelineState(m_skyboxPipelineState.Get());
+    m_passPipeline = m_skyboxPipelineState;
+    commandList->SetPipelineState(m_skyboxPipelineState);
 }
 
 void DirectX12Renderer::EndSkyboxPass() {
-    if (pipelineState) {
-        commandList->SetPipelineState(pipelineState.Get());
-    }
+    m_passPipeline = nullptr;
+    RestoreShaderPipeline();
 }
 
 bool DirectX12Renderer::CreateDebugLinePipelineState() {
     if (m_debugLinePipelineState) return true;
-    if (!pipelineState) return false;
+    if (m_debugLinePipelineFailed) return false;
+    m_debugLinePipelineFailed = true;
 
-    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob, psBlob, errorBlob;
+    auto vs = CompileStage(L"assets/shaders/debug_line_dx12.hlsl", "VS_Main",
+                           "vs_5_0");
+    auto ps = CompileStage(L"assets/shaders/debug_line_dx12.hlsl", "PS_Main",
+                           "ps_5_0");
+    if (!vs || !ps) return false;
 
-    HRESULT hr = D3DCompileFromFile(
-        L"assets/shaders/debug_line_dx12.hlsl", nullptr, nullptr,
-        "VS_Main", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob)
-            SLEAK_ERROR("Debug line VS compile error: {}",
-                        (char*)errorBlob->GetBufferPointer());
-        return false;
-    }
+    PipelineKey key;
+    key.vsHash = HashBytecode(vs.Get());
+    key.psHash = HashBytecode(ps.Get());
+    key.cullMode = D3D12_CULL_MODE_NONE;
+    key.depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    key.topology = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
 
-    hr = D3DCompileFromFile(
-        L"assets/shaders/debug_line_dx12.hlsl", nullptr, nullptr,
-        "PS_Main", "ps_5_0", 0, 0, &psBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob)
-            SLEAK_ERROR("Debug line PS compile error: {}",
-                        (char*)errorBlob->GetBufferPointer());
-        return false;
-    }
+    m_debugLinePipelineState = GetPipeline(key, vs.Get(), ps.Get());
+    if (!m_debugLinePipelineState) return false;
 
-    if (!vsBlob || !psBlob) return false;
-
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, px)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, nx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, tx)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, r)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Sleak::Vertex, u)),
-         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    };
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = {inputLayout, _countof(inputLayout)};
-    psoDesc.pRootSignature = rootSignature.Get();
-    psoDesc.VS = {vsBlob->GetBufferPointer(), vsBlob->GetBufferSize()};
-    psoDesc.PS = {psBlob->GetBufferPointer(), psBlob->GetBufferSize()};
-
-    D3D12_RASTERIZER_DESC rasterDesc = {};
-    rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
-    rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthClipEnable = TRUE;
-    psoDesc.RasterizerState = rasterDesc;
-
-    D3D12_BLEND_DESC blendDesc = {};
-    blendDesc.AlphaToCoverageEnable = FALSE;
-    blendDesc.IndependentBlendEnable = FALSE;
-    D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-    rtBlendDesc.BlendEnable = FALSE;
-    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
-        blendDesc.RenderTarget[i] = rtBlendDesc;
-    psoDesc.BlendState = blendDesc;
-
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = TRUE;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    depthStencilDesc.StencilEnable = FALSE;
-    psoDesc.DepthStencilState = depthStencilDesc;
-
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleDesc.Count = 1;
-
-    hr = device->CreateGraphicsPipelineState(
-        &psoDesc, IID_PPV_ARGS(&m_debugLinePipelineState));
-    if (FAILED(hr)) {
-        SLEAK_ERROR(
-            "Failed to create debug line pipeline state! HRESULT: 0x{:08X}",
-            static_cast<unsigned int>(hr));
-        return false;
-    }
-
+    m_debugLinePipelineFailed = false;
     SLEAK_INFO("DirectX 12 debug line pipeline state created successfully");
     return true;
 }
@@ -1637,14 +1440,14 @@ void DirectX12Renderer::BeginDebugLinePass() {
         SLEAK_WARN("BeginDebugLinePass: failed to create debug line PSO");
         return;
     }
-    commandList->SetPipelineState(m_debugLinePipelineState.Get());
+    m_passPipeline = m_debugLinePipelineState;
+    commandList->SetPipelineState(m_debugLinePipelineState);
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
 }
 
 void DirectX12Renderer::EndDebugLinePass() {
-    if (pipelineState) {
-        commandList->SetPipelineState(pipelineState.Get());
-    }
+    m_passPipeline = nullptr;
+    RestoreShaderPipeline();
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 

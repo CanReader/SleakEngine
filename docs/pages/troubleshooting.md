@@ -44,21 +44,12 @@ rebuilding is the quick confirmation that staleness is the problem.
 
 ### SPIR-V never recompiles after a GLSL edit
 
-**Cause.** The engine's `CompileShaders` target only exists when CMake finds
-`glslc`. Without it, configure prints
-`glslc not found, SPIR-V shaders will not be auto-compiled` and the target is
-never created, so every `.spv` stays at its committed revision.
+**Cause.** The engine compiles SPIR-V only when CMake finds `glslc`. Without
+it, configure warns `glslc not found, using the committed SPIR-V in
+assets/shaders` and every `.spv` stays at its committed revision.
 
 **Fix.** Install the Vulkan SDK, or set `VULKAN_SDK` so `find_program` locates
 `glslc`, then re-run CMake.
-
-### A newly added engine shader is ignored
-
-**Cause.** `CompileShaders` globs without `CONFIGURE_DEPENDS`, so the file
-list is fixed at configure time. Edits to existing shaders are tracked; new
-files are not.
-
-**Fix.** Re-run CMake after adding a shader.
 
 ### Game shaders are never compiled at all
 
