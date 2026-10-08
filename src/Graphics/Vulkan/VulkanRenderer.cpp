@@ -313,6 +313,7 @@ void VulkanRenderer::BeginRender() {
 
         m_shadowPassActive = true;
         m_shadowPCCacheValid = false;
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
         auto* queue = RenderCommandQueue::GetInstance();
         if (queue) {
             queue->ExecuteShadowPass(this);
@@ -750,8 +751,9 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                          VK_INDEX_TYPE_UINT32);
 }
 
-/// Pushes constant-buffer data via push constants, applying TAA jitter or
-/// the shadow push-constant cache as needed.
+/// Pushes constant-buffer data via push constants, applying TAA jitter or the
+/// shadow push-constant cache. A shadow push that would repeat the bytes
+/// already pushed in this pass is skipped.
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
     if (!bFrameStarted) return;
@@ -787,6 +789,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         }
         vkCmdPushConstants(command, activeLayout,
                            VK_SHADER_STAGE_VERTEX_BIT, 0, size, jdata);
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
         return;
     }
 
@@ -813,13 +816,20 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
             memcpy(&m_shadowPCCache[16], srcWorld, 64);
             memcpy(m_shadowWorldCache, srcWorld, 64);
             m_shadowPCCacheValid = true;
+            m_shadowPCPushedLayout = VK_NULL_HANDLE;
         }
 
-        vkCmdPushConstants(command, activeLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT, 0, 128, m_shadowPCCache);
+        // Pushes survive pipeline binds
+        if (m_shadowPCPushedLayout != activeLayout) {
+            vkCmdPushConstants(command, activeLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0, 128,
+                               m_shadowPCCache);
+            m_shadowPCPushedLayout = activeLayout;
+        }
     } else {
         vkCmdPushConstants(command, activeLayout,
                            VK_SHADER_STAGE_VERTEX_BIT, 0, size, data);
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
     }
 }
 

@@ -585,6 +585,7 @@ void VulkanRenderer::CleanupShadowResources() {
 void VulkanRenderer::BeginShadowPass() {
     m_shadowPassActive = true;
     m_shadowPCCacheValid = false;
+    m_shadowPCPushedLayout = VK_NULL_HANDLE;
 }
 
 /// Marks the shadow pass inactive.

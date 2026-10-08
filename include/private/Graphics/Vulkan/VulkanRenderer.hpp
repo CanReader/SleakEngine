@@ -524,6 +524,9 @@ private:
     float m_shadowWorldCache[16] = {};
     float m_shadowPCCache[32] = {};
     bool  m_shadowPCCacheValid = false;
+    // Layout m_shadowPCCache was last pushed with in this shadow pass, or
+    // null once anything else overwrote the push constants.
+    VkPipelineLayout m_shadowPCPushedLayout = VK_NULL_HANDLE;
 
     // Light VP matrix (stored as raw floats for push constant computation)
     float m_lightVP[16] = {};
