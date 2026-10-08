@@ -1,0 +1,11 @@
+<map id="Sleak::CameraController" name="Sleak::CameraController">
+<area shape="rect" id="Node000001" title=" " alt="" coords="130,713,359,1295"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1FirstPersonController.html" title=" " alt="" coords="5,1350,231,1703"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="174,1309,163,1351,158,1349,168,1307"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1FreeLookCameraController.html" title=" " alt="" coords="255,1343,487,1711"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="321,1308,329,1342,324,1343,316,1309"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Component.html" title=" " alt="" coords="145,292,345,665"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="247,679,247,713,242,713,242,679"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Object.html" title=" " alt="" coords="144,5,345,244"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,258,247,292,242,292,242,258"/>
+</map>

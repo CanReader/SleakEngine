@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::VulkanBuffer" name="Sleak::RenderEngine::VulkanBuffer">
+<area shape="rect" id="Node000001" title="VMA&#45;backed Vulkan buffer with staging uploads, batched copies, and a size&#45;bucketed recycling pool." alt="" coords="5,893,304,1623"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1BufferBase.html" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="36,228,273,845"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,859,157,893,152,893,152,859"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="60,5,249,180"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="157,194,157,228,152,228,152,194"/>
+</map>

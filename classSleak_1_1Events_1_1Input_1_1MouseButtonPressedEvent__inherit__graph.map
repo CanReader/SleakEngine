@@ -1,0 +1,7 @@
+<map id="Sleak::Events::Input::MouseButtonPressedEvent" name="Sleak::Events::Input::MouseButtonPressedEvent">
+<area shape="rect" id="Node000001" title=" " alt="" coords="21,648,234,861"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Events_1_1Input_1_1MouseButtonEvent.html" title=" " alt="" coords="19,312,236,600"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="130,614,130,648,125,648,125,614"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Event.html" title=" " alt="" coords="5,5,249,264"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="130,278,130,312,125,312,125,278"/>
+</map>

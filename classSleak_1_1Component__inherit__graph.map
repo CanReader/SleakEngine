@@ -1,0 +1,23 @@
+<map id="Sleak::Component" name="Sleak::Component">
+<area shape="rect" id="Node000001" title=" " alt="" coords="782,292,982,665"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1AnimatorComponent.html" title=" " alt="" coords="5,769,236,1239"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="768,497,649,522,582,540,512,564,442,592,373,627,309,668,250,715,226,741,205,770,201,767,222,738,247,711,306,663,371,622,440,587,510,559,580,535,648,517,767,492"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1CameraController.html" title=" " alt="" coords="261,713,490,1295"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="770,529,704,563,633,605,565,656,504,715,492,729,488,726,500,712,561,652,630,601,701,558,768,524"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1ColliderComponent.html" title=" " alt="" coords="515,732,756,1276"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="788,679,771,714,759,741,754,739,766,712,783,677"/>
+<area shape="rect" id="Node000008" href="$classSleak_1_1MaterialComponent.html" title=" " alt="" coords="781,769,983,1239"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="885,679,885,768,879,768,879,679"/>
+<area shape="rect" id="Node000009" href="$classSleak_1_1MeshComponent.html" title=" " alt="" coords="1008,779,1244,1229"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="981,677,998,712,1028,777,1023,780,993,714,976,679"/>
+<area shape="rect" id="Node000010" href="$classSleak_1_1RigidbodyComponent.html" title=" " alt="" coords="1268,798,1507,1210"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="996,526,1061,560,1130,603,1197,653,1257,712,1288,752,1315,796,1310,799,1284,755,1253,715,1194,657,1127,607,1058,565,993,531"/>
+<area shape="rect" id="Node000011" href="$classSleak_1_1TransformComponent.html" title="Represents the position, rotation, and scale of an entity in 3D space." alt="" coords="1531,739,1753,1269"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="996,491,1116,515,1185,534,1256,557,1327,586,1397,621,1462,663,1521,711,1544,736,1540,740,1517,715,1459,667,1394,626,1325,591,1254,562,1183,539,1115,521,995,496"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Object.html" title=" " alt="" coords="781,5,983,244"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="885,258,885,292,879,292,879,258"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1FirstPersonController.html" title=" " alt="" coords="136,1350,361,1703"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="304,1309,294,1351,289,1349,299,1307"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1FreeLookCameraController.html" title=" " alt="" coords="386,1343,618,1711"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="452,1308,460,1342,455,1343,447,1309"/>
+</map>

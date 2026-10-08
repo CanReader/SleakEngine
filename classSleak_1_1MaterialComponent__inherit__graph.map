@@ -1,0 +1,7 @@
+<map id="Sleak::MaterialComponent" name="Sleak::MaterialComponent">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,713,208,1184"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Component.html" title=" " alt="" coords="7,292,207,665"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="109,679,109,713,104,713,104,679"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Object.html" title=" " alt="" coords="6,5,207,244"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="109,258,109,292,104,292,104,258"/>
+</map>
