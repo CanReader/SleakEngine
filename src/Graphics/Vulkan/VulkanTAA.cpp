@@ -420,10 +420,12 @@ void VulkanRenderer::UpdateTAAUBO() {
 
     TAAParams p{};
     memcpy(p.InvCurrentVP, invCurrentVP, sizeof(p.InvCurrentVP));
-    memcpy(p.PrevVP,       m_prevViewProj, sizeof(p.PrevVP));
+    // First frame: identity reprojection
+    memcpy(p.PrevVP, m_taaFrameIdx == 0 ? currentVP : m_prevViewProj,
+           sizeof(p.PrevVP));
     p.ScreenW     = static_cast<float>(scExtent.width);
     p.ScreenH     = static_cast<float>(scExtent.height);
-    // First two frames skip history (prev VP is zero-initialized)
+    // First two frames skip history
     p.BlendFactor = (m_taaFrameIdx <= 1) ? 1.0f : m_taaBlendFactor;
     p._pad        = 0.0f;
 
