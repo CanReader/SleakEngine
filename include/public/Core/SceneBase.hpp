@@ -29,7 +29,8 @@ namespace Sleak {
     namespace Physics { class PhysicsWorld; }
 
     /// Non-templated scene interface: object ownership, state machine, and
-    /// per-frame update hooks. Game scenes derive from Scene, not this directly.
+    /// per-frame update hooks. Game scenes derive from Scene, not this
+    /// directly.
     ///
     /// SceneBase defines what every scene can do regardless of subclass:
     /// hold objects, move through the SceneState machine, and answer
