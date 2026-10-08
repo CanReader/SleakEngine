@@ -5,14 +5,15 @@ namespace Sleak {
         Reset();
     }
 
-    void Timer::Reset() {
-        startPoint = std::chrono::high_resolution_clock::now();
+    void Timer::Reset() { startPoint = std::chrono::steady_clock::now(); }
+
+    float Timer::Elapsed() const {
+        return static_cast<float>(ElapsedSeconds());
     }
 
-    // Outputs elaosed time as seconds
-    float Timer::Elapsed() const {
-        auto now = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<float> elapsed = now - startPoint;
+    double Timer::ElapsedSeconds() const {
+        std::chrono::duration<double> elapsed =
+            std::chrono::steady_clock::now() - startPoint;
         return elapsed.count();
     }
-};
+    };  // namespace Sleak

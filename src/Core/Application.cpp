@@ -126,8 +126,6 @@ namespace Sleak {
     int Application::Run(GameBase* game) {
         Game = game;
 
-        float lastTime = FrameTimer.Elapsed();
-
         if(CoreWindow && CoreWindow->InitializeWindow()) {
 
         if(renderer && renderer->Initialize()) {
@@ -150,9 +148,7 @@ namespace Sleak {
             auto context = renderer->GetContext();
             auto queue = RenderEngine::RenderCommandQueue::GetInstance();
 
-            float lastTime = FrameTimer.Elapsed();
-            float accumulator = 0.0f;
-            const float fixedTimestep = 1.0f / 60.0f;  
+            constexpr double kMaxDeltaTime = 0.25;
 
             // Initialize and begin the game (and scene)
             if (Game) {
@@ -184,10 +180,13 @@ namespace Sleak {
                     m_benchmark->ToggleRecording();
             }
 
+            // Start after init so load time is not the first frame delta
+            double lastTime = FrameTimer.ElapsedSeconds();
+
             while(!CoreWindow->ShouldClose()) {
-                
-                float currentTime = FrameTimer.Elapsed();
-                DeltaTime = currentTime - lastTime;
+                double currentTime = FrameTimer.ElapsedSeconds();
+                DeltaTime = static_cast<float>(
+                    std::clamp(currentTime - lastTime, 0.0, kMaxDeltaTime));
                 lastTime = currentTime;
                 
                 #if defined(_DEBUG) && defined(COUNT_FRAME)
@@ -218,14 +217,7 @@ namespace Sleak {
                 if (Game && Game->GetActiveScene()) {
                     auto* activeScene = Game->GetActiveScene();
 
-                    // Fixed timestep updates (physics, etc.)
-                    accumulator += DeltaTime;
-                    while (accumulator >= fixedTimestep) {
-                        activeScene->FixedUpdate(fixedTimestep);
-                        accumulator -= fixedTimestep;
-                    }
-
-                    // Per-frame update
+                    // Per-frame update; the scene runs its fixed steps inside
                     activeScene->Update(DeltaTime);
 
                     // Late update (after all updates, e.g. camera follow)
