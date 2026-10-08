@@ -1375,8 +1375,10 @@ bool VulkanRenderer::RecreateSwapChain() {
         return false;
     }
 
-    // Resize imagesInFlight in case swapchain image count changed
-    imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
+    if (!CreateImageSyncObjects()) {
+        SLEAK_ERROR("Failed to recreate swapchain image semaphores!");
+        return false;
+    }
 
     // Recreate GBuffer resources if they were previously created
     if (hadGBuffer && m_deferredEnabled) {
@@ -1458,6 +1460,7 @@ void VulkanRenderer::ApplyMSAAChange() {
 
     // Recreate everything
     CreateSwapChain();
+    CreateImageSyncObjects();
     CreateImageViews();
     CreateDepthResources();
     CreateMSAAColorResources();
@@ -1528,17 +1531,37 @@ bool VulkanRenderer::CreateCommandPool() {
     return true;
 }
 
+/// Grows the per-image semaphores to the swapchain image count and clears
+/// the image-to-fence table. Existing semaphores are kept: a present may
+/// still reference them, and indices beyond the image count are harmless.
+bool VulkanRenderer::CreateImageSyncObjects() {
+    const size_t imageCount = swapChainImages.size();
+    imagesInFlight.assign(imageCount, VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    while (imageAvailableSemaphores.size() < imageCount) {
+        VkSemaphore available = VK_NULL_HANDLE;
+        VkSemaphore finished = VK_NULL_HANDLE;
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &available) !=
+                VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &finished) !=
+                VK_SUCCESS) {
+            if (available) vkDestroySemaphore(device, available, nullptr);
+            SLEAK_RETURN_ERR("Failed to create synchronization objects!");
+        }
+        imageAvailableSemaphores.push_back(available);
+        renderFinishedSemaphores.push_back(finished);
+    }
+    return true;
+}
+
 /// Creates the per-swapchain-image semaphores and per-frame fences and
 /// transfer semaphores.
 bool VulkanRenderer::CreateSyncObjects() {
-    uint32_t imageCount = static_cast<uint32_t>(swapChainImages.size());
-
-    // Semaphores sized to swapchain image count to prevent reuse
-    // while the presentation engine still holds a reference.
-    imageAvailableSemaphores.resize(imageCount);
-    renderFinishedSemaphores.resize(imageCount);
+    if (!CreateImageSyncObjects()) return false;
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-    imagesInFlight.resize(imageCount, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1546,16 +1569,6 @@ bool VulkanRenderer::CreateSyncObjects() {
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    // Create per-swapchain-image semaphores
-    for (uint32_t i = 0; i < imageCount; i++) {
-        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &renderFinishedSemaphores[i]) != VK_SUCCESS) {
-            SLEAK_RETURN_ERR("Failed to create synchronization objects!");
-        }
-    }
 
     // Create per-frame-in-flight fences and transfer semaphores
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {

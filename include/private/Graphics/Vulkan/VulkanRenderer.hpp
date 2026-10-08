@@ -322,6 +322,9 @@ private:
     /// Creates the per-swapchain-image semaphores and per-frame fences and
     /// transfer semaphores.
     bool CreateSyncObjects();
+    /// Grows the per-image semaphores to the swapchain image count and
+    /// clears the image-to-fence table.
+    bool CreateImageSyncObjects();
     /// Creates the depth image, memory, and image view.
     bool CreateDepthResources();
     /// Creates the texture, bone UBO, light UBO, and shadow sampler descriptor set layouts.
