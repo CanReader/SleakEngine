@@ -16,7 +16,7 @@ layout(push_constant) uniform BloomCompositePC {
     float bloomStrength;   // bloom mix amount (typical 0.04..0.08 UE-style)
     float exposure;        // exposure multiplier for HDR scene
     float gamma;           // 1.0 unless tonemapping is enabled
-    float _pad1;
+    uint  ssrEnabled;      // 0 skips the SSR fetch
 };
 
 // ACES Filmic tonemap (Narkowicz 2015)
@@ -31,23 +31,26 @@ vec3 ACESFilm(vec3 x) {
 }
 
 void main() {
-    vec3 hdr   = texture(sceneHDR, fragUV).rgb;
-    vec3 bloom = texture(bloomTex, fragUV).rgb;
+    vec3 hdr = texture(sceneHDR, fragUV).rgb;
 
     // SSR: ssr.rgb = reflectedColor * Fresnel * fades (premultiplied), ssr.a = fades only.
     // Unpremultiply to get reflectedColor * Fresnel, then lerp over the base scene using
     // ssr.a as coverage. This replaces (rather than adds to) the IBL-approximated specular,
     // so reflections are visible even on bright surfaces.
-    vec4 ssr = texture(ssrTex, fragUV);
-    if (ssr.a > 0.001) {
-        hdr = mix(hdr, ssr.rgb / max(ssr.a, 1e-4), min(ssr.a, 1.0));
+    if (ssrEnabled != 0u) {
+        vec4 ssr = texture(ssrTex, fragUV);
+        if (ssr.a > 0.001) {
+            hdr = mix(hdr, ssr.rgb / max(ssr.a, 1e-4), min(ssr.a, 1.0));
+        }
     }
 
     // Add bloom on top of the HDR scene. Bloom is a soft glow derived
     // from the bright parts of the scene; adding it preserves the base
     // luminance and only brightens hot spots (unlike mix, which dims
     // the scene by the bloom factor in non-glowing regions).
-    vec3 combined = hdr + bloom * clamp(bloomStrength, 0.0, 1.0);
+    vec3 combined = hdr;
+    if (bloomStrength > 0.0)
+        combined += texture(bloomTex, fragUV).rgb * clamp(bloomStrength, 0.0, 1.0);
 
     // Apply exposure before tone mapping.
     combined *= exposure;

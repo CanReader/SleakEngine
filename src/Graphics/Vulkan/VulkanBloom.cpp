@@ -729,7 +729,8 @@ void VulkanRenderer::RenderBloomCompositePass() {
     // is disabled). Fall back to the bloom mip view only when SSR resources
     // haven't been created yet (should never happen once init completes).
     infos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (m_ssrResourcesCreated && m_ssrView != VK_NULL_HANDLE) {
+    const bool ssrReady = m_ssrResourcesCreated && m_ssrView != VK_NULL_HANDLE;
+    if (ssrReady) {
         infos[2].imageView = m_ssrView;
         infos[2].sampler   = m_ssrSampler ? m_ssrSampler : m_bloomSampler;
     } else {
@@ -765,13 +766,14 @@ void VulkanRenderer::RenderBloomCompositePass() {
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
     struct {
-        float bloomStrength, exposure, gamma, p1;
+        float bloomStrength, exposure, gamma;
+        uint32_t ssrEnabled;
     } pc;
     // bloom disabled -> 0 so the (black) mip contributes nothing
     pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
     pc.exposure      = m_exposure;
     pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
-    pc.p1            = 0.0f;
+    pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);
