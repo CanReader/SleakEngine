@@ -52,6 +52,84 @@ static bool Invert4x4(const float m[16], float inv[16]) {
 
     return true;
 }
+
+constexpr float kCascadeBlend = 0.1f;
+constexpr float kCascadePadTexels = 8.0f;
+
+/// Near plane of the main camera, read back from its projection matrix.
+float MainCameraNear() {
+    const auto& P = Sleak::Camera::GetMainProjectionMatrix();
+    if (P(2, 3) == 0.0f || P(2, 2) == 0.0f) return 0.1f;
+    float n = -P(3, 2) / P(2, 2);
+    return n > 0.0f ? n : 0.1f;
+}
+
+/// Fits one sphere per cascade around the camera (practical split radii) and
+/// builds a texel-snapped orthographic light view-projection for each.
+void BuildShadowCascades(const Sleak::DirectionalLight& light,
+                         const Sleak::Math::Vector3D& camPos, uint32_t count,
+                         uint32_t resolution, float outVP[][16],
+                         float outSplits[]) {
+    using namespace Sleak;
+    float maxDist = light.GetShadowMaxDistance();
+    if (maxDist <= 0.0f) maxDist = light.GetShadowFrustumSize();
+    const float nearDist = std::clamp(MainCameraNear(), 0.01f, maxDist * 0.5f);
+    const float lambda = std::clamp(light.GetShadowSplitLambda(), 0.0f, 1.0f);
+
+    // Fixed light orientation with no translation: the cascades only move
+    // in light space, where they are snapped to whole texels.
+    const auto dir = light.GetDirection();
+    Math::Vector<float, 3> ld({dir.GetX(), dir.GetY(), dir.GetZ()});
+    Math::Vector<float, 3> up =
+        (std::fabs(dir.GetY()) > 0.999f)
+            ? Math::Vector<float, 3>({0.0f, 0.0f, 1.0f})
+            : Math::Vector<float, 3>({0.0f, 1.0f, 0.0f});
+    Math::Matrix4 lightView = Math::Matrix4::LookTo(
+        Math::Vector<float, 3>({0.0f, 0.0f, 0.0f}), ld, up);
+
+    auto toLight = [&](int axis) {
+        return camPos.GetX() * lightView(0, axis) +
+               camPos.GetY() * lightView(1, axis) +
+               camPos.GetZ() * lightView(2, axis);
+    };
+    const float cx = toLight(0), cy = toLight(1), cz = toLight(2);
+
+    const float res = static_cast<float>(resolution);
+    const float pad = res / (res - 2.0f * kCascadePadTexels);
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const float p = static_cast<float>(i + 1) / static_cast<float>(count);
+        const float logSplit = nearDist * std::pow(maxDist / nearDist, p);
+        const float uniSplit = nearDist + (maxDist - nearDist) * p;
+        const float split =
+            (i + 1 == count) ? maxDist
+                             : lambda * logSplit + (1.0f - lambda) * uniSplit;
+        outSplits[i] = split;
+
+        const float halfExtent = split * pad;
+        const float texel = 2.0f * halfExtent / res;
+        const float x = std::round(cx / texel) * texel;
+        const float y = std::round(cy / texel) * texel;
+
+        const float pull = std::max(light.GetShadowDistance(), halfExtent);
+        const float zNear = cz - pull + light.GetShadowNearPlane();
+        const float zFar =
+            cz - pull + std::max(light.GetShadowFarPlane(), pull + halfExtent);
+
+        // Vulkan-style [0,1] depth; translations live in row 3 because the
+        // engine is row-major and GLSL reads the matrix transposed.
+        Math::Matrix4 proj = Math::Matrix4::Identity();
+        proj(0, 0) = 1.0f / halfExtent;
+        proj(1, 1) = 1.0f / halfExtent;
+        proj(2, 2) = 1.0f / (zFar - zNear);
+        proj(3, 0) = -x / halfExtent;
+        proj(3, 1) = -y / halfExtent;
+        proj(3, 2) = -zNear / (zFar - zNear);
+
+        Math::Matrix4 vp = lightView * proj;
+        std::memcpy(outVP[i], &vp(0, 0), sizeof(float) * 16);
+    }
+}
 } // namespace
 
 namespace Sleak {
@@ -213,107 +291,44 @@ void LightManager::UpdateShadowData() {
     float intensity = activeLight->GetIntensity();
 
     Math::Matrix4 lightVP = Math::Matrix4::Identity();
+    float cascadeVP[RenderEngine::MAX_SHADOW_CASCADES][16] = {};
+    float cascadeSplits[RenderEngine::MAX_SHADOW_CASCADES] = {};
+    uint32_t cascadeCount = 0;
 
     if (shadowLight) {
-        // Compute light view-projection matrix from shadow configuration
-        float frustumSize = shadowLight->GetShadowFrustumSize();
-        float shadowDist  = shadowLight->GetShadowDistance();
-        float nearP       = shadowLight->GetShadowNearPlane();
-        float farP        = shadowLight->GetShadowFarPlane();
-
-        // Light position: follow camera XZ but fix Y at world origin.
-        // Anchoring Y prevents the shadow frustum from shifting vertically
-        // when the player jumps/flies, which causes hard Z-plane cutoff flicker.
-        const auto& camPos = Camera::GetMainCameraPosition();
-        Math::Vector3D lightPos = Math::Vector3D(camPos.GetX(), 0.0f, camPos.GetZ())
-                                + dir * (-shadowDist);
-
-        // Convert to Vector<float,3> for Matrix methods
-        Math::Vector<float, 3> lp({lightPos.GetX(), lightPos.GetY(), lightPos.GetZ()});
-        Math::Vector<float, 3> ld({dir.GetX(), dir.GetY(), dir.GetZ()});
-
-        // Avoid degenerate LookTo when light direction is nearly vertical
-        // (cross product with (0,1,0) would be zero → NaN matrix)
-        Math::Vector<float, 3> up = (fabsf(dir.GetY()) > 0.999f)
-            ? Math::Vector<float, 3>({0.0f, 0.0f, 1.0f})
-            : Math::Vector<float, 3>({0.0f, 1.0f, 0.0f});
-
-        Math::Matrix4 lightView = Math::Matrix4::LookTo(lp, ld, up);
-
-        // Build Vulkan-compatible orthographic projection (LH, [0,1] depth range)
-        // Engine stores row-major, GLSL reads column-major (transposed) —
-        // translations go in ROW 3 so they end up in GLSL column 3.
-        float left = -frustumSize, right = frustumSize;
-        float bottom = -frustumSize, top = frustumSize;
-        Math::Matrix4 lightProj = Math::Matrix4::Identity();
-        lightProj(0, 0) = 2.0f / (right - left);
-        lightProj(1, 1) = 2.0f / (top - bottom);
-        lightProj(2, 2) = 1.0f / (farP - nearP);
-        lightProj(3, 0) = -(right + left) / (right - left);
-        lightProj(3, 1) = -(top + bottom) / (top - bottom);
-        lightProj(3, 2) = -nearP / (farP - nearP);
-
-        // ---- Texel snap (DirectX SDK standard technique) ----
-        // Project world origin through the raw lightVP, measure its XY in
-        // shadow-map texel space, snap to nearest texel, apply the delta
-        // back to the projection matrix. This guarantees the sampling grid
-        // is aligned to world-space texel cells so sub-texel camera motion
-        // never shifts which texel a world point lands on → no shimmer.
-        //
-        // Using round() (not floor) — floor flips by a full texel when
-        // the fractional part crosses 0 due to float noise.
-        const float shadowMapSize =
-            static_cast<float>(renderer->GetShadowMapResolution());
-        const float halfShadow = shadowMapSize * 0.5f;
-
-        Math::Matrix4 lightVP_raw = lightView * lightProj;
-        // Anchor the snap on the WORLD ORIGIN (fixed point). The camera is a
-        // constant offset from the light frustum (lightPos follows camXZ), so
-        // projecting the camera yields the SAME texel coords every frame —
-        // constant delta, snap no-ops, world texels crawl while moving. The
-        // origin's projected texel position drifts as the frustum follows the
-        // camera; rounding it quantizes frustum motion to whole texels.
-        // Row-vector convention: (0,0,0,1) * M = row 3.
-        float clipX = lightVP_raw(3, 0);
-        float clipY = lightVP_raw(3, 1);
-        float clipW = lightVP_raw(3, 3);
-        if (clipW != 0.0f) {
-            float ndcX = clipX / clipW;
-            float ndcY = clipY / clipW;
-            float texX = ndcX * halfShadow;
-            float texY = ndcY * halfShadow;
-            float roundedX = std::round(texX);
-            float roundedY = std::round(texY);
-            float offsetNdcX = (roundedX - texX) / halfShadow;
-            float offsetNdcY = (roundedY - texY) / halfShadow;
-            lightProj(3, 0) += offsetNdcX;
-            lightProj(3, 1) += offsetNdcY;
-        }
-
-        // LightVP = View * Projection (row-major convention)
-        lightVP = lightView * lightProj;
+        cascadeCount = std::clamp(shadowLight->GetShadowCascadeCount(), 1u,
+                                  RenderEngine::MAX_SHADOW_CASCADES);
+        renderer->SetShadowCascadeCount(cascadeCount);
+        BuildShadowCascades(*shadowLight, Camera::GetMainCameraPosition(),
+                            cascadeCount, renderer->GetShadowMapResolution(),
+                            cascadeVP, cascadeSplits);
     }
 
-    // DIAG --shadowfreeze: latch the first lightVP forever. If shadows still
+    // DIAG --shadowfreeze: latch the first cascades forever. If shadows still
     // shimmer with a frozen frustum, the cause is screen-space, not the
     // frustum-follow chain.
     {
         static const bool s_freeze = CommandLine::HasFlag("--shadowfreeze");
         static bool s_latched = false;
-        static float s_frozenVP[16];
+        static float s_frozenVP[RenderEngine::MAX_SHADOW_CASCADES][16];
         if (s_freeze && shadowLight) {
             if (!s_latched) {
-                std::memcpy(s_frozenVP, &lightVP(0, 0), sizeof(s_frozenVP));
+                std::memcpy(s_frozenVP, cascadeVP, sizeof(s_frozenVP));
                 s_latched = true;
                 SLEAK_WARN("shadowfreeze: light frustum latched");
             } else {
-                std::memcpy(&lightVP(0, 0), s_frozenVP, sizeof(s_frozenVP));
+                std::memcpy(cascadeVP, s_frozenVP, sizeof(s_frozenVP));
             }
         }
     }
 
-    // Set the light VP matrix on the renderer
+    // The last cascade doubles as the single map for older shaders.
+    if (cascadeCount > 0) {
+        std::memcpy(&lightVP(0, 0), cascadeVP[cascadeCount - 1],
+                    sizeof(float) * 16);
+    }
     renderer->SetLightVP(&lightVP(0, 0));
+    renderer->SetShadowCascades(&cascadeVP[0][0], cascadeCount);
 
     // Build shadow light UBO
     const auto& camPos = Camera::GetMainCameraPosition();
@@ -376,6 +391,11 @@ void LightManager::UpdateShadowData() {
     ubo.ShadowTexelSize =
         1.0f / static_cast<float>(renderer->GetShadowMapResolution());
     ubo.LightSize = shadowLight ? shadowLight->GetLightSize() : 0.0f;
+
+    std::memcpy(ubo.CascadeVP, cascadeVP, sizeof(ubo.CascadeVP));
+    std::memcpy(ubo.CascadeSplits, cascadeSplits, sizeof(ubo.CascadeSplits));
+    ubo.CascadeCount = cascadeCount;
+    ubo.CascadeBlend = kCascadeBlend;
 
     // Fog — distance gradient (horizon + zenith) and exponential height fog
     if (m_fogEnabled) {

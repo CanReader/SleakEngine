@@ -36,10 +36,18 @@ layout(set = 2, binding = 0) uniform ShadowLightUBO {
     float uHeightFogDensity;
     float uHeightFogFalloff;
     float uHeightFogEnabled;
+    vec4  uExtraDir[3];
+    vec4  uExtraColor[3];
+    uint  uNumExtraLights;
+    mat4  uNdcToShadow;
+    mat4  uCascadeVP[4];
+    vec4  uCascadeSplits;    // cascade radius around uCameraPos
+    uint  uCascadeCount;
+    float uCascadeBlend;     // blend band, fraction of the radius
 };
 
-layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;     // hardware PCF
-layout(set = 3, binding = 1) uniform sampler2D       shadowMapRaw;  // blocker search
+layout(set = 3, binding = 2) uniform sampler2DArrayShadow shadowMap;  // cascades, PCF
+layout(set = 3, binding = 3) uniform sampler2DArray       shadowMapRaw;  // blocker search
 
 float InterleavedGradientNoise(vec2 screenPos) {
     vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
@@ -58,12 +66,13 @@ vec2 VogelDisk(int i, int count, float phi) {
 const int BLOCKER_SAMPLES = 16;
 const int PCF_SAMPLES     = 48;
 
-float FindAvgBlockerDepth(vec2 uv, float zRef, float searchRadius, float phi) {
+float FindAvgBlockerDepth(vec2 uv, float layer, float zRef,
+                          float searchRadius, float phi) {
     float sum = 0.0;
     int count = 0;
     for (int i = 0; i < BLOCKER_SAMPLES; ++i) {
         vec2 off = VogelDisk(i, BLOCKER_SAMPLES, phi) * searchRadius;
-        float d = texture(shadowMapRaw, uv + off).r;
+        float d = texture(shadowMapRaw, vec3(uv + off, layer)).r;
         if (d < zRef) {
             sum += d;
             count++;
@@ -72,11 +81,12 @@ float FindAvgBlockerDepth(vec2 uv, float zRef, float searchRadius, float phi) {
     return (count > 0) ? sum / float(count) : -1.0;
 }
 
-float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
+float PCFFilter(vec2 uv, float layer, float zRef, float filterRadius,
+                float phi) {
     float shadow = 0.0;
     for (int i = 0; i < PCF_SAMPLES; ++i) {
         vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
-        shadow += texture(shadowMap, vec3(uv + off, zRef));
+        shadow += texture(shadowMap, vec4(uv + off, layer, zRef));
     }
     return shadow / float(PCF_SAMPLES);
 }
@@ -87,7 +97,7 @@ float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
 //   - Penumbra is linear in the blocker-receiver depth gap; no perspective
 //     divide (that formula only applies to perspective/point lights).
 //   - uLightSize acts as a softness multiplier — larger → wider penumbra.
-float CalcShadow(vec4 sc) {
+float CalcShadow(vec4 sc, float layer) {
     vec3 projCoords = sc.xyz / sc.w;
     projCoords.xy = projCoords.xy * 0.5 + 0.5;
 
@@ -96,11 +106,8 @@ float CalcShadow(vec4 sc) {
         projCoords.z < 0.0 || projCoords.z > 1.0)
         return 1.0;
 
-    vec2 fadeCoord = smoothstep(vec2(0.0), vec2(0.05), projCoords.xy)
-                   * smoothstep(vec2(0.0), vec2(0.05), vec2(1.0) - projCoords.xy);
-    float zFade    = smoothstep(0.0, 0.05, projCoords.z)
+    float edgeFade = smoothstep(0.0, 0.05, projCoords.z)
                    * smoothstep(0.0, 0.1,  1.0 - projCoords.z);
-    float edgeFade = fadeCoord.x * fadeCoord.y * zFade;
 
     float zRef = projCoords.z - uShadowBias;
     float phi  = InterleavedGradientNoise(gl_FragCoord.xy) * 6.283185;
@@ -108,7 +115,8 @@ float CalcShadow(vec4 sc) {
     // Fixed 30-texel blocker search: detects blockers ~0.7m above receiver
     // on a 28m/4096 map. Decoupled from uLightSize for stability.
     float searchRadius = uShadowTexelSize * 30.0;
-    float avgBlocker   = FindAvgBlockerDepth(projCoords.xy, zRef, searchRadius, phi);
+    float avgBlocker   = FindAvgBlockerDepth(projCoords.xy, layer, zRef,
+                                             searchRadius, phi);
 
     if (avgBlocker < 0.0) return 1.0;
 
@@ -119,8 +127,37 @@ float CalcShadow(vec4 sc) {
                                uShadowTexelSize * 0.5,   // floor: contact-hard
                                uShadowTexelSize * 20.0); // cap: floating objects
 
-    float shadow = PCFFilter(projCoords.xy, zRef, filterRadius, phi);
+    float shadow = PCFFilter(projCoords.xy, layer, zRef, filterRadius, phi);
     return mix(1.0, shadow, uShadowStrength * edgeFade);
+}
+
+// Normal offset scales with the cascade radius so it stays the same number
+// of texels in every cascade.
+vec4 CascadeCoord(uint c, vec3 worldPos, vec3 N) {
+    float normalBias = uLightDir.w * uCascadeSplits[c] /
+                       uCascadeSplits[uCascadeCount - 1u];
+    return uCascadeVP[c] * vec4(worldPos + N * normalBias, 1.0);
+}
+
+// Picks the cascade by distance from the camera and blends into the next one
+// (or out to unshadowed after the last) across the band at its outer edge.
+float CalcCascadedShadow(vec3 worldPos, vec3 N) {
+    if (uCascadeCount == 0u) return 1.0;
+    float dist = length(worldPos - uCameraPos.xyz);
+    uint  c    = 0u;
+    while (c + 1u < uCascadeCount && dist > uCascadeSplits[c]) ++c;
+
+    float outer = uCascadeSplits[c];
+    if (dist >= outer) return 1.0;
+    float t      = smoothstep(outer * (1.0 - uCascadeBlend), outer, dist);
+    float shadow = CalcShadow(CascadeCoord(c, worldPos, N), float(c));
+    if (t > 0.0) {
+        float next = (c + 1u < uCascadeCount)
+            ? CalcShadow(CascadeCoord(c + 1u, worldPos, N), float(c + 1u))
+            : 1.0;
+        shadow = mix(shadow, next, t);
+    }
+    return shadow;
 }
 
 // ACES film tone mapping (Stephen Hill fit)
@@ -171,7 +208,7 @@ void main() {
 
     // Wrap diffuse: softens shadow terminator, side faces get ~15% sun
     float NdotL   = clamp(dot(N, -lightDir) * 0.85 + 0.15, 0.0, 1.0);
-    float shadow  = CalcShadow(fragShadowCoord);
+    float shadow  = CalcCascadedShadow(fragWorldPos, N);
     vec3  diffuse = lightColor * lightIntens * NdotL * shadow;
 
     // Compose: AO only on ambient (direct light ignores occlusion)

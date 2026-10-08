@@ -775,9 +775,9 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
     // Depth images must use DEPTH_STENCIL_READ_ONLY_OPTIMAL (not SHADER_READ_ONLY_OPTIMAL)
     // when accessed as a sampler; using the wrong layout causes VK_ERROR_DEVICE_LOST.
     // Fall back to the default 1x1 white texture when no shadow map is available.
-    if (m_shadowImageView) {
+    if (m_shadowArrayView) {
         imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        imageInfos[4].imageView   = m_shadowImageView;
+        imageInfos[4].imageView = m_shadowArrayView;
         imageInfos[4].sampler     = m_shadowSampler ? m_shadowSampler
                                                      : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
     } else if (m_defaultTexture) {

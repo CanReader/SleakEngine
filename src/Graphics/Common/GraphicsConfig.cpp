@@ -17,6 +17,7 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.lightShaftEnabled = false;
             cfg.shadowEnabled = false;
             cfg.pcssEnabled = false;
+            cfg.shadowCascadeCount = 1;
             cfg.occlusionCullingEnabled = false;
             cfg.occlusionBufferWidth = 160;
             cfg.occlusionBufferHeight = 90;
@@ -34,6 +35,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.pcssEnabled = false;
             cfg.shadowMapResolution = 1024;
             cfg.shadowFrustumSize = 96.0f;
+            cfg.shadowCascadeCount = 2;
+            cfg.shadowSplitLambda = 0.5f;
+            cfg.shadowMaxDistance = 96.0f;
             cfg.shadowCasterDistance = 64.0f;
             cfg.occlusionCullingEnabled = false;
             cfg.occlusionBufferWidth = 160;
@@ -50,6 +54,9 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.lightShaftEnabled = false;
             cfg.shadowEnabled = true;
             cfg.pcssEnabled = true;
+            cfg.shadowCascadeCount = 3;
+            cfg.shadowSplitLambda = 0.6f;
+            cfg.shadowMaxDistance = 128.0f;
             cfg.occlusionCullingEnabled = true;
             cfg.occlusionBufferWidth = 256;
             cfg.occlusionBufferHeight = 144;
@@ -65,13 +72,16 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.lightShaftEnabled = true;
             cfg.shadowEnabled = true;
             cfg.pcssEnabled = true;
+            cfg.shadowCascadeCount = 4;
+            cfg.shadowSplitLambda = 0.7f;
+            cfg.shadowMaxDistance = 160.0f;
             cfg.occlusionCullingEnabled = true;
             cfg.occlusionBufferWidth = 256;
             cfg.occlusionBufferHeight = 144;
             break;
         }
         case GraphicsQuality::Ultra: {
-            // High + larger shadow range + TAA.
+            // High + more shadow range in the same cascades + TAA.
             cfg.ssaoEnabled = true;
             cfg.ssrEnabled = true;
             cfg.bloomEnabled = true;
@@ -82,8 +92,10 @@ GraphicsConfig GraphicsConfig::Preset(GraphicsQuality q) {
             cfg.pcssEnabled = true;
             cfg.shadowMapResolution = 3072;
             cfg.shadowDistance = 256.0f;
-            cfg.shadowFrustumSize = 160.0f;
-            cfg.shadowCasterDistance = 160.0f;
+            cfg.shadowCascadeCount = 4;
+            cfg.shadowSplitLambda = 0.75f;
+            cfg.shadowMaxDistance = 256.0f;
+            cfg.shadowCasterDistance = 256.0f;
             cfg.occlusionCullingEnabled = true;
             cfg.occlusionBufferWidth = 320;
             cfg.occlusionBufferHeight = 180;
@@ -101,6 +113,9 @@ void GraphicsConfig::ApplyShadows(Sleak::DirectionalLight& light) const {
     light.SetShadowDistance(shadowDistance);
     light.SetShadowBias(shadowBias);
     light.SetShadowStrength(shadowStrength);
+    light.SetShadowCascadeCount(shadowCascadeCount);
+    light.SetShadowSplitLambda(shadowSplitLambda);
+    light.SetShadowMaxDistance(shadowMaxDistance);
 }
 
 }  // namespace Sleak

@@ -66,20 +66,18 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
                                      &m_lightUBODescriptorSetLayout) != VK_SUCCESS)
         SLEAK_RETURN_ERR("Failed to create light UBO descriptor set layout!");
 
-    // Set 3: shadow map samplers — binding 0 = compare sampler (PCF),
-    //                              binding 1 = raw sampler (PCSS blocker search)
-    std::array<VkDescriptorSetLayoutBinding, 2> shadowSamplerBindings{};
-    shadowSamplerBindings[0].binding = 0;
-    shadowSamplerBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    shadowSamplerBindings[0].descriptorCount = 1;
-    shadowSamplerBindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    shadowSamplerBindings[0].pImmutableSamplers = nullptr;
-
-    shadowSamplerBindings[1].binding = 1;
-    shadowSamplerBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    shadowSamplerBindings[1].descriptorCount = 1;
-    shadowSamplerBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    shadowSamplerBindings[1].pImmutableSamplers = nullptr;
+    // Set 3: shadow map samplers. Bindings 0/1 = last cascade as a 2D map
+    // (compare for PCF, raw for the PCSS blocker search), 2/3 = all cascades
+    // as an array with the same two samplers.
+    std::array<VkDescriptorSetLayoutBinding, 4> shadowSamplerBindings{};
+    for (uint32_t b = 0; b < shadowSamplerBindings.size(); ++b) {
+        shadowSamplerBindings[b].binding = b;
+        shadowSamplerBindings[b].descriptorType =
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowSamplerBindings[b].descriptorCount = 1;
+        shadowSamplerBindings[b].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        shadowSamplerBindings[b].pImmutableSamplers = nullptr;
+    }
 
     VkDescriptorSetLayoutCreateInfo shadowSamplerLayoutInfo{};
     shadowSamplerLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;

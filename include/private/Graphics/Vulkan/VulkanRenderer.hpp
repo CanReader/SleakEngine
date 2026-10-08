@@ -192,6 +192,8 @@ public:
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     /// Stages the light view-projection matrix for commit at the next BeginRender.
     void SetLightVP(const float* lightVP) override;
+    /// Stages the per-cascade light view-projections for the next BeginRender.
+    void SetShadowCascades(const float* viewProj, uint32_t count) override;
 
     // Deferred rendering overrides
     virtual bool IsDeferredEnabled() const override { return m_deferredEnabled && m_gbufferResourcesCreated; }
@@ -216,7 +218,7 @@ public:
     void ApplyMSAAChange() override;
     /// Recreates the swapchain to apply a queued VSync toggle.
     void ApplyVSyncChange() override;
-    /// Recreates the extent-dependent shadow map objects at the queued resolution.
+    /// Recreates the shadow map objects with the queued size and cascades.
     void ApplyShadowResolutionChange() override;
 
 private:
@@ -275,6 +277,16 @@ private:
     bool CreateShadowLightUBOResources();
     /// Destroys the shadow map image, pipeline, render pass, and light UBO resources.
     void CleanupShadowResources();
+    /// Creates the layered shadow image and its array and per-layer views.
+    bool CreateShadowMapImage();
+    /// Creates one framebuffer per cascade layer for the shadow render pass.
+    bool CreateShadowFramebuffers();
+    /// Destroys what CreateShadowMapImage made.
+    void DestroyShadowMapImage();
+    /// Points the set-3 shadow descriptors at the current shadow views.
+    void WriteShadowSamplerDescriptors();
+    /// Renders the cached shadow casters into every cascade layer.
+    void RecordShadowPass();
     /// Creates the Vulkan instance with validation layers when available.
     bool InitVulkan();
     /// Creates the SDL-backed Vulkan presentation surface.
@@ -495,11 +507,13 @@ private:
     // Shadow mapping resources
     VkImage m_shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
-    VkImageView m_shadowImageView = VK_NULL_HANDLE;
+    VkImageView m_shadowImageView = VK_NULL_HANDLE;  // last cascade, 2D
+    VkImageView m_shadowArrayView = VK_NULL_HANDLE;  // all cascades
+    std::array<VkImageView, MAX_SHADOW_CASCADES> m_shadowLayerViews = {};
     VkSampler m_shadowSampler = VK_NULL_HANDLE;      // compare sampler (hardware PCF)
     VkSampler m_shadowRawSampler = VK_NULL_HANDLE;   // non-compare sampler (PCSS blocker search)
     VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
-    VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
+    std::array<VkFramebuffer, MAX_SHADOW_CASCADES> m_shadowFramebuffers = {};
     VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
     VulkanShader* m_shadowShader = nullptr;
     bool m_shadowPassActive = false;
@@ -520,6 +534,12 @@ private:
     // entire frame so shadow pass and main pass agree on the transform.
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
+
+    // Per-cascade light VPs, staged and committed the same way as m_lightVP
+    float m_cascadeVP[MAX_SHADOW_CASCADES][16] = {};
+    float m_pendingCascadeVP[MAX_SHADOW_CASCADES][16] = {};
+    uint32_t m_cascadeCount = 0;
+    uint32_t m_pendingCascadeCount = 0;
 
     // Light/Shadow UBO (set 2, binding 0)
     VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;

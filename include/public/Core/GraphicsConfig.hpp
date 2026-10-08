@@ -16,6 +16,9 @@ enum class GraphicsQuality { Off, Low, Medium, High, Ultra };
 /// Application::ApplyGraphicsConfig(). Game owns and persists this.
 /// @ingroup core
 struct ENGINE_API GraphicsConfig {
+    /// shadowBias value the backends' raster depth bias is tuned against.
+    static constexpr float kDefaultShadowBias = 0.002f;
+
     // Post-FX (deferred path)
     bool  ssaoEnabled = false;
     float ssaoRadius  = 0.5f;
@@ -35,6 +38,11 @@ struct ENGINE_API GraphicsConfig {
     float    shadowCasterDistance = 96.0f;  // game uses for shadow-caster culling
     float    shadowBias          = 0.002f;
     float    shadowStrength      = 1.0f;
+
+    // Shadow cascades
+    uint32_t shadowCascadeCount = 3;
+    float shadowSplitLambda = 0.6f;    // 0 uniform, 1 logarithmic
+    float shadowMaxDistance = 128.0f;  // radius the cascades cover
 
     // Culling
     bool     frustumCullingEnabled   = true;
