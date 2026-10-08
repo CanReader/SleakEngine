@@ -414,7 +414,7 @@ void VulkanRenderer::UpdateTAAUBO() {
     p.ScreenW     = static_cast<float>(scExtent.width);
     p.ScreenH     = static_cast<float>(scExtent.height);
     // First two frames skip history (prev VP is zero-initialized)
-    p.BlendFactor = (m_taaFrameIdx <= 1) ? 1.0f : 0.1f;
+    p.BlendFactor = (m_taaFrameIdx <= 1) ? 1.0f : m_taaBlendFactor;
     p._pad        = 0.0f;
 
     memcpy(m_taaUboMapped[currentFrame], &p, sizeof(p));
