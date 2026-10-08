@@ -73,6 +73,7 @@ add_subdirectory(vendors/assimp)
 
 # --- Find system packages ---
 find_package(OpenGL REQUIRED)
+find_package(Threads REQUIRED)
 
 # --- Vulkan SDK (vendored) ---
 set(VULKAN_SDK "${VENDOR_DIR}/VulkanSdk")
@@ -103,6 +104,7 @@ set(CORE_SOURCES
     src/Core/Application.cpp
     src/Core/CommandLine.cpp
     src/Core/File.cpp
+    src/Core/JobSystem.cpp
     src/Core/Logger.cpp
     src/Core/ScopedTimer.cpp
     src/Core/Serializable.cpp
@@ -302,6 +304,7 @@ target_link_libraries(Engine PRIVATE
     ${OPENGL_LIBRARIES}
     freeglut
     assimp::assimp
+    Threads::Threads
 )
 target_link_libraries(Engine PUBLIC
     yaml-cpp::yaml-cpp

@@ -1,31 +1,145 @@
-#include <Runtime/ModelLoader.hpp>
-
-#include <Core/GameObject.hpp>
-#include <ECS/Components/MeshComponent.hpp>
-#include <ECS/Components/TransformComponent.hpp>
-#include <ECS/Components/MaterialComponent.hpp>
-#include <ECS/Components/AnimatorComponent.hpp>
-#include <Runtime/Material.hpp>
-#include <Runtime/Texture.hpp>
-#include <Runtime/Skeleton.hpp>
-#include <Runtime/AnimationClip.hpp>
-#include <Physics/ColliderComponent.hpp>
-#include <Physics/RigidbodyComponent.hpp>
-#include <Memory/RefPtr.hpp>
-#include <Core/Logger.hpp>
-
-#include <Runtime/MeshData.hpp>
-#include "../../include/private/Graphics/Common/ResourceManager.hpp"
-
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
 #include <assimp/postprocess.h>
-
+#include <assimp/scene.h>
 #include <stb_image.h>
 
+#include <Core/GameObject.hpp>
+#include <Core/JobSystem.hpp>
+#include <Core/Logger.hpp>
+#include <ECS/Components/AnimatorComponent.hpp>
+#include <ECS/Components/MaterialComponent.hpp>
+#include <ECS/Components/MeshComponent.hpp>
+#include <ECS/Components/TransformComponent.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/RigidbodyComponent.hpp>
+#include <Runtime/AnimationClip.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/ModelLoader.hpp>
+#include <Runtime/Skeleton.hpp>
+#include <Runtime/Texture.hpp>
+#include <algorithm>
+#include <assimp/Importer.hpp>
 #include <filesystem>
 
+#include "../../include/private/Graphics/Common/ResourceManager.hpp"
+
 namespace Sleak {
+
+namespace {
+
+struct EmbeddedDecode {
+    const aiTexture* source = nullptr;
+    std::vector<std::string> cacheKeys;
+    unsigned char* pixels = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
+void CollectUsedMaterials(const aiNode* node, const aiScene* scene,
+                          std::vector<bool>& used) {
+    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+        const unsigned int mat =
+            scene->mMeshes[node->mMeshes[i]]->mMaterialIndex;
+        if (mat < used.size()) used[mat] = true;
+    }
+    for (unsigned int i = 0; i < node->mNumChildren; ++i)
+        CollectUsedMaterials(node->mChildren[i], scene, used);
+}
+
+/// Decodes the compressed embedded textures the scene's materials use on the
+/// job system and seeds textureCache with them, so LoadMaterialTexture finds
+/// them already uploaded. Uploads stay on the calling thread.
+void PredecodeEmbeddedTextures(const aiScene* scene,
+                               TextureCache& textureCache) {
+    std::vector<bool> used(scene->mNumMaterials, false);
+    CollectUsedMaterials(scene->mRootNode, scene, used);
+
+    std::vector<EmbeddedDecode> decodes;
+    auto addSlot = [&](aiMaterial* mat, aiTextureType type) {
+        if (mat->GetTextureCount(type) == 0) return;
+        aiString aiPath;
+        mat->GetTexture(type, 0, &aiPath);
+        const aiTexture* embedded = scene->GetEmbeddedTexture(aiPath.C_Str());
+        if (!embedded || embedded->mHeight != 0) return;
+
+        std::string cacheKey =
+            std::string(aiPath.C_Str()) + ":" + std::to_string(type);
+        auto it = std::find_if(
+            decodes.begin(), decodes.end(),
+            [&](const EmbeddedDecode& d) { return d.source == embedded; });
+        if (it == decodes.end()) {
+            decodes.push_back({});
+            it = decodes.end() - 1;
+            it->source = embedded;
+        }
+        if (std::find(it->cacheKeys.begin(), it->cacheKeys.end(), cacheKey) ==
+            it->cacheKeys.end())
+            it->cacheKeys.push_back(std::move(cacheKey));
+    };
+
+    for (unsigned int m = 0; m < scene->mNumMaterials; ++m) {
+        if (!used[m]) continue;
+        aiMaterial* mat = scene->mMaterials[m];
+        addSlot(mat, mat->GetTextureCount(aiTextureType_DIFFUSE) > 0
+                         ? aiTextureType_DIFFUSE
+                         : aiTextureType_BASE_COLOR);
+        addSlot(mat, aiTextureType_NORMALS);
+        addSlot(mat, aiTextureType_SPECULAR);
+        addSlot(mat, aiTextureType_EMISSIVE);
+        addSlot(mat, aiTextureType_METALNESS);
+        addSlot(mat, aiTextureType_DIFFUSE_ROUGHNESS);
+    }
+    if (decodes.empty()) return;
+
+    // Decode in waves so only a handful of images are held in memory at once
+    JobSystem* jobs = JobSystem::GetInstance();
+    const uint32_t wave = jobs ? jobs->GetWorkerCount() + 1 : 1;
+
+    for (size_t first = 0; first < decodes.size(); first += wave) {
+        const uint32_t n = static_cast<uint32_t>(
+            std::min<size_t>(wave, decodes.size() - first));
+
+        auto decode = [&](uint32_t i) {
+            EmbeddedDecode& d = decodes[first + i];
+            int channels = 0;
+            d.pixels = stbi_load_from_memory(
+                reinterpret_cast<const unsigned char*>(d.source->pcData),
+                static_cast<int>(d.source->mWidth), &d.width, &d.height,
+                &channels, 4);
+        };
+        if (jobs)
+            jobs->ParallelFor(n, 1, decode);
+        else
+            for (uint32_t i = 0; i < n; ++i) decode(i);
+
+        for (uint32_t i = 0; i < n; ++i) {
+            EmbeddedDecode& d = decodes[first + i];
+            for (const std::string& key : d.cacheKeys) {
+                const std::string texPath = key.substr(0, key.rfind(':'));
+                ::Sleak::Texture* tex = nullptr;
+                if (!d.pixels) {
+                    SLEAK_ERROR("  Failed to decode embedded texture: {}",
+                                texPath);
+                } else {
+                    tex =
+                        RenderEngine::ResourceManager::CreateTextureFromMemory(
+                            d.pixels, static_cast<uint32_t>(d.width),
+                            static_cast<uint32_t>(d.height),
+                            TextureFormat::RGBA8);
+                    if (tex)
+                        SLEAK_INFO("  Loaded embedded texture: {} ({}x{})",
+                                   texPath, d.width, d.height);
+                }
+                textureCache[key] = RefPtr<::Sleak::Texture>(tex);
+            }
+            stbi_image_free(d.pixels);
+            d.pixels = nullptr;
+        }
+    }
+}
+
+}  // namespace
 
 /// Recursively initialize a GameObject and all its children.
 static void InitializeRecursive(GameObject* obj) {
@@ -95,6 +209,7 @@ GameObject* ModelLoader::Load(const std::string& filePath,
             return nullptr;
         }
 
+        PredecodeEmbeddedTextures(scene, textureCache);
         ProcessNode(scene->mRootNode, scene, root, directory, options,
                     textureCache, materialCache);
     } else {
@@ -105,6 +220,7 @@ GameObject* ModelLoader::Load(const std::string& filePath,
         SLEAK_INFO("  Skeleton: {} bones, {} animation clips",
                    skeleton->GetBoneCount(), clips.size());
 
+        PredecodeEmbeddedTextures(scene, textureCache);
         ProcessNodeAnimated(scene->mRootNode, scene, root, directory, options,
                             textureCache, materialCache, skeleton, clips);
     }
@@ -633,4 +749,4 @@ std::vector<AnimationClip*> ModelLoader::LoadAnimationsOnly(
     return result;
 }
 
-} // namespace Sleak
+}  // namespace Sleak
