@@ -93,6 +93,8 @@ bool VulkanRenderer::Initialize() {
     if (!CreateDevice())
         SLEAK_RETURN_ERR("Failed to initialize devices!");
 
+    CreatePipelineCache();
+
     if (!CreateSwapChain())
         SLEAK_RETURN_ERR("Failed to create swap chain!");
 
@@ -1106,6 +1108,8 @@ void VulkanRenderer::Cleanup() {
         vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
         imguiDescriptorPool = VK_NULL_HANDLE;
     }
+
+    DestroyPipelineCache();
 
     // Destroy descriptor pool (frees descriptor sets too)
     if (descriptorPool) {

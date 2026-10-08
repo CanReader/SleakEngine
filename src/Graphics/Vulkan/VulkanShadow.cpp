@@ -369,7 +369,7 @@ bool VulkanRenderer::CreateShadowPipeline() {
     pipelineInfo.basePipelineIndex = -1;
 
     VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_shadowPipeline);
+        device, m_pipelineCache, 1, &pipelineInfo, nullptr, &m_shadowPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("VulkanRenderer: Failed to create shadow pipeline!");
         return false;

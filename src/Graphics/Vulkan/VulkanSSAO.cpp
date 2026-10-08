@@ -519,7 +519,8 @@ bool VulkanRenderer::CreateSSAOPipelines() {
     gpi.renderPass          = m_ssaoRenderPass;
     gpi.subpass             = 0;
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssaoPipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_ssaoPipeline) != VK_SUCCESS) {
         SLEAK_ERROR("SSAO: failed to create ssao pipeline");
         return false;
     }
@@ -547,7 +548,8 @@ bool VulkanRenderer::CreateSSAOPipelines() {
     };
     gpi.pStages  = blurStages;
     gpi.layout   = m_ssaoBlurPipelineLayout;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssaoBlurPipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_ssaoBlurPipeline) != VK_SUCCESS) {
         SLEAK_ERROR("SSAO: failed to create ssao blur pipeline");
         return false;
     }

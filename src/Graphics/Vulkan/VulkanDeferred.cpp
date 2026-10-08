@@ -237,7 +237,7 @@ bool VulkanRenderer::CreateGBufferPipeline() {
     pipelineInfo.basePipelineIndex   = -1;
 
     VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_gbufferPipeline);
+        device, m_pipelineCache, 1, &pipelineInfo, nullptr, &m_gbufferPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create GBuffer pipeline!");
         return false;
@@ -349,7 +349,7 @@ bool VulkanRenderer::CreateSkinnedGbufferPipeline() {
     pi.basePipelineIndex   = -1;
 
     VkResult res = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pi, nullptr, &m_skinnedGbufferPipeline);
+        device, m_pipelineCache, 1, &pi, nullptr, &m_skinnedGbufferPipeline);
     delete sh;
     if (res != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create skinned GBuffer pipeline!");
@@ -548,8 +548,9 @@ bool VulkanRenderer::CreateLightingPipeline() {
     pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex   = -1;
 
-    VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_lightingPipeline);
+    VkResult result =
+        vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &pipelineInfo,
+                                  nullptr, &m_lightingPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create lighting pipeline!");
         return false;

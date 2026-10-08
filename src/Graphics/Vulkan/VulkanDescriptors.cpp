@@ -285,6 +285,7 @@ bool VulkanRenderer::CreateImGUI() {
     initInfo.Device = device;
     initInfo.QueueFamily = QueueIDs.GraphicsIndex;
     initInfo.Queue = graphicsQueue;
+    initInfo.PipelineCache = m_pipelineCache;
     initInfo.DescriptorPool = imguiDescriptorPool;
     initInfo.MinImageCount = 2;
     initInfo.ImageCount =

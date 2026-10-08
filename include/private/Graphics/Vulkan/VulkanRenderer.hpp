@@ -301,6 +301,11 @@ private:
     bool CreateImageViews();
     /// Creates the main forward graphics pipeline and its pipeline layout.
     bool CreateGraphicsPipeline();
+    /// Creates the pipeline cache, seeded from disk when the saved blob was
+    /// written by this device and driver.
+    void CreatePipelineCache();
+    /// Saves the pipeline cache to disk when it changed, then destroys it.
+    void DestroyPipelineCache();
     /// Creates the main forward render pass with optional MSAA color and resolve attachments.
     bool CreateRenderPass();
     /// Creates one framebuffer per swapchain image for the main render pass.
@@ -402,6 +407,10 @@ private:
     std::vector<VkPhysicalDevice> GPUs;
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLay = VK_NULL_HANDLE;
+    VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
+    // Loaded blob size and hash, so an unchanged cache is not rewritten
+    size_t m_pipelineCacheLoadedSize = 0;
+    uint64_t m_pipelineCacheLoadedHash = 0;
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;

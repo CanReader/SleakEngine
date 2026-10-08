@@ -356,8 +356,8 @@ bool VulkanRenderer::CreateTAAResources() {
         gpi.layout              = m_taaPipelineLayout;
         gpi.renderPass          = m_taaRenderPass;
         gpi.subpass             = 0;
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr,
-                                       &m_taaPipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                      &m_taaPipeline) != VK_SUCCESS) {
             SLEAK_ERROR("TAA: failed to create pipeline");
             return false;
         }

@@ -350,7 +350,8 @@ bool VulkanRenderer::CreateSSRResources() {
         gpi.renderPass          = m_ssrRenderPass;
         gpi.subpass             = 0;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssrPipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                      &m_ssrPipeline) != VK_SUCCESS) {
             SLEAK_ERROR("SSR: failed to create pipeline");
             return false;
         }

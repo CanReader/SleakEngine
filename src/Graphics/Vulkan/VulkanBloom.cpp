@@ -433,7 +433,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.layout              = m_bloomFilterPipelineLayout;
     gpi.renderPass          = m_bloomRenderPass;
     gpi.subpass             = 0;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomThresholdPipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomThresholdPipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Downsample pipeline ----
     VkPipelineShaderStageCreateInfo downStages[] = {
@@ -441,7 +443,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
         m_bloomDownsampleShader->GetFragInfo()
     };
     gpi.pStages = downStages;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomDownsamplePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomDownsamplePipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Upsample pipeline (additive blend, LOAD render pass) ----
     VkPipelineShaderStageCreateInfo upStages[] = {
@@ -451,7 +455,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.pStages          = upStages;
     gpi.pColorBlendState = &cbAdd;
     gpi.renderPass       = m_bloomAddRenderPass;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomUpsamplePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomUpsamplePipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Composite pipeline ----
     VkPipelineShaderStageCreateInfo compStages[] = {
@@ -462,7 +468,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.pColorBlendState = &cbOpaque;
     gpi.layout           = m_bloomCompositePipelineLayout;
     gpi.renderPass       = m_bloomCompositeRenderPass;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomCompositePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomCompositePipeline) != VK_SUCCESS)
+        return false;
 
     return true;
 }
