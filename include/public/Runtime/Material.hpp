@@ -36,7 +36,8 @@ namespace Sleak {
         Transparent = 2   // Alpha blending
     };
 
-    /// PBR-ish surface properties, textures, and GPU buffer for a drawable; shared across any mesh that references it.
+    /// PBR-ish surface properties, textures, and GPU buffer for a drawable;
+    /// shared across any mesh that references it.
     ///
     /// A Material describes how a surface responds to light: a base color,
     /// metallic, roughness, ambient occlusion, emissive, and opacity, plus
@@ -46,9 +47,11 @@ namespace Sleak {
     ///
     /// Materials are meant to be shared. Wrap one in a RefPtr and hand the
     /// same RefPtr to every MaterialComponent that should use it; changing
-    /// a property updates every object drawn with it. Each texture setter
-    /// comes in two forms, one taking an owned `Texture*` and one taking a
-    /// file path the material loads for you.
+    /// a property updates every object drawn with it. Textures are held by
+    /// RefPtr too. Each texture setter takes a `RefPtr<Texture>` to share
+    /// one texture between materials, a raw `Texture*` the material adopts
+    /// (do not hand the same raw pointer to two materials), or a file path
+    /// the material loads for you.
     ///
     /// SetRenderMode() decides how transparency is handled:
     /// MaterialRenderMode::Opaque and ::Cutout render in the normal
@@ -97,37 +100,44 @@ namespace Sleak {
         void SetShader(const std::string& shaderPath);
         RenderEngine::Shader* GetShader() const;
 
-        // Texture slots: each pair of Set overloads takes either an owned Texture* or loads by path
+        // Texture slots: shared RefPtr, adopted Texture*, or a file path
+        void SetDiffuseTexture(const RefPtr<Texture>& texture);
         void SetDiffuseTexture(Texture* texture);
         void SetDiffuseTexture(const std::string& path);
         Texture* GetDiffuseTexture() const;
         bool HasDiffuseTexture() const;
 
+        void SetNormalTexture(const RefPtr<Texture>& texture);
         void SetNormalTexture(Texture* texture);
         void SetNormalTexture(const std::string& path);
         Texture* GetNormalTexture() const;
         bool HasNormalTexture() const;
 
+        void SetSpecularTexture(const RefPtr<Texture>& texture);
         void SetSpecularTexture(Texture* texture);
         void SetSpecularTexture(const std::string& path);
         Texture* GetSpecularTexture() const;
         bool HasSpecularTexture() const;
 
+        void SetRoughnessTexture(const RefPtr<Texture>& texture);
         void SetRoughnessTexture(Texture* texture);
         void SetRoughnessTexture(const std::string& path);
         Texture* GetRoughnessTexture() const;
         bool HasRoughnessTexture() const;
 
+        void SetMetallicTexture(const RefPtr<Texture>& texture);
         void SetMetallicTexture(Texture* texture);
         void SetMetallicTexture(const std::string& path);
         Texture* GetMetallicTexture() const;
         bool HasMetallicTexture() const;
 
+        void SetAOTexture(const RefPtr<Texture>& texture);
         void SetAOTexture(Texture* texture);
         void SetAOTexture(const std::string& path);
         Texture* GetAOTexture() const;
         bool HasAOTexture() const;
 
+        void SetEmissiveTexture(const RefPtr<Texture>& texture);
         void SetEmissiveTexture(Texture* texture);
         void SetEmissiveTexture(const std::string& path);
         Texture* GetEmissiveTexture() const;
@@ -208,13 +218,13 @@ namespace Sleak {
         ObjectPtr<RenderEngine::BufferBase> m_materialBuffer;
 
         // Texture maps
-        ObjectPtr<Texture> m_diffuseTexture;
-        ObjectPtr<Texture> m_normalTexture;
-        ObjectPtr<Texture> m_specularTexture;
-        ObjectPtr<Texture> m_roughnessTexture;
-        ObjectPtr<Texture> m_metallicTexture;
-        ObjectPtr<Texture> m_aoTexture;
-        ObjectPtr<Texture> m_emissiveTexture;
+        RefPtr<Texture> m_diffuseTexture;
+        RefPtr<Texture> m_normalTexture;
+        RefPtr<Texture> m_specularTexture;
+        RefPtr<Texture> m_roughnessTexture;
+        RefPtr<Texture> m_metallicTexture;
+        RefPtr<Texture> m_aoTexture;
+        RefPtr<Texture> m_emissiveTexture;
 
         // Color properties (stored as 0-255 Color, converted to float for GPU)
         Math::Color m_diffuseColor  {255, 255, 255, 255};

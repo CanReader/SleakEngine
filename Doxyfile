@@ -1,7 +1,7 @@
 # Doxyfile for SleakEngine
 
 PROJECT_NAME           = "SleakEngine"
-PROJECT_NUMBER         = "1.0.0"
+PROJECT_NUMBER         = "0.1.0"
 PROJECT_BRIEF          = "C++23 multi-backend game engine"
 OUTPUT_DIRECTORY       = docs
 

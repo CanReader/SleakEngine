@@ -32,9 +32,10 @@ namespace Sleak {
     }
 
     bool TransformComponent::Initialize() {
-
-        Transform = new TransformMatrix();
+        if (!Transform) Transform = new TransformMatrix();
         UpdateTransform();
+        if (ConstantBuffer.IsValid()) return true;
+
         auto world = GetTransformMatrix();
         RenderEngine::TransformBuffer tb(world,
                                          Camera::GetMainViewMatrix(),

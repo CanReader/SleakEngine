@@ -1070,27 +1070,8 @@ void VulkanRenderer::CleanupGBufferResources() {
     }
 
     // PBR material resources (GBuffer set 0)
-    if (m_pbrMaterialResourcesCreated) {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            if (m_pbrMaterialCBMapped[i]) {
-                vkUnmapMemory(device, m_pbrMaterialCBMemory[i]);
-                m_pbrMaterialCBMapped[i] = nullptr;
-            }
-            if (m_pbrMaterialCBBuffers[i]) {
-                vkDestroyBuffer(device, m_pbrMaterialCBBuffers[i], nullptr);
-                m_pbrMaterialCBBuffers[i] = VK_NULL_HANDLE;
-            }
-            if (m_pbrMaterialCBMemory[i]) {
-                vkFreeMemory(device, m_pbrMaterialCBMemory[i], nullptr);
-                m_pbrMaterialCBMemory[i] = VK_NULL_HANDLE;
-            }
-        }
-        m_pbrMaterialResourcesCreated = false;
-    }
-    if (m_pbrMaterialPool) {
-        vkDestroyDescriptorPool(device, m_pbrMaterialPool, nullptr);
-        m_pbrMaterialPool = VK_NULL_HANDLE;
-    }
+    DestroyPBRMaterialChunks();
+    m_pbrMaterialResourcesCreated = false;
     if (m_pbrMaterialDSL) {
         vkDestroyDescriptorSetLayout(device, m_pbrMaterialDSL, nullptr);
         m_pbrMaterialDSL = VK_NULL_HANDLE;

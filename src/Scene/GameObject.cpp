@@ -28,11 +28,18 @@ namespace Sleak {
     }
 
     void GameObject::Initialize() {
-        for (size_t i = 0; i < Components.GetSize(); ++i) {
-            if (Components[i])
-                Components[i]->Initialize();
-        }
+        if (bIsInitialized) return;
         bIsInitialized = true;
+
+        for (size_t i = 0; i < Components.GetSize(); ++i) {
+            if (Components[i]) InitializeComponent(Components[i].get());
+        }
+    }
+
+    void GameObject::InitializeComponent(Component* component) {
+        if (component->bIsInitialized) return;
+        component->bIsInitialized = component->Initialize();
+        if (m_isActive) component->OnEnable();
     }
 
     void GameObject::Update(float deltaTime) {

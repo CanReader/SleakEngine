@@ -69,6 +69,7 @@ bool DirectX12Renderer::Initialize() {
     if (!CreateRenderTargetViews()) return false;
     if (!CreateDepthStencilView()) return false;
     if (!CreateFence()) return false;
+    m_uploadRing.Initialize(device.Get(), FrameCount, 64 * 1024);
     if (!CreateRootSignature()) return false;
     if (!CreateSharedSrvHeap()) return false;
     // PSO is created lazily when CreateShader() is called
@@ -643,6 +644,7 @@ void DirectX12Renderer::BeginRender() {
 
     // Process deferred GPU resource deletions now that GPU is idle
     DirectX12Buffer::ProcessDeferredCleanup();
+    m_uploadRing.BeginFrame(frameIndex);
 
     // Reset the command allocator and command list for this frame
     commandAllocators[frameIndex]->Reset();
@@ -853,6 +855,7 @@ void DirectX12Renderer::Cleanup() {
     }
     m_lightUBO.Reset();
     m_lightUBOCreated = false;
+    m_uploadRing.Release();
 
     imguiSrvHeap.Reset();
     m_sharedSrvHeap.Reset();
@@ -915,14 +918,21 @@ void DirectX12Renderer::Resize(uint32_t width, uint32_t height) {
     SLEAK_INFO("DirectX 12 resized to {}x{}", width, height);
 }
 
-void DirectX12Renderer::Draw(uint32_t vertexCount) {
-    commandList->DrawInstanced(vertexCount, 1, 0, 0);
+void DirectX12Renderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
+
+void DirectX12Renderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
+    commandList->DrawInstanced(vertexCount, 1, firstVertex, 0);
     DrawnVertices += vertexCount;
     DrawnTriangles += vertexCount / 3;
 }
 
 void DirectX12Renderer::DrawIndexed(uint32_t indexCount) {
-    commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+    DrawIndexed(indexCount, 0, 0);
+}
+
+void DirectX12Renderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
+                                    int32_t baseVertex) {
+    commandList->DrawIndexedInstanced(indexCount, 1, firstIndex, baseVertex, 0);
     DrawnVertices += indexCount;
     DrawnTriangles += indexCount / 3;
 }
@@ -936,8 +946,15 @@ void DirectX12Renderer::DrawInstance(uint32_t instanceCount,
 
 void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
                                              uint32_t indexPerInstance) {
-    commandList->DrawIndexedInstanced(indexPerInstance, instanceCount, 0,
-                                      0, 0);
+    DrawIndexedInstance(instanceCount, indexPerInstance, 0, 0);
+}
+
+void DirectX12Renderer::DrawIndexedInstance(uint32_t instanceCount,
+                                            uint32_t indexPerInstance,
+                                            uint32_t firstIndex,
+                                            int32_t baseVertex) {
+    commandList->DrawIndexedInstanced(indexPerInstance, instanceCount,
+                                      firstIndex, baseVertex, 0);
     DrawnVertices += indexPerInstance * instanceCount;
     DrawnTriangles += (indexPerInstance / 3) * instanceCount;
 }
@@ -1051,29 +1068,10 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         }
         memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
 
-        // Create dedicated shadow transform CB on first use
-        if (!m_shadowTransformCB) {
-            const UINT cbSize = 256; // 256-byte aligned
-            D3D12_HEAP_PROPERTIES heapProps = {};
-            heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-            D3D12_RESOURCE_DESC desc = {};
-            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            desc.Width = cbSize;
-            desc.Height = 1;
-            desc.DepthOrArraySize = 1;
-            desc.MipLevels = 1;
-            desc.Format = DXGI_FORMAT_UNKNOWN;
-            desc.SampleDesc.Count = 1;
-            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc,
-                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-                IID_PPV_ARGS(&m_shadowTransformCB));
-            m_shadowTransformCB->Map(0, nullptr, &m_shadowTransformMapped);
-        }
-
-        memcpy(m_shadowTransformMapped, shadowPC, sizeof(shadowPC));
-        commandList->SetGraphicsRootConstantBufferView(
-            slot, m_shadowTransformCB->GetGPUVirtualAddress());
+        DirectX12UploadRing::Allocation alloc;
+        if (!m_uploadRing.Allocate(sizeof(shadowPC), alloc)) return;
+        memcpy(alloc.cpu, shadowPC, sizeof(shadowPC));
+        commandList->SetGraphicsRootConstantBufferView(slot, alloc.gpu);
         return;
     }
 
