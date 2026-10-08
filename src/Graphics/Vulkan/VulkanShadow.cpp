@@ -4,6 +4,7 @@
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <vector>
 #include "Core/Logger.hpp"
@@ -593,11 +594,21 @@ void VulkanRenderer::EndShadowPass() {
     m_shadowPassActive = false;
 }
 
-/// Copies light and shadow data into the current frame's mapped UBO.
+/// Copies light and shadow data into the current frame's mapped UBO. LightVP
+/// is replaced by the matrix the shadow map was rendered with, since the map
+/// is recorded in BeginRender before the caller stages a newer one.
 void VulkanRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     if (!m_lightUBOCreated || !data) return;
     uint32_t copySize = std::min(size, static_cast<uint32_t>(sizeof(ShadowLightUBO)));
     memcpy(m_lightUBOMapped[currentFrame], data, copySize);
+
+    constexpr size_t kLightVPOffset = offsetof(ShadowLightUBO, LightVP);
+    if (m_shadowMapRendered &&
+        copySize >= kLightVPOffset + sizeof(m_shadowMapLightVP)) {
+        char* dst = static_cast<char*>(m_lightUBOMapped[currentFrame]);
+        memcpy(dst + kLightVPOffset, m_shadowMapLightVP,
+               sizeof(m_shadowMapLightVP));
+    }
 }
 
 /// Stages the light view-projection matrix for commit at the next BeginRender.

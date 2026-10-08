@@ -335,6 +335,8 @@ void VulkanRenderer::BeginRender() {
         m_shadowPassActive = true;
         m_shadowPCCacheValid = false;
         m_shadowPCPushedLayout = VK_NULL_HANDLE;
+        memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
+        m_shadowMapRendered = true;
         auto* queue = RenderCommandQueue::GetInstance();
         if (queue) {
             queue->ExecuteShadowPass(this);
@@ -1624,6 +1626,7 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
     m_shadowImageMemory = VK_NULL_HANDLE;
 
     m_shadowMapResolution = m_pendingShadowMapResolution;
+    m_shadowMapRendered = false;
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;

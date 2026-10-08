@@ -575,6 +575,9 @@ private:
     // entire frame so shadow pass and main pass agree on the transform.
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
+    // Matrix the shadow map was last rendered with
+    float m_shadowMapLightVP[16] = {};
+    bool m_shadowMapRendered = false;
 
     // Light/Shadow UBO (set 2, binding 0)
     VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
