@@ -575,7 +575,7 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     depthAtt.format         = depthFormat;
     depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
     depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
     depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -595,15 +595,26 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     subpass.pColorAttachments       = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
 
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    std::array<VkSubpassDependency, 2> deps{};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    // Feeds the post passes
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
     std::array<VkAttachmentDescription, 2> attachments = {colorAtt, depthAtt};
 
@@ -613,8 +624,8 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     rpInfo.pAttachments    = attachments.data();
     rpInfo.subpassCount    = 1;
     rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies   = deps.data();
 
     return vkCreateRenderPass(device, &rpInfo, nullptr, &m_forwardRenderPass) == VK_SUCCESS;
 }

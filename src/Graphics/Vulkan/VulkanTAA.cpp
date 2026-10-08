@@ -149,13 +149,23 @@ bool VulkanRenderer::CreateTAAResources() {
         sub.colorAttachmentCount = 1;
         sub.pColorAttachments    = &ref;
 
-        VkSubpassDependency dep{};
-        dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-        dep.dstSubpass    = 0;
-        dep.srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass    = 0;
+        deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        // Feeds copy-back and history
+        deps[1].srcSubpass    = 0;
+        deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                                VK_PIPELINE_STAGE_TRANSFER_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
 
         VkRenderPassCreateInfo rpi{};
         rpi.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -163,8 +173,8 @@ bool VulkanRenderer::CreateTAAResources() {
         rpi.pAttachments    = &att;
         rpi.subpassCount    = 1;
         rpi.pSubpasses      = &sub;
-        rpi.dependencyCount = 1;
-        rpi.pDependencies   = &dep;
+        rpi.dependencyCount = static_cast<uint32_t>(deps.size());
+        rpi.pDependencies   = deps.data();
         if (vkCreateRenderPass(device, &rpi, nullptr, &m_taaRenderPass) != VK_SUCCESS) return false;
     }
 
