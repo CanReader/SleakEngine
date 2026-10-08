@@ -57,8 +57,8 @@ public:
     /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
     /// pipelines, and sync objects.
     virtual bool Initialize() override;
-    /// Prepares the command buffer and begins the shadow/GBuffer/forward
-    /// render pass; drawing happens via the RenderContext methods below.
+    /// Acquires a swapchain image and begins the shadow/GBuffer/forward
+    /// passes; drawing happens via the RenderContext methods below.
     virtual void BeginRender() override;
     /// Ends the active render pass, submits the command buffer, and presents.
     virtual void EndRender() override;
@@ -66,7 +66,8 @@ public:
     virtual void Cleanup() override;
     /// Blocks until the device finishes all submitted GPU work.
     virtual void WaitIdle() override;
-    /// Kicks off the current frame's async buffer upload batch.
+    /// Submits the open upload batch for this frame. A frame that failed to
+    /// start leaves it open, so it rides along with the next submitted frame.
     virtual void FlushPendingTransfers() override;
 
     // GPU memory tracking

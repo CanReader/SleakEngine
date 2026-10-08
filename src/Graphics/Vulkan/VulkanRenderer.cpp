@@ -162,9 +162,9 @@ bool VulkanRenderer::Initialize() {
     return true;
 }
 
-/// Prepares the command buffer and begins the shadow/GBuffer/forward render
-/// pass. Does not end the command buffer; the RenderCommandQueue records
-/// draw commands via the RenderContext interface after this returns.
+/// Acquires a swapchain image and begins the shadow/GBuffer/forward passes
+/// for the RenderCommandQueue to record into. A failed acquire returns early,
+/// leaving deferred deletions unaged and the upload batch open.
 void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
     m_inGeometryPass = false;
@@ -215,9 +215,6 @@ void VulkanRenderer::BeginRender() {
         flush = {};
     }
 
-    VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
-    VulkanBuffer::AdvanceDeletionFrame();
-
     // Enable batched buffer uploads for this frame (async, zero CPU blocking).
     // This is disabled during init/scene transitions where buffers may be
     // created and destroyed before a flush.
@@ -234,6 +231,10 @@ void VulkanRenderer::BeginRender() {
         SLEAK_ERROR("Failed to acquire swapchain image!");
         return;
     }
+
+    // Submitting frames age deletions
+    VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
+    VulkanBuffer::AdvanceDeletionFrame();
 
     // Wait if this swapchain image is still in use by a DIFFERENT frame slot
     if (CurrentFrameIndex < imagesInFlight.size() &&
@@ -1059,8 +1060,10 @@ void VulkanRenderer::WaitIdle() {
     if (device) vkDeviceWaitIdle(device);
 }
 
-/// Kicks off the current frame's async buffer upload batch.
+/// Submits the open upload batch for this frame. A frame that failed to
+/// start leaves it open, so it rides along with the next submitted frame.
 void VulkanRenderer::FlushPendingTransfers() {
+    if (!bFrameStarted) return;
     m_asyncFlush[currentFrame] = VulkanBuffer::FlushPendingCopiesAsync(
         m_transferSemaphores[currentFrame]);
 }
@@ -1084,6 +1087,7 @@ void VulkanRenderer::Cleanup() {
     // Wait for the device to finish all work
     if (device) {
         vkDeviceWaitIdle(device);
+        VulkanBuffer::DiscardPendingCopies();
     }
 
     RenderCommandQueue::Shutdown();

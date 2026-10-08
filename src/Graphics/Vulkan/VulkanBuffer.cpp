@@ -15,6 +15,12 @@ namespace RenderEngine {
 
 VmaAllocator VulkanBuffer::s_allocator = VK_NULL_HANDLE;
 
+// Staging pool whose blocks stay resident, so upload bursts never pay for
+// fresh vkAllocateMemory calls.
+static VmaPool g_stagingPool = VK_NULL_HANDLE;
+static constexpr VkDeviceSize kStagingBlockSize = 64ull * 1024 * 1024;
+static constexpr size_t kStagingMinBlocks = 2;
+
 void VulkanBuffer::InitAllocator(VkInstance instance,
                                  VkPhysicalDevice physicalDevice,
                                  VkDevice device) {
@@ -27,11 +33,38 @@ void VulkanBuffer::InitAllocator(VkInstance instance,
     if (vmaCreateAllocator(&aci, &s_allocator) != VK_SUCCESS) {
         SLEAK_ERROR("Failed to create VMA allocator!");
         s_allocator = VK_NULL_HANDLE;
+        return;
+    }
+
+    // Staging pool
+    VkBufferCreateInfo stagingInfo{};
+    stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingInfo.size = 64 * 1024;
+    stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo stagingAlloc{};
+    stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+    stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    stagingAlloc.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    VmaPoolCreateInfo poolInfo{};
+    poolInfo.blockSize = kStagingBlockSize;
+    poolInfo.minBlockCount = kStagingMinBlocks;
+    if (vmaFindMemoryTypeIndexForBufferInfo(
+            s_allocator, &stagingInfo, &stagingAlloc,
+            &poolInfo.memoryTypeIndex) != VK_SUCCESS ||
+        vmaCreatePool(s_allocator, &poolInfo, &g_stagingPool) != VK_SUCCESS) {
+        SLEAK_WARN("VMA staging pool unavailable, using the default pools");
+        g_stagingPool = VK_NULL_HANDLE;
     }
 }
 
 void VulkanBuffer::DestroyAllocator() {
     if (s_allocator == VK_NULL_HANDLE) return;
+    if (g_stagingPool != VK_NULL_HANDLE) {
+        vmaDestroyPool(s_allocator, g_stagingPool);
+        g_stagingPool = VK_NULL_HANDLE;
+    }
     vmaDestroyAllocator(s_allocator);
     s_allocator = VK_NULL_HANDLE;
 }
@@ -308,14 +341,6 @@ void VulkanBuffer::Update(void* data, size_t size) {
 void VulkanBuffer::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
-    // Only flush if THIS buffer has a pending copy in the active batch.
-    // Normally old buffers are destroyed before the batch starts (two-pass
-    // column rebuild), so this only triggers during scene transitions.
-    if (m_pendingInBatch && s_batchActive) {
-        FlushPendingCopies();
-        m_pendingInBatch = false;
-    }
-
     if (Type == BufferType::Constant && m_mappedData) {
         vmaUnmapMemory(s_allocator, m_memory);
         m_mappedData = nullptr;
@@ -399,8 +424,14 @@ void VulkanBuffer::CreateBuffer(VkDeviceSize size,
     VmaAllocationCreateInfo allocCI{};
     allocCI.usage = VMA_MEMORY_USAGE_AUTO;
     allocCI.requiredFlags = properties;   // preserve exact memory-property semantics
-    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-        allocCI.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+        // Constants are read back
+        allocCI.flags |=
+            Type == BufferType::Constant
+                ? VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+                : VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    }
+    if (usage == VK_BUFFER_USAGE_TRANSFER_SRC_BIT) allocCI.pool = g_stagingPool;
 
     VmaAllocationInfo info{};
     VkResult r = vmaCreateBuffer(s_allocator, &bufferInfo, &allocCI,
@@ -467,7 +498,6 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
         VkBufferCopy copyRegion{};
         copyRegion.size = size;
         vkCmdCopyBuffer(s_batchCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-        m_pendingInBatch = true;
         return;
     }
 
@@ -543,28 +573,13 @@ void VulkanBuffer::EnsureBatchStarted(VkDevice device, VkCommandPool pool,
     s_batchActive = true;
 }
 
-void VulkanBuffer::FlushPendingCopies() {
-    if (!s_batchActive) return;
-
-    vkEndCommandBuffer(s_batchCommandBuffer);
-
-    // Single submit + single fence for ALL batched copies
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence batchFence;
-    vkCreateFence(s_batchDevice, &fenceInfo, nullptr, &batchFence);
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &s_batchCommandBuffer;
-
-    vkQueueSubmit(s_batchQueue, 1, &submitInfo, batchFence);
-    vkWaitForFences(s_batchDevice, 1, &batchFence, VK_TRUE, UINT64_MAX);
-
-    // Cleanup
-    vkDestroyFence(s_batchDevice, batchFence, nullptr);
-    vkFreeCommandBuffers(s_batchDevice, s_batchCommandPool, 1, &s_batchCommandBuffer);
+void VulkanBuffer::DiscardPendingCopies() {
+    if (s_batchActive) {
+        vkFreeCommandBuffers(s_batchDevice, s_batchCommandPool, 1,
+                             &s_batchCommandBuffer);
+        s_batchCommandBuffer = VK_NULL_HANDLE;
+        s_batchActive = false;
+    }
 
     for (auto& pending : s_pendingCleanup) {
         vmaDestroyBuffer(s_allocator, pending.buffer, pending.memory);
@@ -573,9 +588,6 @@ void VulkanBuffer::FlushPendingCopies() {
             s_perTypeBytes[pending.memoryTypeIndex] -= pending.allocSize;
     }
     s_pendingCleanup.clear();
-
-    s_batchCommandBuffer = VK_NULL_HANDLE;
-    s_batchActive = false;
 }
 
 VulkanBuffer::AsyncFlushResult

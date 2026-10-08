@@ -22,6 +22,8 @@ public:
     void Update() override;
     /// Overwrites buffer contents, staging through a temporary buffer for device-local memory.
     void Update(void* data, size_t size) override;
+    /// Hands the GPU buffer to deferred deletion, which keeps it alive until
+    /// every frame and upload batch that may reference it has completed.
     void Cleanup() override;
 
     /// Maps host-visible memory for direct CPU writes.
@@ -34,13 +36,17 @@ public:
 
     // VMA allocator lifecycle (owned by the renderer; created after the
     // logical device, destroyed after all buffers are drained).
+    /// Creates the VMA allocator plus a staging pool whose blocks stay
+    /// resident for the allocator's lifetime.
     static void InitAllocator(VkInstance instance,
                               VkPhysicalDevice physicalDevice, VkDevice device);
+    /// Destroys the staging pool and the allocator once every buffer is freed.
     static void DestroyAllocator();
     static VmaAllocator GetAllocator() { return s_allocator; }
 
-    // Flush all pending buffer copies in a single batched submission (synchronous).
-    static void FlushPendingCopies();
+    /// Frees an upload batch that was recorded but never submitted, along
+    /// with its staging buffers. Only valid while the device is idle.
+    static void DiscardPendingCopies();
 
     // Async flush: submit pending copies signaling the given semaphore.
     // No CPU wait — the caller must wait on the semaphore before using data.
@@ -67,6 +73,8 @@ public:
 
 private:
     /// Allocates a VMA-backed VkBuffer with the given usage/memory properties.
+    /// Constant buffers get CPU-cached memory since every bind reads them, and
+    /// staging buffers come from the resident staging pool.
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
                       VkBuffer& buffer, VmaAllocation& memory,
@@ -97,7 +105,6 @@ private:
     VmaAllocation m_stagingMemory = VK_NULL_HANDLE;
 
     void* m_mappedData = nullptr;
-    bool m_pendingInBatch = false;
 
     // --- Batched transfer state ---
     static bool s_batchingEnabled;
@@ -156,8 +163,8 @@ private:
     static void EvictPoolOverBudget();
 
 public:
-    // Called by the renderer each frame after fence wait to safely
-    // destroy buffers that are no longer referenced by the GPU.
+    // Called by the renderer once per submitted frame, after its fence wait,
+    // to safely destroy buffers that are no longer referenced by the GPU.
     static void ProcessDeferredDeletions(uint32_t maxFramesInFlight);
     static void FlushAllDeferredDeletions();
     static void AdvanceDeletionFrame() { s_frameNumber++; }
