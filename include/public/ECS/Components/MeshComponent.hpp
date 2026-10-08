@@ -8,10 +8,10 @@
 #include <Memory/RefPtr.hpp>
 
 namespace Sleak {
-    struct MeshData;
-    namespace RenderEngine {
-        class TransformBuffer;
-        class BufferBase;
+struct MeshData;
+namespace RenderEngine {
+class TransformBuffer;
+class BufferBase;
     }  // namespace RenderEngine
 
     /// Untyped payload blob, currently unused by any buffer path.
