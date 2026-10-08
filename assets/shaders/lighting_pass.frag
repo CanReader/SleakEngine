@@ -80,12 +80,16 @@ float InterleavedGradientNoise(vec2 screenPos) {
     return fract(magic.z * fract(dot(screenPos, magic.xy)));
 }
 
-vec2 VogelDisk(int i, int count, float phi) {
-    const float goldenAngle = 2.39996323;
-    float r     = sqrt((float(i) + 0.5) / float(count));
-    float theta = float(i) * goldenAngle + phi;
-    return vec2(r * cos(theta), r * sin(theta));
-}
+// r_i * (cos, sin)(i * 2.39996323), r_i = sqrt((i + 0.5) / 16)
+const vec2 kVogel16[16] = vec2[](
+    vec2( 0.176776692,  0.000000000), vec2(-0.225772178,  0.206825846),
+    vec2( 0.034557982, -0.393771189), vec2( 0.284571416,  0.371172631),
+    vec2(-0.522223197, -0.092373738), vec2( 0.494695337, -0.314684824),
+    vec2(-0.165465304,  0.615525170), vec2(-0.315562004, -0.607594155),
+    vec2( 0.684642316,  0.250029722), vec2(-0.712255912,  0.294009357),
+    vec2( 0.343354186, -0.733728746), vec2( 0.253730458,  0.808931929),
+    vec2(-0.764746789, -0.443184328), vec2( 0.897133617, -0.197234073),
+    vec2(-0.547505567,  0.778773187), vec2(-0.126488309, -0.976089476));
 
 // Fixed-radius rotated PCF — crisp shadows like a classic forward renderer,
 // at a fraction of PCSS cost (no blocker search). Hardware comparison sampler
@@ -93,9 +97,11 @@ vec2 VogelDisk(int i, int count, float phi) {
 const int PCF_SAMPLES = 16;
 
 float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
+    vec2  cs     = vec2(cos(phi), sin(phi)) * filterRadius;
     float shadow = 0.0;
     for (int i = 0; i < PCF_SAMPLES; ++i) {
-        vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
+        vec2 d   = kVogel16[i];
+        vec2 off = vec2(d.x * cs.x - d.y * cs.y, d.x * cs.y + d.y * cs.x);
         shadow  += textureLod(gShadow, vec3(uv + off, zRef), 0.0);
     }
     return shadow / float(PCF_SAMPLES);
