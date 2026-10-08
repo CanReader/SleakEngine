@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Engine)
+project(Engine VERSION 0.1.0)
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
@@ -32,6 +35,9 @@ endif()
 
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendors)
 
+option(SLEAK_ENGINE_INSTALL "Generate install and package export rules"
+    ${PROJECT_IS_TOP_LEVEL})
+
 # --- Vendor build options ---
 set(SDL_TEST OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -41,9 +47,13 @@ set(YAML_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# --- Shared vendor libraries ship as their own packages when installing ---
+set(SDL_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
+
 # --- Assimp build options ---
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
@@ -274,6 +284,21 @@ set(ENGINE_ALL_SOURCES_AND_HEADERS
 
 # --- Create Engine shared library ---
 add_library(Engine SHARED ${ENGINE_ALL_SOURCES_AND_HEADERS})
+add_library(Sleak::Engine ALIAS Engine)
+
+set_target_properties(Engine PROPERTIES
+    VERSION ${Engine_VERSION}
+    SOVERSION ${Engine_VERSION_MAJOR}.${Engine_VERSION_MINOR}
+)
+target_compile_features(Engine PUBLIC cxx_std_23)
+
+# --- Generated version header ---
+set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.hpp.in
+    ${ENGINE_GENERATED_INCLUDE_DIR}/Core/Version.hpp
+    @ONLY
+)
 
 # --- Source groups (mirror disk layout in IDEs) ---
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ENGINE_ALL_SOURCES_AND_HEADERS})
@@ -283,15 +308,18 @@ target_compile_definitions(Engine PRIVATE SLEAK_ENGINE)
 # --- Include directories ---
 target_include_directories(Engine
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/public
-        ${VENDOR_DIR}/spdlog/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/public>
+        $<BUILD_INTERFACE:${ENGINE_GENERATED_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${VENDOR_DIR}/spdlog/include>
+        $<BUILD_INTERFACE:${VENDOR_DIR}/json/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine/vendor>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include/private
         ${Vulkan_INCLUDE_DIR}
         ${OPENGL_INCLUDE_DIR}
         ${VENDOR_DIR}/imgui
         ${VENDOR_DIR}/glad/include
-        ${VENDOR_DIR}/json/include
         ${VENDOR_DIR}/stb
 )
 
@@ -352,4 +380,84 @@ if(GLSLC)
     add_dependencies(Engine CompileShaders)
 else()
     message(STATUS "glslc not found, SPIR-V shaders will not be auto-compiled")
+endif()
+
+# --- Install and package export ---
+if(SLEAK_ENGINE_INSTALL)
+    set(ENGINE_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/Engine)
+    set(ENGINE_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine)
+
+    if(UNIX AND NOT APPLE)
+        set_target_properties(Engine PROPERTIES INSTALL_RPATH "$ORIGIN")
+    endif()
+
+    install(TARGETS Engine
+        EXPORT EngineTargets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    # WindowHelper.hpp needs SDL3 headers, which are private to the engine
+    install(DIRECTORY include/public/
+        DESTINATION ${ENGINE_INCLUDE_DIR}
+        FILES_MATCHING PATTERN "*.hpp"
+        PATTERN "WindowHelper.hpp" EXCLUDE
+    )
+    install(FILES ${ENGINE_GENERATED_INCLUDE_DIR}/Core/Version.hpp
+        DESTINATION ${ENGINE_INCLUDE_DIR}/Core
+    )
+
+    # Header-only dependencies that public headers include
+    install(DIRECTORY ${VENDOR_DIR}/spdlog/include/spdlog
+        DESTINATION ${ENGINE_INCLUDE_DIR}/vendor
+    )
+    install(DIRECTORY ${VENDOR_DIR}/json/include/nlohmann
+        DESTINATION ${ENGINE_INCLUDE_DIR}/vendor
+    )
+
+    if(UNIX AND NOT APPLE)
+        install(FILES ${Vulkan_LIBRARIES} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+
+    install(EXPORT EngineTargets
+        NAMESPACE Sleak::
+        DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EngineConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/install/EngineConfig.cmake
+        INSTALL_DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfigVersion.cmake
+        VERSION ${Engine_VERSION}
+        COMPATIBILITY SameMinorVersion
+    )
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/install/EngineConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfigVersion.cmake
+        DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+
+    # Build tree package, usable with -DEngine_DIR=<build dir>
+    export(EXPORT EngineTargets
+        NAMESPACE Sleak::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineTargets.cmake
+    )
+    export(TARGETS yaml-cpp
+        NAMESPACE yaml-cpp::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineYamlCppTargets.cmake
+    )
+    export(TARGETS assimp zlibstatic
+        NAMESPACE assimp::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineAssimpTargets.cmake
+    )
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EngineConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+        INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR}
+    )
 endif()
