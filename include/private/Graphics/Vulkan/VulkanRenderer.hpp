@@ -165,7 +165,7 @@ public:
     virtual void BeginSkyboxPass() override;
     /// Restores the previous pipeline and descriptor set after the skybox draw.
     virtual void EndSkyboxPass() override;
-    /// Copies bone matrices into the current frame's UBO and binds its descriptor set.
+    /// Copies bone matrices into their own bone ring slot and binds it.
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
     /// Binds the skinned pipeline matching the currently active render pass.
     virtual void BeginSkinnedPass() override;
@@ -528,18 +528,29 @@ private:
     /// Destroys every cached custom-format pipeline (all variants, all formats).
     void DestroyCustomFormatPipelines();
 
-    // Bone UBO (for skeletal animation — set 1, binding 0)
+    // Bone palette ring (set 1, binding 0, dynamic offset per bind)
+    struct BoneUBOChunk {
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+    };
+    static constexpr uint32_t BONE_PALETTE_BYTES = 256 * 64;
+    static constexpr uint32_t BONE_SLOTS_PER_CHUNK = 32;
     VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool boneDescriptorPool = VK_NULL_HANDLE;
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> boneUBOBuffers = {};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> boneUBOMemory = {};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> boneUBOMapped = {};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> boneDescriptorSets = {};
+    std::array<std::vector<BoneUBOChunk>, MAX_FRAMES_IN_FLIGHT> m_boneChunks;
+    VkDeviceSize m_boneSlotStride = BONE_PALETTE_BYTES;
+    uint32_t m_boneSlot[MAX_FRAMES_IN_FLIGHT] = {};
     bool m_boneUBOCreated = false;
-    /// Creates the per-frame bone UBO buffers and their descriptor sets.
+    /// Creates each frame's first bone ring chunk; slot 0 holds identity.
     bool CreateBoneUBOResources();
-    /// Destroys the bone UBO buffers, memory, and descriptor pool.
+    /// Appends BONE_SLOTS_PER_CHUNK palette slots to one frame's bone ring.
+    bool AddBoneUBOChunk(uint32_t frame);
+    /// Destroys every bone ring chunk of every frame.
     void CleanupBoneUBOResources();
+    /// Binds the identity palette (ring slot 0) at set 1.
+    void BindIdentityBonePalette(VkPipelineLayout layout);
 
     // ImGUI
     VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;

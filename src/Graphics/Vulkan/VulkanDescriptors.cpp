@@ -34,7 +34,7 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
     // Set 1: bone UBO (for skeletal animation)
     VkDescriptorSetLayoutBinding boneUBOBinding{};
     boneUBOBinding.binding = 0;
-    boneUBOBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    boneUBOBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     boneUBOBinding.descriptorCount = 1;
     boneUBOBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     boneUBOBinding.pImmutableSamplers = nullptr;
@@ -303,134 +303,151 @@ bool VulkanRenderer::CreateImGUI() {
     return true;
 }
 
-/// Creates the per-frame bone UBO buffers and their descriptor sets.
+/// Creates each frame's first bone ring chunk; slot 0 holds identity.
 bool VulkanRenderer::CreateBoneUBOResources() {
     if (m_boneUBOCreated) return true;
 
-    static constexpr uint32_t MAX_BONES = 256;
-    static constexpr VkDeviceSize boneUBOSize = MAX_BONES * 64; // 256 mat4 = 16384 bytes
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &props);
+    const VkDeviceSize align = props.limits.minUniformBufferOffsetAlignment;
+    m_boneSlotStride = BONE_PALETTE_BYTES;
+    if (align > 0)
+        m_boneSlotStride = (m_boneSlotStride + align - 1) / align * align;
 
-    // Create per-frame UBO buffers (host-visible, coherent for fast CPU writes)
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = boneUBOSize;
-        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        if (vkCreateBuffer(device, &bufferInfo, nullptr, &boneUBOBuffers[i]) != VK_SUCCESS) {
-            SLEAK_ERROR("Failed to create bone UBO buffer!");
+        if (!AddBoneUBOChunk(i)) {
+            CleanupBoneUBOResources();
             return false;
         }
 
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(device, boneUBOBuffers[i], &memReqs);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memReqs.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &boneUBOMemory[i]) != VK_SUCCESS) {
-            SLEAK_ERROR("Failed to allocate bone UBO memory!");
-            return false;
-        }
-
-        vkBindBufferMemory(device, boneUBOBuffers[i], boneUBOMemory[i], 0);
-        vkMapMemory(device, boneUBOMemory[i], 0, boneUBOSize, 0, &boneUBOMapped[i]);
-
-        // Initialize with identity matrices
-        auto* matrices = static_cast<float*>(boneUBOMapped[i]);
-        for (uint32_t b = 0; b < MAX_BONES; ++b) {
-            // Identity matrix in column-major order
+        // Identity palette in slot 0
+        auto* matrices = static_cast<float*>(m_boneChunks[i][0].mapped);
+        for (uint32_t b = 0; b < BONE_PALETTE_BYTES / 64; ++b) {
             for (int c = 0; c < 16; ++c)
                 matrices[b * 16 + c] = (c % 5 == 0) ? 1.0f : 0.0f;
         }
+        m_boneSlot[i] = 1;
     }
 
-    // Create descriptor pool for bone UBO
+    m_boneUBOCreated = true;
+    SLEAK_INFO(
+        "VulkanRenderer: Bone UBO ring created ({} x {} bytes per frame)",
+        BONE_SLOTS_PER_CHUNK, m_boneSlotStride);
+    return true;
+}
+
+/// Appends BONE_SLOTS_PER_CHUNK palette slots to one frame's bone ring: its
+/// own buffer and dynamic-UBO set, so sets bound earlier stay valid.
+bool VulkanRenderer::AddBoneUBOChunk(uint32_t frame) {
+    BoneUBOChunk chunk{};
+
     VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    poolSize.descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
-
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &boneDescriptorPool) != VK_SUCCESS) {
+    poolInfo.maxSets = 1;
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &chunk.pool) !=
+        VK_SUCCESS) {
         SLEAK_ERROR("Failed to create bone descriptor pool!");
         return false;
     }
 
-    // Allocate descriptor sets
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    layouts.fill(boneDescriptorSetLayout);
-
     VkDescriptorSetAllocateInfo dsAllocInfo{};
     dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    dsAllocInfo.descriptorPool = boneDescriptorPool;
-    dsAllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    dsAllocInfo.pSetLayouts = layouts.data();
-
-    if (vkAllocateDescriptorSets(device, &dsAllocInfo, boneDescriptorSets.data()) != VK_SUCCESS) {
-        SLEAK_ERROR("Failed to allocate bone descriptor sets!");
+    dsAllocInfo.descriptorPool = chunk.pool;
+    dsAllocInfo.descriptorSetCount = 1;
+    dsAllocInfo.pSetLayouts = &boneDescriptorSetLayout;
+    if (vkAllocateDescriptorSets(device, &dsAllocInfo, &chunk.set) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate bone descriptor set!");
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
         return false;
     }
 
-    // Write descriptor sets pointing to UBO buffers
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorBufferInfo bufInfo{};
-        bufInfo.buffer = boneUBOBuffers[i];
-        bufInfo.offset = 0;
-        bufInfo.range = boneUBOSize;
-
-        VkWriteDescriptorSet descriptorWrite{};
-        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = boneDescriptorSets[i];
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pBufferInfo = &bufInfo;
-
-        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+    // Host-visible, coherent for fast CPU writes
+    const VkDeviceSize size = m_boneSlotStride * BONE_SLOTS_PER_CHUNK;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(device, &bufferInfo, nullptr, &chunk.buffer) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("Failed to create bone UBO buffer!");
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        return false;
     }
 
-    m_boneUBOCreated = true;
-    SLEAK_INFO("VulkanRenderer: Bone UBO resources created ({} bytes per frame)", boneUBOSize);
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(device, chunk.buffer, &memReqs);
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    allocInfo.memoryTypeIndex = FindMemoryType(
+        memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &chunk.memory) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("Failed to allocate bone UBO memory!");
+        vkDestroyBuffer(device, chunk.buffer, nullptr);
+        vkDestroyDescriptorPool(device, chunk.pool, nullptr);
+        return false;
+    }
+    vkBindBufferMemory(device, chunk.buffer, chunk.memory, 0);
+    vkMapMemory(device, chunk.memory, 0, size, 0, &chunk.mapped);
+
+    // One palette range; binds select the slot by dynamic offset
+    VkDescriptorBufferInfo bufInfo{};
+    bufInfo.buffer = chunk.buffer;
+    bufInfo.offset = 0;
+    bufInfo.range = BONE_PALETTE_BYTES;
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = chunk.set;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufInfo;
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+    m_boneChunks[frame].push_back(chunk);
+    if (m_boneChunks[frame].size() > 1)
+        SLEAK_INFO("VulkanRenderer: frame {} bone ring grew to {} slots", frame,
+                   m_boneChunks[frame].size() * BONE_SLOTS_PER_CHUNK);
     return true;
 }
 
-
-/// Destroys the bone UBO buffers, memory, and descriptor pool.
+/// Destroys every bone ring chunk of every frame.
 void VulkanRenderer::CleanupBoneUBOResources() {
-    if (!m_boneUBOCreated) return;
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (boneUBOMapped[i]) {
-            vkUnmapMemory(device, boneUBOMemory[i]);
-            boneUBOMapped[i] = nullptr;
+    for (auto& chunks : m_boneChunks) {
+        for (BoneUBOChunk& chunk : chunks) {
+            if (chunk.mapped) vkUnmapMemory(device, chunk.memory);
+            if (chunk.buffer) vkDestroyBuffer(device, chunk.buffer, nullptr);
+            if (chunk.memory) vkFreeMemory(device, chunk.memory, nullptr);
+            if (chunk.pool)
+                vkDestroyDescriptorPool(device, chunk.pool, nullptr);
         }
-        if (boneUBOBuffers[i]) {
-            vkDestroyBuffer(device, boneUBOBuffers[i], nullptr);
-            boneUBOBuffers[i] = VK_NULL_HANDLE;
-        }
-        if (boneUBOMemory[i]) {
-            vkFreeMemory(device, boneUBOMemory[i], nullptr);
-            boneUBOMemory[i] = VK_NULL_HANDLE;
-        }
-    }
-    if (boneDescriptorPool) {
-        vkDestroyDescriptorPool(device, boneDescriptorPool, nullptr);
-        boneDescriptorPool = VK_NULL_HANDLE;
+        chunks.clear();
     }
     m_boneUBOCreated = false;
 }
 
-/// Copies bone matrices into the current frame's UBO and binds its descriptor set.
+/// Binds the identity palette (ring slot 0) at set 1.
+void VulkanRenderer::BindIdentityBonePalette(VkPipelineLayout layout) {
+    if (!m_boneUBOCreated || m_boneChunks[currentFrame].empty()) return;
+    const uint32_t offset = 0;
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1,
+                            1, &m_boneChunks[currentFrame][0].set, 1, &offset);
+}
+
+/// Copies bone matrices into this bind's own slot of the frame's bone ring
+/// and binds set 1 at that slot, so every skinned draw keeps its palette.
 void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
     if (!bFrameStarted) return;
     if (!buffer) return;
@@ -447,12 +464,19 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
     if (!data) return;
 
     uint32_t size = static_cast<uint32_t>(vkBuf->GetSize());
-    static constexpr uint32_t MAX_BONE_UBO_SIZE = 256 * 64; // MAX_BONES * sizeof(mat4)
-    if (size > MAX_BONE_UBO_SIZE) size = MAX_BONE_UBO_SIZE;
+    if (size > BONE_PALETTE_BYTES) size = BONE_PALETTE_BYTES;
 
-    // Copy bone matrices to mapped UBO (use currentFrame, not CurrentFrameIndex
+    // Claim the next ring slot (use currentFrame, not CurrentFrameIndex
     // which is the swapchain image index and can exceed MAX_FRAMES_IN_FLIGHT)
-    memcpy(boneUBOMapped[currentFrame], data, size);
+    const uint32_t slot = m_boneSlot[currentFrame];
+    auto& chunks = m_boneChunks[currentFrame];
+    const uint32_t chunkIdx = slot / BONE_SLOTS_PER_CHUNK;
+    if (chunkIdx >= chunks.size() && !AddBoneUBOChunk(currentFrame)) return;
+    const BoneUBOChunk& chunk = chunks[chunkIdx];
+    const uint32_t offset =
+        static_cast<uint32_t>((slot % BONE_SLOTS_PER_CHUNK) * m_boneSlotStride);
+    memcpy(static_cast<char*>(chunk.mapped) + offset, data, size);
+    m_boneSlot[currentFrame] = slot + 1;
 
     // Bind bone descriptor set at set index 1.
     // In the GBuffer geometry pass the active layout is m_gbufferGeomLayout;
@@ -462,9 +486,7 @@ void VulkanRenderer::BindBoneBuffer(RefPtr<BufferBase> buffer) {
     VkPipelineLayout boneBindLayout = (m_inGeometryPass && m_gbufferGeomLayout != VK_NULL_HANDLE)
                                       ? m_gbufferGeomLayout : pipelineLay;
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            boneBindLayout, 1, 1,
-                            &boneDescriptorSets[currentFrame],
-                            0, nullptr);
+                            boneBindLayout, 1, 1, &chunk.set, 1, &offset);
 }
 
 /// Creates the per-frame PBR material descriptor set (set 0 in GBuffer pass):

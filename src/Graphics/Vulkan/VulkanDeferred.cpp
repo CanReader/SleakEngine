@@ -1259,11 +1259,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
                                 pipelineLay, 0, 1,
                                 &descriptorSets[CurrentFrameIndex], 0, nullptr);
     }
-    if (m_boneUBOCreated) {
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipelineLay, 1, 1,
-                                &boneDescriptorSets[currentFrame], 0, nullptr);
-    }
+    BindIdentityBonePalette(pipelineLay);
     if (m_lightUBOCreated) {
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipelineLay, 2, 1,

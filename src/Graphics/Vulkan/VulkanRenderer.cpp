@@ -285,6 +285,7 @@ void VulkanRenderer::BeginRender() {
 
     bFrameStarted = true;
     m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
+    m_boneSlot[currentFrame] = 1;         // slot 0 is the identity palette
     BeginGpuFrame();
 
     // Skip shadow pass if no cached draws — preserve previous frame's shadow map
@@ -312,11 +313,7 @@ void VulkanRenderer::BeginRender() {
         // (skinning conditioned on boneWeights). The shader must have set 1 bound even for
         // non-skinned casters, otherwise vkCmdDrawIndexed fires VUID-vkCmdDrawIndexed-None-08600.
         // Bind the bone UBO once at pass start so all shadow draws (skinned or static) are legal.
-        if (m_boneUBOCreated) {
-            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipelineLay, 1, 1,
-                                    &boneDescriptorSets[currentFrame], 0, nullptr);
-        }
+        BindIdentityBonePalette(pipelineLay);
 
         VkViewport shadowViewport{};
         shadowViewport.x = 0.0f;
@@ -386,15 +383,11 @@ void VulkanRenderer::BeginRender() {
 
         // Bind descriptor sets for GBuffer geometry pass.
         // Set 0 (PBR material) is bound per-material by BindPBRMaterial().
-        // Set 1 (bone matrices) is frame-constant: bound here so m_skinnedGbufferPipeline
-        //   can always find a valid set 1, even for frames where no skinned draw fires.
+        // Set 1 (bone matrices) starts at the identity palette so
+        //   m_skinnedGbufferPipeline always finds a valid set 1.
         // Sets 2-3 are frame-constant: light/shadow UBO and shadow samplers.
         if (m_gbufferGeomLayout != VK_NULL_HANDLE && m_lightUBOCreated) {
-            if (m_boneUBOCreated) {
-                vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        m_gbufferGeomLayout, 1, 1,
-                                        &boneDescriptorSets[currentFrame], 0, nullptr);
-            }
+            BindIdentityBonePalette(m_gbufferGeomLayout);
             vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     m_gbufferGeomLayout, 2, 1,
                                     &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
