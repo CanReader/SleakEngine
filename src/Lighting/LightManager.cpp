@@ -1,20 +1,20 @@
-#include <Lighting/LightManager.hpp>
-#include <Lighting/Light.hpp>
-#include <Lighting/DirectionalLight.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <Graphics/Common/ResourceManager.hpp>
-#include <Graphics/Common/BufferBase.hpp>
-#include <Graphics/Common/Renderer.hpp>
-#include <Graphics/Common/RenderContext.hpp>
-#include <Camera/Camera.hpp>
-#include <Core/Window.hpp>
+#include <Camera/RenderView.hpp>
 #include <Core/Application.hpp>
 #include <Core/CommandLine.hpp>
-#include <Math/Matrix.hpp>
-#include <Core/Timer.hpp>
 #include <Core/Logger.hpp>
-#include <cstring>
+#include <Core/Timer.hpp>
+#include <Core/Window.hpp>
+#include <Graphics/Common/BufferBase.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/Common/RenderContext.hpp>
+#include <Graphics/Common/Renderer.hpp>
+#include <Graphics/Common/ResourceManager.hpp>
+#include <Lighting/DirectionalLight.hpp>
+#include <Lighting/Light.hpp>
+#include <Lighting/LightManager.hpp>
+#include <Math/Matrix.hpp>
 #include <cmath>
+#include <cstring>
 
 namespace {
 /// 4x4 row-major matrix inverse via cofactors (Cramer's rule).
@@ -93,13 +93,15 @@ void LightManager::UnregisterLight(Light* light) {
     }
 }
 
-void LightManager::UpdateAndBind() {
+void LightManager::UpdateAndBind() { UpdateAndBind(RenderView::GetCurrent()); }
+
+void LightManager::UpdateAndBind(const RenderView& view) {
     if (!m_lightBuffer) return;
 
     RenderEngine::LightCBData cbData{};
 
     // Camera position
-    const auto& camPos = Camera::GetMainCameraPosition();
+    const auto& camPos = view.position;
     cbData.CameraPosX = camPos.GetX();
     cbData.CameraPosY = camPos.GetY();
     cbData.CameraPosZ = camPos.GetZ();
@@ -155,13 +157,17 @@ void LightManager::UpdateAndBind() {
     m_lightBuffer->Update();
 
     // Update shadow data for Vulkan renderer
-    UpdateShadowData();
+    UpdateShadowData(view);
 
     // Update deferred CB (InvViewProj + screen size) for the lighting pass
-    UpdateDeferredCB();
+    UpdateDeferredCB(view);
 }
 
 void LightManager::UpdateShadowData() {
+    UpdateShadowData(RenderView::GetCurrent());
+}
+
+void LightManager::UpdateShadowData(const RenderView& view) {
     auto* app = Application::GetInstance();
     if (!app) return;
     auto* renderer = app->GetRenderer();
@@ -223,7 +229,7 @@ void LightManager::UpdateShadowData() {
         // Light position: follow camera XZ but fix Y at world origin.
         // Anchoring Y prevents the shadow frustum from shifting vertically
         // when the player jumps/flies, which causes hard Z-plane cutoff flicker.
-        const auto& camPos = Camera::GetMainCameraPosition();
+        const auto& camPos = view.position;
         Math::Vector3D lightPos = Math::Vector3D(camPos.GetX(), 0.0f, camPos.GetZ())
                                 + dir * (-shadowDist);
 
@@ -315,7 +321,7 @@ void LightManager::UpdateShadowData() {
     renderer->SetLightVP(&lightVP(0, 0));
 
     // Build shadow light UBO
-    const auto& camPos = Camera::GetMainCameraPosition();
+    const auto& camPos = view.position;
     RenderEngine::ShadowLightUBO ubo{};
 
     ubo.LightDir[0] = dir.GetX();
@@ -355,9 +361,7 @@ void LightManager::UpdateShadowData() {
     // per-fragment path shimmers under camera rotation). Uses the same
     // LightVP the UBO carries (prev frame — matches the bound shadow map).
     {
-        const Math::Matrix4& camV = Camera::GetMainViewMatrix();
-        const Math::Matrix4& camP = Camera::GetMainProjectionMatrix();
-        Math::Matrix4 camVP = camV * camP;
+        const Math::Matrix4& camVP = view.viewProjection;
         float invVP[16];
         if (Invert4x4(&camVP(0, 0), invVP)) {
             Math::Matrix4 invVPm, lightVPm;
@@ -432,6 +436,10 @@ void LightManager::SetAmbientColor(float r, float g, float b) {
 }
 
 void LightManager::UpdateDeferredCB() {
+    UpdateDeferredCB(RenderView::GetCurrent());
+}
+
+void LightManager::UpdateDeferredCB(const RenderView& view) {
     auto* app = Application::GetInstance();
     if (!app) return;
     auto* renderer = app->GetRenderer();
@@ -440,9 +448,7 @@ void LightManager::UpdateDeferredCB() {
     if (!ctx || !ctx->IsDeferredEnabled()) return;
 
     // ViewProj = View * Proj (row-major engine convention)
-    const Math::Matrix4& V = Camera::GetMainViewMatrix();
-    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
-    Math::Matrix4 VP = V * P;
+    const Math::Matrix4& VP = view.viewProjection;
 
     RenderEngine::DeferredCBData cb{};
     if (!Invert4x4(&VP(0, 0), cb.InvViewProj)) {

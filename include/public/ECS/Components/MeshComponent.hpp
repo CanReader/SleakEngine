@@ -21,7 +21,8 @@ namespace Sleak {
     };
 
     /// Holds the GPU vertex/index/constant buffers for a renderable mesh and
-    /// submits a draw call each Update, subject to frustum culling.
+    /// submits a draw call each frame from SubmitRender, subject to frustum
+    /// culling.
     /// @ingroup scene
     class ENGINE_API MeshComponent : public Component {
     public:
@@ -32,8 +33,10 @@ namespace Sleak {
         /// Validates that vertex and index buffers were created successfully.
         virtual bool Initialize() override;
 
-        /// Culls against cull bounds if set, then submits an indexed draw call.
+        /// Nothing per frame; drawing happens in SubmitRender.
         virtual void Update(float deltaTime) override;
+        /// Culls against cull bounds if set, then submits an indexed draw call.
+        void SubmitRender(const RenderView& view) override;
 
         void SetVertexBuffer(RefPtr<RenderEngine::BufferBase>& buffer);
 

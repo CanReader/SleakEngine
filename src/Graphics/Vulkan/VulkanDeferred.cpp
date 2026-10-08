@@ -1,14 +1,14 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanInternal.hpp"
-
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanInternal.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
+#include "Camera/RenderView.hpp"
 #include "Core/Logger.hpp"
-#include "Camera/Camera.hpp"
 #include "Math/Matrix.hpp"
 
 namespace Sleak {
@@ -1285,8 +1285,8 @@ void VulkanRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     memcpy(m_deferredCBMapped[currentFrame], data, copySize);
 
     // Snapshot current camera View / Projection for SSAO/SSR/TAA UBO population.
-    const Math::Matrix4& V = Camera::GetMainViewMatrix();
-    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    const Math::Matrix4& V = RenderView::GetCurrent().view;
+    const Math::Matrix4& P = RenderView::GetCurrent().projection;
     memcpy(m_cachedView,       &V(0, 0), sizeof(m_cachedView));
     memcpy(m_cachedProjection, &P(0, 0), sizeof(m_cachedProjection));
 

@@ -1,25 +1,28 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLRenderer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
-#include <Runtime/MeshData.hpp>
-#include <Runtime/VertexLayout.hpp>
-#include "Graphics/Common/ResourceManager.hpp"
-#include "Graphics/Common/ConstantBuffer.hpp"
-#include "Graphics/Common/RenderCommandQueue.hpp"
-#include "Graphics/Common/SSAOKernel.hpp"
-#include <Camera/Camera.hpp>
-#include <Core/Application.hpp>
-#include <Core/SceneBase.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Runtime/Material.hpp>
-#include <Core/GameBase.hpp>
+
 #include <SDL3/SDL.h>
-#include <vector>
+
+#include <Camera/RenderView.hpp>
+#include <Core/Application.hpp>
+#include <Core/GameBase.hpp>
+#include <Core/SceneBase.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/Skybox.hpp>
+#include <Runtime/VertexLayout.hpp>
 #include <cstdint>
 #include <cstring>
+#include <vector>
+
+#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
+#include "Graphics/Common/ConstantBuffer.hpp"
+#include "Graphics/Common/RenderCommandQueue.hpp"
+#include "Graphics/Common/ResourceManager.hpp"
+#include "Graphics/Common/SSAOKernel.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -1312,8 +1315,8 @@ void OpenGLRenderer::ExecuteSSAOPass() {
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(s), &s);
 
     // ---- Upload Camera UBO (Projection, View, InvViewProj) ----
-    const Math::Matrix4& V = Camera::GetMainViewMatrix();
-    const Math::Matrix4& P = Camera::GetMainProjectionMatrix();
+    const Math::Matrix4& V = RenderView::GetCurrent().view;
+    const Math::Matrix4& P = RenderView::GetCurrent().projection;
     float camData[16 * 3];
     std::memcpy(camData,       &P(0,0), sizeof(float) * 16);
     std::memcpy(camData + 16,  &V(0,0), sizeof(float) * 16);

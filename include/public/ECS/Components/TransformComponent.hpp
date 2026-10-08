@@ -35,8 +35,11 @@ namespace Sleak {
 
         /// Allocates the transform's GPU constant buffer.
         bool Initialize() override;
-        /// Refreshes and rebinds the transform constant buffer for this frame.
+        /// Refreshes the cached transform matrix.
         void Update(float DeltaTime) override;
+        /// Uploads world/view/projection for view and binds the constant
+        /// buffer.
+        void SubmitRender(const RenderView& view) override;
 
         // Transformation matrix calculation
         Matrix4 GetTransformMatrix();
@@ -99,11 +102,13 @@ namespace Sleak {
        private:
         RefPtr<RenderEngine::BufferBase> ConstantBuffer;
 
-        /// Rebuilds the transform matrix and pushes it to the GPU constant buffer.
-        void UpdateConstantBuffer();
+        /// Rebuilds the transform matrix and pushes it with view's matrices
+        /// to the GPU constant buffer.
+        void UpdateConstantBuffer(const RenderView& view);
         /// Recomputes the cached Translation/Rotation/Scaling matrices from position/rotation/scale.
         void UpdateTransform();
-        /// Combines the transform with the main camera's view and projection matrices.
+        /// Combines the transform with the current render view's
+        /// view-projection.
         Math::Matrix4 GetMVP();
     };
 

@@ -122,6 +122,8 @@ namespace Sleak {
         virtual void Update(float deltaTime);
         virtual void FixedUpdate(float fixedDeltaTime);
         virtual void LateUpdate(float deltaTime);
+        /// Calls SubmitRender on every component, then on active children.
+        virtual void SubmitRender(const RenderView& view);
 
         /// Enables or disables the object, firing OnEnable/OnDisable on its components.
         void SetActive(bool active);

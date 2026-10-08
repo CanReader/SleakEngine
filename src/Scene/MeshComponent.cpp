@@ -51,7 +51,9 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
         return true;
     }
 
-    void MeshComponent::Update(float deltaTime) {
+    void MeshComponent::Update(float deltaTime) {}
+
+    void MeshComponent::SubmitRender(const RenderView& view) {
         if (!bIsInitialized)
             return;
 

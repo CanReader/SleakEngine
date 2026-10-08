@@ -7,56 +7,57 @@
 #include <Math/Color.hpp>
 
 namespace Sleak {
-    /// Owns and binds a Material for rendering; submits it into the draw
-    /// command queue each Update while enabled.
-    /// @ingroup scene
-    class ENGINE_API MaterialComponent : public Component {
-    public:
-        // Construct with a shared material (RefPtr copy - safe for sharing)
-        MaterialComponent(GameObject* object,
-                          const RefPtr<Material>& material);
+/// Owns and binds a Material for rendering; submits it into the draw
+/// command queue each frame from SubmitRender while enabled.
+/// @ingroup scene
+class ENGINE_API MaterialComponent : public Component {
+   public:
+    // Construct with a shared material (RefPtr copy - safe for sharing)
+    MaterialComponent(GameObject* object, const RefPtr<Material>& material);
 
-        // Construct with a raw pointer (takes ownership)
-        MaterialComponent(GameObject* object, Material* material);
+    // Construct with a raw pointer (takes ownership)
+    MaterialComponent(GameObject* object, Material* material);
 
-        // Construct with just a diffuse color (creates a new material)
-        MaterialComponent(
-            GameObject* object,
-            Math::Color diffuseColor = Math::Color::White);
+    // Construct with just a diffuse color (creates a new material)
+    MaterialComponent(GameObject* object,
+                      Math::Color diffuseColor = Math::Color::White);
 
-        // Construct with a diffuse texture path (creates a new material)
-        MaterialComponent(GameObject* object,
-                          const std::string& diffuseTexture);
+    // Construct with a diffuse texture path (creates a new material)
+    MaterialComponent(GameObject* object, const std::string& diffuseTexture);
 
-        ~MaterialComponent() override = default;
+    ~MaterialComponent() override = default;
 
-        /// Initializes the owned material's GPU resources.
-        bool Initialize() override;
-        /// Submits the material to the render command queue for this frame.
-        void Update(float DeltaTime) override;
-        void OnEnable() override;
-        void OnDisable() override;
+    /// Initializes the owned material's GPU resources.
+    bool Initialize() override;
+    /// Nothing per frame; binding happens in SubmitRender.
+    void Update(float DeltaTime) override;
+    /// Submits the material to the render command queue for this frame.
+    void SubmitRender(const RenderView& view) override;
+    void OnEnable() override;
+    void OnDisable() override;
 
-        // Material access
-        /// Replaces the material, re-initializing it if the component is already initialized.
-        void SetMaterial(const RefPtr<Material>& material);
-        /// Takes ownership of a raw material pointer, re-initializing it if already initialized.
-        void SetMaterial(Material* material);
-        const RefPtr<Material>& GetMaterial() const;
-        Material* GetMaterialRaw() const;
+    // Material access
+    /// Replaces the material, re-initializing it if the component is already
+    /// initialized.
+    void SetMaterial(const RefPtr<Material>& material);
+    /// Takes ownership of a raw material pointer, re-initializing it if already
+    /// initialized.
+    void SetMaterial(Material* material);
+    const RefPtr<Material>& GetMaterial() const;
+    Material* GetMaterialRaw() const;
 
-        // Convenience shortcuts that forward to the material
-        void SetDiffuseColor(Math::Color color);
-        void SetDiffuseTexture(const std::string& path);
-        void SetNormalTexture(const std::string& path);
-        void SetShininess(float shininess);
-        void SetMetallic(float metallic);
-        void SetRoughness(float roughness);
+    // Convenience shortcuts that forward to the material
+    void SetDiffuseColor(Math::Color color);
+    void SetDiffuseTexture(const std::string& path);
+    void SetNormalTexture(const std::string& path);
+    void SetShininess(float shininess);
+    void SetMetallic(float metallic);
+    void SetRoughness(float roughness);
 
-    private:
-        RefPtr<Material> m_material;
-        bool m_enabled = true;
-    };
+   private:
+    RefPtr<Material> m_material;
+    bool m_enabled = true;
+};
 }
 
 #endif

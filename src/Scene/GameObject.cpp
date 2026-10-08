@@ -84,6 +84,19 @@ namespace Sleak {
         }
     }
 
+    void GameObject::SubmitRender(const RenderView& view) {
+        if (!m_isActive || m_pendingDestroy) return;
+
+        for (size_t i = 0; i < Components.GetSize(); ++i) {
+            if (Components[i]) Components[i]->SubmitRender(view);
+        }
+
+        for (size_t i = 0; i < m_children.GetSize(); ++i) {
+            if (m_children[i] && m_children[i]->IsActive())
+                m_children[i]->SubmitRender(view);
+        }
+    }
+
     void GameObject::SetActive(bool active) {
         if (m_isActive == active) return;
         m_isActive = active;

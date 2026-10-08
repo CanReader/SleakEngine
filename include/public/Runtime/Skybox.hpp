@@ -13,6 +13,7 @@ namespace Sleak {
         class Shader;
     }
     class Texture;
+    struct RenderView;
 
     /// Renders the background sky as a cubemap, panorama, or procedural gradient.
     /// @ingroup rendering
@@ -38,7 +39,9 @@ namespace Sleak {
         /// Create GPU resources (shader, buffers, cubemap texture)
         void Initialize();
 
-        /// Submit render commands for this frame
+        /// Submit render commands for this frame, seen from view
+        void Render(const RenderView& view);
+        /// Same as Render(view) using RenderView::GetCurrent()
         void Render();
 
         bool IsInitialized() const { return m_initialized; }

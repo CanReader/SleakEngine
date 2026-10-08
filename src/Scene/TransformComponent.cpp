@@ -1,10 +1,11 @@
+#include <Camera/RenderView.hpp>
+#include <Core/GameObject.hpp>
+#include <ECS/Components/MeshComponent.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
-#include <Graphics/Common/ResourceManager.hpp>
-#include <Camera/Camera.hpp>
 #include <Graphics/Common/RenderCommandQueue.hpp>
-#include <ECS/Components/MeshComponent.hpp>
+#include <Graphics/Common/ResourceManager.hpp>
 
 namespace Sleak {
 
@@ -37,9 +38,8 @@ namespace Sleak {
         if (ConstantBuffer.IsValid()) return true;
 
         auto world = GetTransformMatrix();
-        RenderEngine::TransformBuffer tb(world,
-                                         Camera::GetMainViewMatrix(),
-                                         Camera::GetMainProjectionMatrix());
+        const RenderView& view = RenderView::GetCurrent();
+        RenderEngine::TransformBuffer tb(world, view.view, view.projection);
         ConstantBuffer = RefPtr<RenderEngine::BufferBase>(
             RenderEngine::ResourceManager::CreateBuffer(
                 RenderEngine::BufferType::Constant,
@@ -49,7 +49,11 @@ namespace Sleak {
     }
 
     void TransformComponent::Update(float DeltaTime) {
-        UpdateConstantBuffer();
+        if (ConstantBuffer) UpdateTransform();
+    }
+
+    void TransformComponent::SubmitRender(const RenderView& view) {
+        UpdateConstantBuffer(view);
 
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitBindConstantBuffer(ConstantBuffer, 0);
     }
@@ -147,8 +151,7 @@ namespace Sleak {
         Transform->CalculateTransformMatrix();
     }
 
-
-    void TransformComponent::UpdateConstantBuffer() {
+    void TransformComponent::UpdateConstantBuffer(const RenderView& view) {
         if (!ConstantBuffer) {
             SLEAK_ERROR("Constant buffer is not found to update for object {}", owner->GetName());
             return;
@@ -157,18 +160,14 @@ namespace Sleak {
         UpdateTransform();
 
         auto world = GetTransformMatrix();
-        RenderEngine::TransformBuffer tb(world,
-                                         Camera::GetMainViewMatrix(),
-                                         Camera::GetMainProjectionMatrix());
+        RenderEngine::TransformBuffer tb(world, view.view, view.projection);
 
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitUpdateConstantBuffer(ConstantBuffer, tb.GetData(), tb.GetSize());
     }
 
-
     Math::Matrix4 TransformComponent::GetMVP() {
-        auto mat = GetTransformMatrix() *
-                   Camera::GetMainViewMatrix() *
-                   Camera::GetMainProjectionMatrix();
+        auto mat =
+            GetTransformMatrix() * RenderView::GetCurrent().viewProjection;
 
         return mat;
     }

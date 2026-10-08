@@ -208,6 +208,7 @@ set(SCENE_SOURCES
     src/Scene/GameObject.cpp
     src/Scene/MaterialComponent.cpp
     src/Scene/MeshComponent.cpp
+    src/Scene/RenderView.cpp
     src/Scene/SceneBase.cpp
     src/Scene/Scene.cpp
     src/Scene/TransformComponent.cpp
