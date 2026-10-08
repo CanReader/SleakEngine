@@ -43,7 +43,7 @@ every handler registered for that event type before returning.
 
 The event dispatch hub is `Sleak::EventDispatcher`
 (`include/public/Events/Event.hpp`), an all-static class backed by an
-`unordered_map<EventType, vector<shared_ptr<IDelegate>>>`:
+`unordered_map<EventType, vector<shared_ptr<EventDelegateBase>>>`:
 
 ```cpp
 template<typename T, typename EventT>
@@ -52,9 +52,15 @@ static std::string RegisterEventHandler(T* instance, void (T::*memberFunction)(c
 template<typename EventT>
 static std::string RegisterEventCallback(std::function<void(const EventT&)> callback);
 
-static void UnregisterEvent(EventType type, std::string id);
+static void UnregisterEvent(EventType type, const std::string& id);
 static void UnregisterEvents(EventType type);
 static void UnregisterAllEvents();
+
+template<typename T, typename EventT>
+static EventSubscription Subscribe(T* instance, void (T::*memberFunction)(const EventT&));
+
+template<typename EventT>
+static EventSubscription Subscribe(std::function<void(const EventT&)> callback);
 
 template<typename EventT>
 static void DispatchEvent(const EventT& event);
@@ -136,16 +142,23 @@ raised from `Window::Update()` is fully handled before the frame's scene
 update begins. There is no event queue, no deferred delivery, and no
 ordering guarantee between handlers beyond registration order.
 
-`DispatchEvent` copies the handler vector before iterating it, so a handler
-may register or unregister handlers while it runs without invalidating the
-loop. Handlers added during dispatch do not receive the event currently
-being delivered.
+A handler may register or unregister handlers while it runs. A handler
+unregistered during dispatch is skipped for the rest of that dispatch, and
+the list is compacted once the outermost dispatch returns. Handlers added
+during dispatch do not receive the event currently being delivered.
 
-`RegisterEventHandler` returns a `std::string` id. Keep it and pass it to
-`UnregisterEvent(type, id)` when the registering object dies. A handler
-bound to a destroyed `this` is a dangling call, and the dispatcher has no
-way to detect it. Unregister in the same place you destroy the object,
-typically a scene's destructor or `OnDeactivate`.
+A handler can set `e.Handled = true` (the flag is `mutable`, so this works
+through the `const&`) to stop the event from reaching handlers registered
+after it.
+
+`RegisterEventHandler` returns a `std::string` id, the decimal form of a
+counter. Keep it and pass it to `UnregisterEvent(type, id)` when the
+registering object dies. A handler bound to a destroyed `this` is a
+dangling call, and the dispatcher has no way to detect it. Unregister in
+the same place you destroy the object, typically a scene's destructor or
+`OnDeactivate`. Or use `Subscribe`, which returns a move-only
+`EventSubscription` that unregisters itself when it is destroyed or
+`Reset()`.
 
 ---
 

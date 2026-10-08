@@ -93,13 +93,19 @@ namespace Sleak {
                 RenderEngine::RendererType::Vulkan, CoreWindow);
         }
 
-        EventDispatcher::RegisterEventHandler(this,&Application::OnKeyPressed);
-        EventDispatcher::RegisterEventHandler(this, &Application::OnWindowResize);
-        EventDispatcher::RegisterEventHandler(this, &Application::OnWindowFullScreen);
-        
+        m_keyPressedSub =
+            EventDispatcher::Subscribe(this, &Application::OnKeyPressed);
+        m_windowResizeSub =
+            EventDispatcher::Subscribe(this, &Application::OnWindowResize);
+        m_windowFullScreenSub =
+            EventDispatcher::Subscribe(this, &Application::OnWindowFullScreen);
     }
 
     Application::~Application() {
+        m_keyPressedSub.Reset();
+        m_windowResizeSub.Reset();
+        m_windowFullScreenSub.Reset();
+
         // Flush the GPU before tearing down any scene-owned resources (textures,
         // meshes, materials) — the renderer's descriptor sets still reference
         // samplers/image views owned by the game's scene objects. Without this

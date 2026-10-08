@@ -2,18 +2,23 @@
 #define _EVENT_H_
 
 #include <Core/OSDef.hpp>
-#include <string>
+#include <Events/Delegate.hpp>
+#include <charconv>
+#include <cstdint>
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <Events/Delegate.hpp>
-
 
 #define BIND_LAMBDA(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }
 #define BIND_FUNC_0(Function, class_name) std::bind(&class_name::Function, this)
 #define BIND_FUNC_1(Function, class_name) std::bind(&class_name::Function, this, std::placeholders::_1)
-#define BIND_FUNC_2(Function, class_name) std::bind(&class_name::Function, this, std::placeholders::_2)
-#define BIND_FUNC_3(Function, class_name) std::bind(&class_name::Function, this, std::placeholders::_3)
+#define BIND_FUNC_2(Function, class_name)                         \
+    std::bind(&class_name::Function, this, std::placeholders::_1, \
+              std::placeholders::_2)
+#define BIND_FUNC_3(Function, class_name)                         \
+    std::bind(&class_name::Function, this, std::placeholders::_1, \
+              std::placeholders::_2, std::placeholders::_3)
 
 #define GET_DISPATCHER Sleak::EventDispatcher::GetInstance()
 
@@ -58,7 +63,7 @@ namespace Sleak {
      { return static_cast<int>(category); }
 
     /// Base for all engine events; carries type/category identity and the
-    /// Handled flag consumers can set to stop further propagation.
+    /// Handled flag a handler can set to stop further propagation.
     /// @ingroup events
     class ENGINE_API Event {
     public:
@@ -66,7 +71,8 @@ namespace Sleak {
 
         virtual ~Event() = default;
 
-        bool Handled = false;
+        /// Set from a handler to skip the handlers registered after it.
+        mutable bool Handled = false;
 
         virtual EventType GetEventType() const = 0;
         virtual const char* GetName() const = 0;
@@ -78,6 +84,8 @@ namespace Sleak {
             return GetCategoryFlags() & (uint16_t)category;
         }
     };
+
+    class EventSubscription;
 
     /// Static registry mapping EventType to subscribed handlers; dispatches
     /// events synchronously to every handler registered for its type.
@@ -92,11 +100,16 @@ namespace Sleak {
     /// Both return a string id. Keep it and pass it to UnregisterEvent()
     /// when the subscriber goes away, typically in a scene's OnDeactivate()
     /// or destructor. Handlers outlive the objects they were bound to
-    /// otherwise, and the next dispatch calls into freed memory.
+    /// otherwise, and the next dispatch calls into freed memory. Subscribe()
+    /// does the same but returns an EventSubscription that unregisters
+    /// itself when destroyed.
     ///
     /// Dispatch is synchronous and runs in registration order on the
-    /// calling thread. The handler list is copied before iteration, so a
-    /// handler may register or unregister during dispatch safely.
+    /// calling thread, stopping early once a handler sets Event::Handled.
+    /// A handler may register or unregister during dispatch: a handler
+    /// removed mid-dispatch is not called again, and one added mid-dispatch
+    /// first runs on the next event. Not thread-safe; use from the main
+    /// thread only.
     ///
     /// @code{.cpp}
     /// class WorldScene : public Sleak::Scene {
@@ -126,90 +139,202 @@ namespace Sleak {
     /// };
     /// @endcode
     ///
-    /// @see Event, EventType, Events::Input::KeyPressedEvent,
-    ///      Events::Input::MouseMovedEvent
+    /// @see Event, EventType, EventSubscription,
+    ///      Events::Input::KeyPressedEvent, Events::Input::MouseMovedEvent
     /// @ingroup events
     class ENGINE_API EventDispatcher {
-        public:
-            // Register a handler for any event type
-            /// Registers a free-function/lambda callback for EventT, returning an ID for later unregistration.
-            template<typename EventT>
-            static std::string RegisterEventCallback(std::function<void(const EventT&)> callback) {
-                EventType type = EventT::GetStaticType();
-                
-                auto delegate = std::make_shared<EventDelegate<EventT>>(callback);
-                eventHandlers[type].push_back(delegate);
-                
-                return delegate->GetUUID();
-            }
-            
-            // Register a member function handler
+       public:
+        /// Registers a free-function/lambda callback for EventT, returning an
+        /// ID for later unregistration.
+        template <typename EventT>
+        static std::string RegisterEventCallback(
+            std::function<void(const EventT&)> callback) {
+            auto delegate =
+                std::make_shared<EventDelegate<EventT>>(std::move(callback));
+            eventHandlers[EventT::GetStaticType()].push_back(delegate);
+            return delegate->GetID();
+        }
+
             /// Registers a member-function handler bound to instance, returning an ID for later unregistration.
-            template<typename T, typename EventT>
-            static std::string RegisterEventHandler(T* instance, void (T::*memberFunction)(const EventT&)) {
-                EventType type = EventT::GetStaticType();
-                
+            template <typename T, typename EventT>
+            static std::string RegisterEventHandler(
+                T* instance, void (T::*memberFunction)(const EventT&)) {
                 auto callback = [instance, memberFunction](const EventT& event) {
                     (instance->*memberFunction)(event);
                 };
-                
-                auto delegate = std::make_shared<EventDelegate<EventT>>(callback);
-                eventHandlers[type].push_back(delegate);
-
-                return delegate->GetID();
+                return RegisterEventCallback<EventT>(std::move(callback));
             }
 
+            /// Like RegisterEventCallback(), but unregisters when the returned
+            /// token is destroyed.
+            template <typename EventT>
+            [[nodiscard]] static EventSubscription Subscribe(
+                std::function<void(const EventT&)> callback);
+
+            /// Like RegisterEventHandler(), but unregisters when the returned
+            /// token is destroyed.
+            template <typename T, typename EventT>
+            [[nodiscard]] static EventSubscription Subscribe(
+                T* instance, void (T::*memberFunction)(const EventT&));
+
             /// Removes the single handler with matching id from type's handler list.
-            static void UnregisterEvent(EventType type, std::string id) {
-                for(auto it = eventHandlers[type].begin(); it != eventHandlers[type].end(); ++it) {
-                    if((*it)->GetID() == id) {
-                        eventHandlers[type].erase(it);
-                        break;
+            static void UnregisterEvent(EventType type, const std::string& id) {
+                uint64_t handle = 0;
+                auto [end, ec] =
+                    std::from_chars(id.data(), id.data() + id.size(), handle);
+                if (ec != std::errc() || end != id.data() + id.size()) return;
+
+                auto found = eventHandlers.find(type);
+                if (found == eventHandlers.end()) return;
+
+                auto& handlers = found->second;
+                for (size_t i = 0; i < handlers.size(); ++i) {
+                    if (handlers[i]->GetHandle() != handle ||
+                        handlers[i]->removed)
+                        continue;
+                    if (dispatchDepth > 0) {
+                        handlers[i]->removed = true;
+                        needsCompaction = true;
+                    } else {
+                        handlers.erase(handlers.begin() + i);
                     }
+                    return;
                 }
             }
 
             /// Drops every handler registered for type.
             static void UnregisterEvents(EventType type) {
-                eventHandlers[type].clear();
+                auto found = eventHandlers.find(type);
+                if (found == eventHandlers.end()) return;
+                if (dispatchDepth > 0) {
+                    MarkRemoved(found->second);
+                } else {
+                    found->second.clear();
+                }
             }
 
             /// Drops every handler for every event type.
             static void UnregisterAllEvents() {
-                eventHandlers.clear();
+                if (dispatchDepth > 0) {
+                    for (auto& [type, handlers] : eventHandlers)
+                        MarkRemoved(handlers);
+                } else {
+                    eventHandlers.clear();
+                }
             }
 
-            // Dispatch an event to all registered handlers
             /// Invokes every handler registered for event's type, in registration order.
             template<typename EventT>
             static void DispatchEvent(const EventT& event) {
-                EventType type = event.GetEventType();
+                auto found = eventHandlers.find(event.GetEventType());
+                if (found == eventHandlers.end()) return;
 
-                if (eventHandlers.find(type) == eventHandlers.end())
-                    return;
-
-                // Copy the handler list so that handlers which add/remove entries
-                // during dispatch don't invalidate the iteration.
-                auto handlers = eventHandlers[type];
-                for (auto& handler : handlers) {
-                    // Try to cast to the right event delegate type
-                    auto typedDelegate = std::dynamic_pointer_cast<EventDelegate<EventT>>(handler);
-                    if (typedDelegate) {
-                        typedDelegate->SetEvent(event);
-                        typedDelegate->Execute();
-                    }
+                auto& handlers = found->second;
+                const size_t count = handlers.size();
+                DispatchScope scope;
+                for (size_t i = 0; i < count && !event.Handled; ++i) {
+                    EventDelegateBase* handler = handlers[i].get();
+                    if (handler->removed) continue;
+                    if (auto* typed =
+                            dynamic_cast<EventDelegate<EventT>*>(handler))
+                        typed->Invoke(event);
                 }
             }
-            
+
             /// Drops every handler for every event type; equivalent to UnregisterAllEvents().
-            static void ClearEventHandlers() {
-                eventHandlers.clear();
+            static void ClearEventHandlers() { UnregisterAllEvents(); }
+
+           private:
+            using HandlerList = std::vector<std::shared_ptr<EventDelegateBase>>;
+
+            // Removals during dispatch are deferred so indices and delegates
+            // stay valid.
+            struct DispatchScope {
+                DispatchScope() { ++dispatchDepth; }
+                ~DispatchScope() {
+                    if (--dispatchDepth == 0 && needsCompaction) Compact();
+                }
+            };
+
+            static void MarkRemoved(HandlerList& handlers) {
+                for (auto& handler : handlers) handler->removed = true;
+                needsCompaction = true;
             }
 
-        private:
-            static inline std::unordered_map<EventType, std::vector<std::shared_ptr<IDelegate>>> eventHandlers;
-        };
+            static void Compact() {
+                needsCompaction = false;
+                for (auto& [type, handlers] : eventHandlers) {
+                    std::erase_if(handlers,
+                                  [](const auto& h) { return h->removed; });
+                }
+            }
 
+            static inline std::unordered_map<EventType, HandlerList>
+                eventHandlers;
+            static inline int dispatchDepth = 0;
+            static inline bool needsCompaction = false;
+    };
+
+    /// Move-only owner of one handler registration; unregisters it on
+    /// destruction or Reset().
+    /// @ingroup events
+    class EventSubscription {
+       public:
+        EventSubscription() = default;
+        EventSubscription(EventType type, std::string id)
+            : m_type(type), m_id(std::move(id)) {}
+
+        EventSubscription(EventSubscription&& other) noexcept
+            : m_type(other.m_type), m_id(std::move(other.m_id)) {
+            other.m_id.clear();
+        }
+
+        EventSubscription& operator=(EventSubscription&& other) noexcept {
+            if (this != &other) {
+                Reset();
+                m_type = other.m_type;
+                m_id = std::move(other.m_id);
+                other.m_id.clear();
+            }
+            return *this;
+        }
+
+        EventSubscription(const EventSubscription&) = delete;
+        EventSubscription& operator=(const EventSubscription&) = delete;
+
+        ~EventSubscription() { Reset(); }
+
+        /// Unregisters the handler now; safe to call more than once.
+        void Reset() {
+            if (m_id.empty()) return;
+            EventDispatcher::UnregisterEvent(m_type, m_id);
+            m_id.clear();
+        }
+
+        bool IsActive() const { return !m_id.empty(); }
+        EventType GetType() const { return m_type; }
+        const std::string& GetID() const { return m_id; }
+
+       private:
+        EventType m_type = EventType::Unknown;
+        std::string m_id;
+    };
+
+    template <typename EventT>
+    EventSubscription EventDispatcher::Subscribe(
+        std::function<void(const EventT&)> callback) {
+        return EventSubscription(
+            EventT::GetStaticType(),
+            RegisterEventCallback<EventT>(std::move(callback)));
+    }
+
+    template <typename T, typename EventT>
+    EventSubscription EventDispatcher::Subscribe(
+        T* instance, void (T::*memberFunction)(const EventT&)) {
+        return EventSubscription(
+            EventT::GetStaticType(),
+            RegisterEventHandler(instance, memberFunction));
+    }
 
         // Helper function for easier event dispatching
         /// Constructs a T from args and dispatches it through EventDispatcher.
