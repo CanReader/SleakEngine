@@ -18,7 +18,14 @@ namespace Sleak {
 struct SharedControlBlock {
     /// Number of RefPtr instances currently owning the object.
     std::atomic<size_t> refCount;
-    SharedControlBlock() : refCount(1) {}
+    /// Number of WeakPtr observers, plus one while any RefPtr is alive.
+    std::atomic<size_t> weakCount;
+    SharedControlBlock() : refCount(1), weakCount(1) {}
+
+    /// Frees the block once the last strong and weak reference are gone.
+    void ReleaseWeak() {
+        if (weakCount.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+    }
 };
 
 /// Atomic, intrusive-refcount smart pointer for engine resources. This is
@@ -36,10 +43,9 @@ struct SharedControlBlock {
 ///
 /// The reference count is thread-safe. The object it guards is not: two
 /// threads calling into the same pointed-to object still need their own
-/// synchronization. Note also that `get()` on the SmartPointer base throws
-/// NullPointerException when the pointer is null, so test with
-/// `IsValid()` or the bool conversion before dereferencing an optional
-/// resource.
+/// synchronization. `get()` returns nullptr for an empty RefPtr rather
+/// than throwing like ObjectPtr does, so test with `IsValid()` or the bool
+/// conversion before dereferencing an optional resource.
 ///
 /// @code{.cpp}
 /// // Take ownership of a freshly created material
@@ -63,18 +69,28 @@ class RefPtr : public SmartPointer<T> {
     // Allow other RefPtr instantiations to access getControlBlock().
     template <typename U>
     friend class RefPtr;
+    template <typename U>
+    friend class WeakPtr;
 
-protected:
+   protected:
     SharedControlBlock* controlBlock;  // Shared across all types.
 
+    // Adopts a reference already taken on block, used by WeakPtr::lock().
+    RefPtr(T* p, SharedControlBlock* block) noexcept
+        : SmartPointer<T>(p), controlBlock(block) {}
 
-    public:
-
-    /// Drops one reference, deleting the object and control block at zero.
+   public:
+    /// Drops this reference and leaves the RefPtr empty; the object is
+    /// deleted when it was the last one.
     void release() {
-        if (controlBlock && --controlBlock->refCount == 0) {
-            delete this->ptr;
-            delete controlBlock;
+        SharedControlBlock* block = controlBlock;
+        T* object = this->ptr;
+        this->ptr = nullptr;
+        controlBlock = nullptr;
+        if (block &&
+            block->refCount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            delete object;
+            block->ReleaseWeak();
         }
     }
     // Constructor
@@ -95,12 +111,12 @@ protected:
     // Copy assignment
     RefPtr& operator=(const RefPtr& other) {
         if (this != &other) {
+            RefPtr copy(other);
             release();
-            this->ptr = other.ptr;
-            controlBlock = other.controlBlock;
-            if (controlBlock) {
-                controlBlock->refCount++;
-            }
+            this->ptr = copy.ptr;
+            controlBlock = copy.controlBlock;
+            copy.ptr = nullptr;
+            copy.controlBlock = nullptr;
         }
         return *this;
     }
@@ -135,27 +151,24 @@ protected:
     template <typename U>
     RefPtr& operator=(const RefPtr<U>& other) {
         static_assert(std::is_base_of<T, U>::value, "T must be a base class of U");
-        if (this != reinterpret_cast<const RefPtr*>(&other)) {
-            release();
-            this->ptr = other.get();
-            controlBlock = other.getControlBlock();
-            if (controlBlock) {
-                controlBlock->refCount++;
-            }
-        }
+        RefPtr copy(other);
+        release();
+        this->ptr = copy.ptr;
+        controlBlock = copy.controlBlock;
+        copy.ptr = nullptr;
+        copy.controlBlock = nullptr;
         return *this;
     }
 
     // Assign nullptr
     RefPtr& operator=(std::nullptr_t) noexcept {
         release();
-        this->ptr = nullptr;
-        controlBlock = nullptr;
         return *this;
     }
 
     // Reset the pointer
     void reset(T* newPtr = nullptr) override {
+        if (newPtr && newPtr == this->ptr) return;
         release();
         this->ptr = newPtr;
         controlBlock = newPtr ? new SharedControlBlock() : nullptr;
