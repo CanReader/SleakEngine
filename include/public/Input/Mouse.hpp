@@ -1,12 +1,41 @@
-/*
--------- Unprojecting mouse coordinate (NDC) to world space 
-float ndcX = (2.0f * mouseX) / screenWidth - 1.0f;
-float ndcY = 1.0f - (2.0f * mouseY) / screenHeight;
-XMMATRIX viewProjectionMatrix = XMMatrixMultiply(viewMatrix, projectionMatrix);
+#ifndef _MOUSE_HPP_
+#define _MOUSE_HPP_
 
-XMVECTOR mouseNDC = XMVectorSet(ndcX, ndcY, 0.0 , 1.0); // Z value stands for Near/Far plane 
+#include <Core/OSDef.hpp>
+#include <Input/KeyCodes.hpp>
+#include <Math/Vector.hpp>
 
-XMMATRIX inverseViewProjection = XMMatrixInverse(nullptr, viewProjectionMatrix);
+namespace Sleak {
+namespace Input {
 
-XMVECTOR worldNear = XMVector3TransformCoord(mouseNear, inverseViewProjection);
-*/
+/// Per-frame mouse state: buttons, cursor position, and the motion and
+/// wheel accumulated since the previous frame. Main thread only.
+///
+/// GetDelta() keeps working in relative mouse mode, where the position no
+/// longer moves, so use it for camera look.
+/// @see Keyboard, Gamepad, InputManager
+/// @ingroup input
+class ENGINE_API Mouse {
+   public:
+    /// True on the frame button transitions from up to down.
+    static bool IsButtonPressed(MOUSE_CODE button);
+    /// True while button is held down, including the initial press frame.
+    static bool IsButtonHold(MOUSE_CODE button);
+    /// True on the frame button transitions from down to up.
+    static bool IsButtonReleased(MOUSE_CODE button);
+
+    /// Cursor position in window pixels.
+    static Math::Vector2D GetPosition();
+    /// Motion since the previous frame, in pixels.
+    static Math::Vector2D GetDelta();
+    /// Wheel movement since the previous frame; positive y scrolls away from
+    /// the user.
+    static Math::Vector2D GetWheel();
+
+    static void SetCursorVisible(bool visible);
+};
+
+}  // namespace Input
+}  // namespace Sleak
+
+#endif

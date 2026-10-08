@@ -101,52 +101,53 @@ namespace Sleak {
         void SetPitch(float pitch) { m_pitch = pitch; }
         void SetYaw(float yaw) { m_yaw = yaw; }
 
-        /// Updates translation/sprint input state from a key-down event.
+        /// No longer used: movement keys are polled in Update(). Kept so
+        /// existing callers still compile.
         void OnKeyPressed(const Events::Input::KeyPressedEvent& e);
-        /// Clears translation/sprint input state from a key-up event.
+        /// No longer used: movement keys are polled in Update().
         void OnKeyReleased(const Events::Input::KeyReleasedEvent& e);
 
     private:
-        /// Reads mouse delta into yaw/pitch, clamped to m_pitchRange.
-        void UpdateInput(float deltaTime) override;
-        /// Applies UE-style acceleration/braking to velocity, resolves jump/fly, and moves the camera.
-        void UpdateCamera(float deltaTime) override;
+     /// Polls movement keys and reads mouse delta into yaw/pitch, clamped to
+     /// m_pitchRange.
+     void UpdateInput(float deltaTime) override;
+     /// Applies UE-style acceleration/braking to velocity, resolves jump/fly,
+     /// and moves the camera.
+     void UpdateCamera(float deltaTime) override;
 
-        // UE-style movement parameters — tuned slower for a calmer pace
-        float m_maxWalkSpeed = 2.5f;             // Casual walking pace
-        float m_sprintMultiplier = 2.0f;         // Sprint speed = walk * multiplier
-        bool m_sprinting = false;
-        float m_maxAcceleration = 10.0f;         // Gentle ramp-up (~0.25s to full speed)
-        float m_brakingDeceleration = 12.0f;     // Smooth stop
-        float m_groundFriction = 8.0f;           // UE default
-        float m_airControl = 0.05f;              // Minimal air control
+     // UE-style movement parameters — tuned slower for a calmer pace
+     float m_maxWalkSpeed = 2.5f;      // Casual walking pace
+     float m_sprintMultiplier = 2.0f;  // Sprint speed = walk * multiplier
+     bool m_sprinting = false;
+     float m_maxAcceleration = 10.0f;  // Gentle ramp-up (~0.25s to full speed)
+     float m_brakingDeceleration = 12.0f;  // Smooth stop
+     float m_groundFriction = 8.0f;        // UE default
+     float m_airControl = 0.05f;           // Minimal air control
 
-        // Jump — gentle hop, ~0.45m height
-        // v = sqrt(2 * 9.81 * 0.45) ≈ 2.97
-        float m_jumpZVelocity = 3.0f;
+     // Jump — gentle hop, ~0.45m height
+     // v = sqrt(2 * 9.81 * 0.45) ≈ 2.97
+     float m_jumpZVelocity = 3.0f;
 
-        // Fly state
-        bool  m_flying = false;
-        float m_maxFlySpeed = 10.0f;
-        float m_flySprintMultiplier = 2.5f;
-        float m_flyVerticalInput = 0.0f;
-        float m_flyVerticalVelocity = 0.0f;
+     // Fly state
+     bool m_flying = false;
+     float m_maxFlySpeed = 10.0f;
+     float m_flySprintMultiplier = 2.5f;
+     float m_flyVerticalInput = 0.0f;
+     float m_flyVerticalVelocity = 0.0f;
 
-        // Mouse look
-        float m_pitch = 0.0f;
-        float m_yaw = 0.0f;
-        Math::Vector2D m_pitchRange = Math::Vector2D(-89, 89);
+     // Mouse look
+     float m_pitch = 0.0f;
+     float m_yaw = 0.0f;
+     Math::Vector2D m_pitchRange = Math::Vector2D(-89, 89);
 
-        // Horizontal velocity (managed by controller, separate from rigidbody Y axis)
-        Math::Vector3D m_velocity;
+     // Horizontal velocity (managed by controller, separate from rigidbody Y
+     // axis)
+     Math::Vector3D m_velocity;
 
-        // Input state
-        bool m_firstFrame = true;
+     // Input state
+     bool m_firstFrame = true;
 
-        RigidbodyComponent* m_rigidbody = nullptr;
-
-        std::string m_keyPressedHandlerId;
-        std::string m_keyReleasedHandlerId;
+     RigidbodyComponent* m_rigidbody = nullptr;
     };
 
 } // namespace Sleak

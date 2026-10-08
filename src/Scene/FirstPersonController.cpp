@@ -1,11 +1,11 @@
-#include <ECS/Components/FirstPersonController.hpp>
-#include <Physics/RigidbodyComponent.hpp>
 #include <Core/Application.hpp>
 #include <Core/Window.hpp>
-#include <SDL3/SDL.h>
-#include <Events/Event.hpp>
+#include <ECS/Components/FirstPersonController.hpp>
+#include <Input/Keyboard.hpp>
+#include <Input/Mouse.hpp>
 #include <Math/Math.hpp>
 #include <Math/Quaternion.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <cmath>
 
 namespace Sleak {
@@ -15,15 +15,9 @@ FirstPersonController::FirstPersonController(GameObject* object)
     sensitivity = 0.002f;
     m_velocity = Math::Vector3D::Zero();
     translationInput = Math::Vector3D::Zero();
-
-    m_keyPressedHandlerId  = EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyPressed);
-    m_keyReleasedHandlerId = EventDispatcher::RegisterEventHandler(this, &FirstPersonController::OnKeyReleased);
 }
 
-FirstPersonController::~FirstPersonController() {
-    EventDispatcher::UnregisterEvent(EventType::KeyPressed,  m_keyPressedHandlerId);
-    EventDispatcher::UnregisterEvent(EventType::KeyReleased, m_keyReleasedHandlerId);
-}
+FirstPersonController::~FirstPersonController() = default;
 
 bool FirstPersonController::Initialize() {
     if (!CameraController::Initialize())
@@ -51,13 +45,30 @@ void FirstPersonController::Update(float deltaTime) {
 }
 
 void FirstPersonController::ToggleCursor(bool enabled) {
-    bool cursor_set = enabled ? SDL_ShowCursor() : SDL_HideCursor();
-    (void)cursor_set;
+    Input::Mouse::SetCursorVisible(enabled);
 }
 
 void FirstPersonController::UpdateInput(float deltaTime) {
-    float x, y;
-    SDL_GetRelativeMouseState(&x, &y);
+    using Input::KEY_CODE;
+    using Input::Keyboard;
+
+    auto axis = [](KEY_CODE positive, KEY_CODE negative) {
+        return (Keyboard::IsKeyHold(positive) ? 1.0f : 0.0f) -
+               (Keyboard::IsKeyHold(negative) ? 1.0f : 0.0f);
+    };
+    translationInput.SetZ(axis(KEY_CODE::KEY__W, KEY_CODE::KEY__S));
+    translationInput.SetX(axis(KEY_CODE::KEY__A, KEY_CODE::KEY__D));
+    if (Keyboard::IsKeyPressed(KEY_CODE::KEY__SPACE)) {
+        translationInput.SetY(1.0f);
+    } else if (Keyboard::IsKeyReleased(KEY_CODE::KEY__SPACE)) {
+        translationInput.SetY(0.0f);
+    }
+    m_sprinting = Keyboard::IsKeyHold(KEY_CODE::KEY__LSHIFT) ||
+                  Keyboard::IsKeyHold(KEY_CODE::KEY__RSHIFT);
+
+    Math::Vector2D delta = Input::Mouse::GetDelta();
+    float x = delta.GetX();
+    float y = delta.GetY();
 
     if (m_firstFrame) {
         m_firstFrame = false;
@@ -188,45 +199,11 @@ void FirstPersonController::UpdateCamera(float deltaTime) {
     camera->SetLookTarget(lookTarget);
 }
 
-void FirstPersonController::OnKeyPressed(const Events::Input::KeyPressedEvent& e) {
-    if (!isEnabled) return;
+void FirstPersonController::OnKeyPressed(
+    const Events::Input::KeyPressedEvent&) {}
 
-    switch (e.GetKeyCode()) {
-        case Input::KEY_CODE::KEY__W: translationInput.SetZ(1.0f); break;
-        case Input::KEY_CODE::KEY__S: translationInput.SetZ(-1.0f); break;
-        case Input::KEY_CODE::KEY__A: translationInput.SetX(+1.0f); break;
-        case Input::KEY_CODE::KEY__D: translationInput.SetX(-1.0f); break;
-        case Input::KEY_CODE::KEY__SPACE:
-            if (!e.IsRepeat()) {
-                translationInput.SetY(1.0f);
-            }
-            break;
-        case Input::KEY_CODE::KEY__LSHIFT:
-        case Input::KEY_CODE::KEY__RSHIFT:
-            m_sprinting = true;
-            break;
-        default: break;
-    }
-}
-
-void FirstPersonController::OnKeyReleased(const Events::Input::KeyReleasedEvent& e) {
-    if (!isEnabled) return;
-
-    switch (e.GetKeyCode()) {
-        case Input::KEY_CODE::KEY__W:
-        case Input::KEY_CODE::KEY__S: translationInput.SetZ(0.0f); break;
-        case Input::KEY_CODE::KEY__A:
-        case Input::KEY_CODE::KEY__D: translationInput.SetX(0.0f); break;
-        case Input::KEY_CODE::KEY__SPACE:
-            translationInput.SetY(0.0f);
-            break;
-        case Input::KEY_CODE::KEY__LSHIFT:
-        case Input::KEY_CODE::KEY__RSHIFT:
-            m_sprinting = false;
-            break;
-        default: break;
-    }
-}
+void FirstPersonController::OnKeyReleased(
+    const Events::Input::KeyReleasedEvent&) {}
 
 void FirstPersonController::SetFlying(bool flying) {
     if (m_flying == flying) return;

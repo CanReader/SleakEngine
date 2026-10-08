@@ -1,13 +1,15 @@
 #include "../../include/private/Core/Window.hpp"
 
-#include "../../include/private/Graphics/Common/RendererFactory.hpp"
-#include <cstdlib>
-#include <cstring>
 #include <Core/Logger.hpp>
 #include <Events/ApplicationEvent.hpp>
+#include <Events/GamepadEvent.hpp>
 #include <Events/KeyboardEvent.hpp>
 #include <Events/MouseEvent.hpp>
+#include <cstdlib>
+#include <cstring>
 
+#include "../../include/private/Graphics/Common/RendererFactory.hpp"
+#include "../../include/private/Input/InputBackend.hpp"
 
 namespace Sleak {
 
@@ -24,9 +26,10 @@ Window::Window(int width, int height, std::string name)
     }
 
 Window::~Window() {
-  if (SDLWindow) {
-    SDL_DestroyWindow(SDLWindow);
-  }
+    Input::Backend::Shutdown();
+    if (SDLWindow) {
+        SDL_DestroyWindow(SDLWindow);
+    }
   SDL_Quit();
 
   SLEAK_LOG("The window has been destroyed");
@@ -51,12 +54,16 @@ bool Window::InitializeWindow() {
       return false;
     }
 
-  SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height, GraphicsAPI | SDL_WINDOW_RESIZABLE); 
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+        SLEAK_WARN("Gamepad support unavailable: {0}", SDL_GetError());
 
-  if (!SDLWindow) {
-    SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError()); 
-    return false;
-  }
+    SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height,
+                                 GraphicsAPI | SDL_WINDOW_RESIZABLE);
+
+    if (!SDLWindow) {
+        SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError());
+        return false;
+    }
 
   if (SDL_Surface* icon = SDL_LoadBMP("assets/branding/icon.bmp")) {
     SDL_SetWindowIcon(SDLWindow, icon);
@@ -85,101 +92,129 @@ bool Window::InitializeWindow() {
 }
 
 void Window::Update() {
-  while (SDL_PollEvent(&event)) {
+    Input::Backend::BeginFrame();
 
-    if (m_imguiReady)
-      ImGui_ImplSDL3_ProcessEvent(&event);
+    while (SDL_PollEvent(&event)) {
+        if (m_imguiReady) ImGui_ImplSDL3_ProcessEvent(&event);
 
-    switch (event.type)
-    {
-      case SDL_EVENT_WINDOW_RESIZED:
-      {
-        uint16_t width = event.window.data1;
-        uint16_t height = event.window.data2;
+        int padIndex = Input::Backend::ProcessEvent(event);
 
-        Window::Width = width;
-        Window::Height = height;
+        switch (event.type) {
+            case SDL_EVENT_WINDOW_RESIZED: {
+                uint16_t width = event.window.data1;
+                uint16_t height = event.window.data2;
 
-        DispatchEvent<Sleak::Events::WindowResizeEvent>(width,height);
+                Window::Width = width;
+                Window::Height = height;
 
-        break;
-      }
-      case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
-      {
-        DispatchEvent<Sleak::Events::WindowFullScreen>(true);
-        break;
-      }
-      case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
-      {
-        DispatchEvent<Sleak::Events::WindowFullScreen>(false);
-        break;
-      }
-      case SDL_EVENT_QUIT:
-      {
-        DispatchEvent<Sleak::Events::WindowCloseEvent>();
-        EventDispatcher::UnregisterAllEvents();
-        bShouldClose = true;
-        return;
-      }
+                DispatchEvent<Sleak::Events::WindowResizeEvent>(width, height);
 
-      case SDL_EVENT_KEY_DOWN:
-      {
-          KeyCode key = static_cast<KeyCode>(event.key.scancode);
-          bool isRepeat = event.key.repeat;
+                break;
+            }
+            case SDL_EVENT_WINDOW_FOCUS_GAINED: {
+                DispatchEvent<Sleak::Events::WindowFocusEvent>();
+                break;
+            }
+            case SDL_EVENT_WINDOW_FOCUS_LOST: {
+                DispatchEvent<Sleak::Events::WindowLostFocusEvent>();
+                break;
+            }
+            case SDL_EVENT_WINDOW_MOVED: {
+                DispatchEvent<Sleak::Events::WindowMovedEvent>(
+                    event.window.data1, event.window.data2);
+                break;
+            }
+            case SDL_EVENT_WINDOW_ENTER_FULLSCREEN: {
+                DispatchEvent<Sleak::Events::WindowFullScreen>(true);
+                break;
+            }
+            case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN: {
+                DispatchEvent<Sleak::Events::WindowFullScreen>(false);
+                break;
+            }
+            case SDL_EVENT_QUIT: {
+                DispatchEvent<Sleak::Events::WindowCloseEvent>();
+                EventDispatcher::UnregisterAllEvents();
+                bShouldClose = true;
+                return;
+            }
 
-          DispatchEvent<Sleak::Events::Input::KeyPressedEvent>(key,isRepeat);
-          break;
-      }
+            case SDL_EVENT_KEY_DOWN: {
+                KeyCode key = static_cast<KeyCode>(event.key.scancode);
+                bool isRepeat = event.key.repeat;
 
-      case SDL_EVENT_KEY_UP:
-      {
-          KeyCode key = static_cast<KeyCode>(event.key.scancode);
+                DispatchEvent<Sleak::Events::Input::KeyPressedEvent>(key,
+                                                                     isRepeat);
+                break;
+            }
 
-          DispatchEvent<Sleak::Events::Input::KeyReleasedEvent>(key);
-          break;
-      }
+            case SDL_EVENT_TEXT_INPUT: {
+                if (event.text.text)
+                    DispatchEvent<Sleak::Events::Input::KeyTypedEvent>(
+                        std::string(event.text.text));
+                break;
+            }
 
-      case SDL_EVENT_MOUSE_BUTTON_DOWN:
-      {
-          MouseCode button = (MouseCode)event.button.button;
-          int x = event.button.x;
-          int y = event.button.y;
+            case SDL_EVENT_GAMEPAD_ADDED: {
+                if (padIndex >= 0)
+                    DispatchEvent<Sleak::Events::Input::GamepadConnectedEvent>(
+                        padIndex);
+                break;
+            }
 
-          DispatchEvent<Sleak::Events::Input::MouseButtonPressedEvent>(button,x,y);
-          break;
-      }
+            case SDL_EVENT_GAMEPAD_REMOVED: {
+                if (padIndex >= 0)
+                    DispatchEvent<
+                        Sleak::Events::Input::GamepadDisconnectedEvent>(
+                        padIndex);
+                break;
+            }
 
-      case SDL_EVENT_MOUSE_BUTTON_UP:
-      {
-        MouseCode button = (MouseCode)event.button.button;
-        int x = event.button.x;
-        int y = event.button.y;
+            case SDL_EVENT_KEY_UP: {
+                KeyCode key = static_cast<KeyCode>(event.key.scancode);
 
-        DispatchEvent<Sleak::Events::Input::MouseButtonReleasedEvent>(button,x,y);
-        break;
-      }
+                DispatchEvent<Sleak::Events::Input::KeyReleasedEvent>(key);
+                break;
+            }
 
-      case SDL_EVENT_MOUSE_MOTION:
-      {
-          int x = event.motion.x;
-          int y = event.motion.y;
-          int dx = event.motion.xrel;
-          int dy = event.motion.yrel;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+                MouseCode button = (MouseCode)event.button.button;
+                int x = event.button.x;
+                int y = event.button.y;
 
-          DispatchEvent<Sleak::Events::Input::MouseMovedEvent>(x,y);
-          break;
-      }
+                DispatchEvent<Sleak::Events::Input::MouseButtonPressedEvent>(
+                    button, x, y);
+                break;
+            }
 
-      case SDL_EVENT_MOUSE_WHEEL:
-      {
-          int xOffset = event.wheel.x;
-          int yOffset = event.wheel.y;
+            case SDL_EVENT_MOUSE_BUTTON_UP: {
+                MouseCode button = (MouseCode)event.button.button;
+                int x = event.button.x;
+                int y = event.button.y;
 
-          DispatchEvent<Sleak::Events::Input::MouseScrolledEvent>(xOffset, yOffset);
-          break;
-      }
+                DispatchEvent<Sleak::Events::Input::MouseButtonReleasedEvent>(
+                    button, x, y);
+                break;
+            }
+
+            case SDL_EVENT_MOUSE_MOTION: {
+                int x = event.motion.x;
+                int y = event.motion.y;
+
+                DispatchEvent<Sleak::Events::Input::MouseMovedEvent>(x, y);
+                break;
+            }
+
+            case SDL_EVENT_MOUSE_WHEEL: {
+                int xOffset = event.wheel.x;
+                int yOffset = event.wheel.y;
+
+                DispatchEvent<Sleak::Events::Input::MouseScrolledEvent>(
+                    xOffset, yOffset);
+                break;
+            }
+        }
     }
-  }
 }
 
 void Window::SetFullScreen(bool isFullscreen) {

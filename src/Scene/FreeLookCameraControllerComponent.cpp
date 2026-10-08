@@ -1,11 +1,11 @@
-#include <ECS/Components/FreeLookCameraController.hpp>
-#include <Physics/RigidbodyComponent.hpp>
 #include <Core/Application.hpp>
 #include <Core/Window.hpp>
-#include <SDL3/SDL.h>
-#include <Events/Event.hpp>
+#include <ECS/Components/FreeLookCameraController.hpp>
+#include <Input/Keyboard.hpp>
+#include <Input/Mouse.hpp>
 #include <Math/Math.hpp>
 #include <Math/Quaternion.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 
 namespace Sleak {
  
@@ -24,15 +24,9 @@ namespace Sleak {
 
         translationInput = Math::Vector3D::Zero();
         velocity = Math::Vector3D::Zero();
-
-        m_keyPressedHandlerId  = EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyPressed);
-        m_keyReleasedHandlerId = EventDispatcher::RegisterEventHandler(this, &FreeLookCameraController::OnKeyReleased);
     }
 
-    FreeLookCameraController::~FreeLookCameraController() {
-        EventDispatcher::UnregisterEvent(EventType::KeyPressed,  m_keyPressedHandlerId);
-        EventDispatcher::UnregisterEvent(EventType::KeyReleased, m_keyReleasedHandlerId);
-    }
+    FreeLookCameraController::~FreeLookCameraController() = default;
 
     bool FreeLookCameraController::Initialize() {
         if (!CameraController::Initialize())
@@ -58,19 +52,26 @@ namespace Sleak {
     }
 
     void FreeLookCameraController::ToggleCursor(bool enabled) {
-        bool cursor_set = enabled ? SDL_ShowCursor() : SDL_HideCursor();
-
-        if(!cursor_set) {
-            SLEAK_ERROR("Failed to set cursor visibility {}", SDL_GetError());
-        }
+        Input::Mouse::SetCursorVisible(enabled);
     }
 
     void FreeLookCameraController::UpdateInput(float deltaTime) {
-        // TODO: Make a class to handle keyboard LATER
-        // TODO: Make a class to handle mouse inputs LATER
+        using Input::KEY_CODE;
+        using Input::Keyboard;
 
-        float x, y;
-        SDL_GetRelativeMouseState(&x, &y);
+        auto axis = [](KEY_CODE positive, KEY_CODE negative) {
+            return (Keyboard::IsKeyHold(positive) ? 1.0f : 0.0f) -
+                   (Keyboard::IsKeyHold(negative) ? 1.0f : 0.0f);
+        };
+        translationInput.SetZ(axis(KEY_CODE::KEY__W, KEY_CODE::KEY__S));
+        translationInput.SetX(axis(KEY_CODE::KEY__A, KEY_CODE::KEY__D));
+        translationInput.SetY(
+            axis(KEY_CODE::KEY__SPACE, KEY_CODE::KEY__LSHIFT));
+        m_boost = Keyboard::IsKeyHold(KEY_CODE::KEY__LCTRL);
+
+        Math::Vector2D delta = Input::Mouse::GetDelta();
+        float x = delta.GetX();
+        float y = delta.GetY();
 
         if (m_firstFrame) {
             m_firstFrame = false;
@@ -103,10 +104,11 @@ namespace Sleak {
         Math::Vector3D right = forward.Cross(up).Normalized();
 
         // Calculate acceleration based on input
+        float currentSpeed = m_boost ? speed * 2.0f : speed;
         Math::Vector3D targetVelocity(
-            translationInput.GetX() * speed,   // Right/Left
-            translationInput.GetY() * speed,   // Up/Down
-            translationInput.GetZ() * speed    // Forward/Backward
+            translationInput.GetX() * currentSpeed,  // Right/Left
+            translationInput.GetY() * currentSpeed,  // Up/Down
+            translationInput.GetZ() * currentSpeed   // Forward/Backward
         );
 
         // Smooth velocity interpolation
@@ -142,31 +144,13 @@ namespace Sleak {
         // Update look target
         Math::Vector3D lookTarget = camera->GetPosition() + forward;
         camera->SetLookTarget(lookTarget);
-    }   
-
-    void FreeLookCameraController::OnKeyPressed(const Sleak::Events::Input::KeyPressedEvent& e) {
-        switch (e.GetKeyCode()) {
-            case Input::KEY_CODE::KEY__W: translationInput.SetZ(1.0f); break;
-            case Input::KEY_CODE::KEY__S: translationInput.SetZ(-1.0f); break;
-            case Input::KEY_CODE::KEY__A: translationInput.SetX(+1.0f); break;
-            case Input::KEY_CODE::KEY__D: translationInput.SetX(-1.0f); break;
-            case Input::KEY_CODE::KEY__SPACE: translationInput.SetY(1.0f); break;
-            case Input::KEY_CODE::KEY__LSHIFT: translationInput.SetY(-1.0f); break;
-            case Input::KEY_CODE::KEY__LCTRL: if(!e.IsRepeat()) speed *= 2; break;
-        }
     }
 
-    void FreeLookCameraController::OnKeyReleased(const Sleak::Events::Input::KeyReleasedEvent& e) {
-        switch (e.GetKeyCode()) {
-            case Input::KEY_CODE::KEY__W: 
-            case Input::KEY_CODE::KEY__S: translationInput.SetZ(0.0f); break;
-            case Input::KEY_CODE::KEY__A: 
-            case Input::KEY_CODE::KEY__D: translationInput.SetX(0.0f); break;
-            case Input::KEY_CODE::KEY__SPACE: 
-            case Input::KEY_CODE::KEY__LSHIFT: translationInput.SetY(0.0f); break;
-            case Input::KEY_CODE::KEY__LCTRL: speed /= 2; break;
-        }
-    }
+    void FreeLookCameraController::OnKeyPressed(
+        const Sleak::Events::Input::KeyPressedEvent&) {}
+
+    void FreeLookCameraController::OnKeyReleased(
+        const Sleak::Events::Input::KeyReleasedEvent&) {}
 
     void FreeLookCameraController::ApplyDamping(float deltaTime) 
     { 

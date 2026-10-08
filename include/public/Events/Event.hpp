@@ -20,42 +20,52 @@
 namespace Sleak {
     /// Concrete kind of Event; each Event subclass reports one of these via GetEventType().
     /// @ingroup events
-    enum class EventType {
-        Unknown = 0,
-        WindowOpen, WindowClose, WindowResize, WindowFullscreen, WindowFocus, WindowLostFocus, WindowMoved,
-        Tick, Update, Render,
-        KeyPressed, KeyReleased, KeyTyped,
-        MousePressed, MouseReleased, MouseMoved, MouseScrolled
-    };
+enum class EventType {
+    Unknown = 0,
+    WindowOpen,
+    WindowClose,
+    WindowResize,
+    WindowFullscreen,
+    WindowFocus,
+    WindowLostFocus,
+    WindowMoved,
+    Tick,
+    Update,
+    Render,
+    KeyPressed,
+    KeyReleased,
+    KeyTyped,
+    MousePressed,
+    MouseReleased,
+    MouseMoved,
+    MouseScrolled,
+    GamepadConnected,
+    GamepadDisconnected
+};
 
-    /// Bitmask groups an Event can belong to, queried via Event::IsInCategory().
-    /// @ingroup events
-    enum class EventCategory {
-        None = (1 << 0),
-        Application = (1 << 1),
-        Input = (1 << 2),
-        Keyboard = (1 << 3),
-        Mouse = (1 << 4),
-        MouseButton = (1 << 5)
-    };
+/// Bitmask groups an Event can belong to, queried via Event::IsInCategory().
+/// @ingroup events
+enum class EventCategory {
+    None = (1 << 0),
+    Application = (1 << 1),
+    Input = (1 << 2),
+    Keyboard = (1 << 3),
+    Mouse = (1 << 4),
+    MouseButton = (1 << 5),
+    Gamepad = (1 << 6)
+};
 
-    #define EVENT_CLASS_TYPE(type) \
-    static EventType GetStaticType() \
-    { \
-        return EventType::type;\
-    }\
-    virtual EventType GetEventType() const override \
-    {\
-        return GetStaticType();\
-    }\
-    virtual const char* GetName() const override \
-    {\
-        return #type;\
+#define EVENT_CLASS_TYPE(type)                                   \
+    static EventType GetStaticType() { return EventType::type; } \
+    virtual EventType GetEventType() const override {            \
+        return GetStaticType();                                  \
+    }                                                            \
+    virtual const char* GetName() const override { return #type; }
+
+#define EVENT_CLASS_CATEGORY(category)              \
+    virtual int GetCategoryFlags() const override { \
+        return static_cast<int>(category);          \
     }
-
-    #define EVENT_CLASS_CATEGORY(category)\
-    virtual int GetCategoryFlags() const override \
-     { return static_cast<int>(category); }
 
     /// Base for all engine events; carries type/category identity and the
     /// Handled flag consumers can set to stop further propagation.

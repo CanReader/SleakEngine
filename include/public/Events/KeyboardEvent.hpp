@@ -4,6 +4,7 @@
 #include <Events/Event.hpp>
 #include <Input/KeyCodes.hpp>
 #include <sstream>
+#include <utility>
 
 #define if_key_press(key) if (!e.IsRepeat() && e.GetKeyCode() == Sleak::Input::KEY_CODE::key)
 #define if_key_down(key) if (e.GetKeyCode() == Sleak::Input::KEY_CODE::key)
@@ -67,23 +68,38 @@ namespace Sleak {
         
                 EVENT_CLASS_TYPE(KeyReleased)
             };
-        
-            /// Fired for text input, after IME/layout composition rather than raw key-down.
+
+            /// Fired for text input, after IME/layout composition rather than
+            /// raw key-down. The window sends it while SDL text input is active
+            /// (ImGui turns that on for its text fields), with the composed
+            /// UTF-8 in GetText().
             /// @ingroup events
             class ENGINE_API KeyTypedEvent : public KeyEvent
             {
             public:
                 KeyTypedEvent(const KeyCode keycode)
                     : KeyEvent(keycode) {}
-        
+
+                explicit KeyTypedEvent(std::string text)
+                    : KeyEvent(KeyCode::KEY__UNKNOWN),
+                      m_Text(std::move(text)) {}
+
+                /// UTF-8 text produced by the keystroke; empty for the key code
+                /// form.
+                const std::string& GetText() const { return m_Text; }
+
                 std::string ToString() const override
                 {
                     std::stringstream ss;
-                    ss << "KeyTypedEvent: " << GetKeyStr();
+                    ss << "KeyTypedEvent: "
+                       << (m_Text.empty() ? GetKeyStr() : m_Text);
                     return ss.str();
                 }
-        
+
                 EVENT_CLASS_TYPE(KeyTyped)
+
+               private:
+                std::string m_Text;
             };
   }
  }

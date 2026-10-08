@@ -71,16 +71,18 @@ as used throughout `src/Scene/FirstPersonController.cpp`.
 public `Handled` flag. Real subclasses:
 
 - `Sleak::Events` (`Events/ApplicationEvent.hpp`): `WindowResizeEvent`,
-  `WindowOpenEvent`, `WindowFullScreen`, `WindowCloseEvent`, `TickEvent`,
-  `UpdateEvent`, `RenderEvent`.
+  `WindowOpenEvent`, `WindowFullScreen`, `WindowFocusEvent`,
+  `WindowLostFocusEvent`, `WindowMovedEvent`, `WindowCloseEvent`,
+  `TickEvent`, `UpdateEvent`, `RenderEvent`.
 - `Sleak::Events::Input` (`Events/KeyboardEvent.hpp`): `KeyEvent` (base),
-  `KeyPressedEvent` (has `IsRepeat()`), `KeyReleasedEvent`, `KeyTypedEvent`.
+  `KeyPressedEvent` (has `IsRepeat()`), `KeyReleasedEvent`, `KeyTypedEvent`
+  (UTF-8 in `GetText()`, sent while SDL text input is active).
 - `Sleak::Events::Input` (`Events/MouseEvent.hpp`): `MouseMovedEvent`,
   `MouseScrolledEvent`, `MouseButtonEvent` (base),
   `MouseButtonPressedEvent`, `MouseButtonReleasedEvent`.
-
-The `EventType` enum also lists `WindowFocus`, `WindowLostFocus`, and
-`WindowMoved`, but no corresponding `Event` subclasses exist for them yet.
+- `Sleak::Events::Input` (`Events/GamepadEvent.hpp`):
+  `GamepadConnectedEvent`, `GamepadDisconnectedEvent`, both carrying the
+  `Input::Gamepad` index.
 
 Underneath `EventDispatcher`, `Sleak::Delegate<Args...>`
 (`include/public/Events/Delegate.hpp`) wraps a `std::function<void(Args...)>`.
@@ -101,30 +103,47 @@ Two macros in `Events/KeyboardEvent.hpp` test a key inside an event handler:
 
 ## 2. Input
 
-There is no working hardware-state polling API in the engine.
-`Sleak::Input::InputManager` (`include/public/Input/InputManager.hpp`) only
-declares `RegisterListener` / `UnregisterListener` for an
-`InputEventListener`; it has no key or mouse query methods, no `.cpp`
-implementation, and is referenced only by the equally unused
-`InputAction.hpp`. `Sleak::Input::Keyboard`
-(`include/public/Input/Keyboard.hpp`) declares
-`IsKeyPressed` / `IsKeyHold` / `IsKeyReleased(KEY_CODE)`, but also has no
-implementation and no call sites anywhere in the engine.
-`include/public/Input/Mouse.hpp` is not a class at all; it contains only a
-commented-out code snippet.
+Next to the events there is a per-frame polling API in
+`include/public/Input/`. `Window::Update()` resets it at the start of every
+frame and then folds each SDL event into it, so anything that runs in the
+scene update sees this frame's input. Game code never needs SDL for it.
+Everything is static and main-thread only.
 
-In practice, held-key state is tracked ad hoc per component by registering
-`OnKeyPressed` / `OnKeyReleased` handlers through `EventDispatcher` and
-flipping local booleans, as `FirstPersonController` does. Key and mouse
-codes are `Sleak::Input::KEY_CODE` and `Sleak::Input::MOUSE_CODE`
-(`include/public/Input/KeyCodes.hpp`). `KEY_CODE` values line up with SDL
-scancodes, and `MOUSE_CODE::ButtonLeft` equals SDL's `Button1` /
-`SDL_BUTTON_LEFT`.
+- `Input::Keyboard`: `IsKeyPressed` / `IsKeyHold` / `IsKeyReleased(KEY_CODE)`.
+  Pressed and released are edges for this frame and survive a tap that goes
+  down and up between two frames. OS key repeat is ignored.
+- `Input::Mouse`: the same three for `MOUSE_CODE`, plus `GetPosition()`,
+  `GetDelta()` (motion since last frame, also valid in relative mode) and
+  `GetWheel()`. `SetCursorVisible()` shows or hides the cursor.
+- `Input::Gamepad`: up to `MaxGamepads` (4) controllers through SDL3's
+  gamepad API, with hot plug. Buttons use `GAMEPAD_BUTTON`, axes use
+  `GAMEPAD_AXIS`. `GetAxis()` applies a per-axis deadzone (0.15 by default,
+  `SetDeadzone()`), `GetRawAxis()` does not.
+- `Input::InputManager`: named actions. `AddAction("Jump")` returns an
+  `InputAction` you bind keys, mouse buttons, gamepad buttons and gamepad
+  axes (with a threshold) to, then query with `IsActionPressed` /
+  `IsActionHold` / `IsActionReleased` / `GetActionValue`. Pressed and
+  released are for the action as a whole across all of its bindings.
+  `RegisterListener` / `UnregisterListener` still exist for raw
+  `InputEventListener` callbacks.
 
-Cursor capture has no engine-level API either; controllers toggle it
-directly with SDL calls, e.g.
-`FirstPersonController::ToggleCursor()` calling `SDL_ShowCursor()` /
-`SDL_HideCursor()`.
+```cpp
+using namespace Sleak::Input;
+InputManager::AddAction("Jump")
+    .BindKey(KEY_CODE::KEY__SPACE)
+    .BindGamepadButton(GAMEPAD_BUTTON::SOUTH);
+
+if (InputManager::IsActionPressed("Jump")) Jump();
+Math::Vector2D look = Mouse::GetDelta();
+```
+
+When the window loses focus every held key and mouse button is released,
+so nothing stays stuck down. `FirstPersonController` and
+`FreeLookCameraController` read their movement keys and mouse delta from
+this API. Key and mouse codes are `Sleak::Input::KEY_CODE` and
+`Sleak::Input::MOUSE_CODE` (`include/public/Input/KeyCodes.hpp`).
+`KEY_CODE` values line up with SDL scancodes, and `MOUSE_CODE::ButtonLeft`
+equals SDL's `Button1` / `SDL_BUTTON_LEFT`.
 
 ---
 
