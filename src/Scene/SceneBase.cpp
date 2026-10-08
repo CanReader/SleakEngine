@@ -13,28 +13,58 @@
 
 namespace Sleak {
 
-/// Walks obj and its children, registering any ColliderComponent found with world.
-static void RegisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* world) {
-    if (!obj || !world) return;
-    auto* collider = obj->GetComponent<ColliderComponent>();
-    if (collider) {
-        world->RegisterCollider(collider);
-    }
-    for (size_t i = 0; i < obj->GetChildren().GetSize(); ++i) {
-        RegisterCollidersRecursive(obj->GetChildren()[i], world);
+/// Calls fn on obj and the descendants it owns, skipping scene owned ones.
+template <typename Fn>
+static void ForEachOwned(GameObject* obj, Fn& fn) {
+    if (!obj) return;
+    fn(obj);
+    const auto& children = obj->GetChildren();
+    for (size_t i = 0; i < children.GetSize(); ++i) {
+        if (children[i] && !children[i]->IsOwnedByScene())
+            ForEachOwned(children[i], fn);
     }
 }
 
-/// Walks obj and its children, unregistering any ColliderComponent found from world.
-static void UnregisterCollidersRecursive(GameObject* obj, Physics::PhysicsWorld* world) {
-    if (!obj || !world) return;
-    auto* collider = obj->GetComponent<ColliderComponent>();
-    if (collider) {
-        world->UnregisterCollider(collider);
+/// Depth-first search of obj and the descendants it owns.
+template <typename Pred>
+static GameObject* FindOwned(GameObject* obj, const Pred& pred) {
+    if (!obj) return nullptr;
+    if (pred(obj)) return obj;
+    const auto& children = obj->GetChildren();
+    for (size_t i = 0; i < children.GetSize(); ++i) {
+        if (!children[i] || children[i]->IsOwnedByScene()) continue;
+        if (GameObject* found = FindOwned(children[i], pred)) return found;
     }
-    for (size_t i = 0; i < obj->GetChildren().GetSize(); ++i) {
-        UnregisterCollidersRecursive(obj->GetChildren()[i], world);
-    }
+    return nullptr;
+}
+
+/// Registers lights and colliders in obj's owned subtree, skipping null
+/// services.
+static void RegisterTree(GameObject* obj, LightManager* lights,
+                         Physics::PhysicsWorld* world) {
+    auto reg = [&](GameObject* o) {
+        if (lights && o->IsLight())
+            lights->RegisterLight(static_cast<Light*>(o));
+        if (world) {
+            if (auto* collider = o->GetComponent<ColliderComponent>())
+                world->RegisterCollider(collider);
+        }
+    };
+    ForEachOwned(obj, reg);
+}
+
+/// Unregisters lights and colliders in obj's owned subtree.
+static void UnregisterTree(GameObject* obj, LightManager* lights,
+                           Physics::PhysicsWorld* world) {
+    auto unreg = [&](GameObject* o) {
+        if (lights && o->IsLight())
+            lights->UnregisterLight(static_cast<Light*>(o));
+        if (world) {
+            if (auto* collider = o->GetComponent<ColliderComponent>())
+                world->UnregisterCollider(collider);
+        }
+    };
+    ForEachOwned(obj, unreg);
 }
 
 SceneBase::~SceneBase() {
@@ -118,19 +148,20 @@ void SceneBase::Resume() {
 bool SceneBase::Initialize() {
     if (bInitialized) return true;
 
+    LightManager* newLights = nullptr;
     if (!m_lightManager) {
-        m_lightManager = new LightManager();
+        m_lightManager = newLights = new LightManager();
         m_lightManager->Initialize();
     }
 
+    Physics::PhysicsWorld* newWorld = nullptr;
     if (!m_physicsWorld) {
-        m_physicsWorld = new Physics::PhysicsWorld();
+        m_physicsWorld = newWorld = new Physics::PhysicsWorld();
+    }
 
-        // Register colliders from objects added before PhysicsWorld existed
+    if (newLights || newWorld) {
         for (size_t i = 0; i < Objects.GetSize(); ++i) {
-            if (Objects[i]) {
-                RegisterCollidersRecursive(Objects[i], m_physicsWorld);
-            }
+            RegisterTree(Objects[i], newLights, newWorld);
         }
     }
 
@@ -201,22 +232,24 @@ void SceneBase::Update(float deltaTime) {
             }
         };
 
-        for (size_t i = 0; i < Objects.GetSize(); ++i) {
-            if (!Objects[i]) continue;
-            auto* collider = Objects[i]->GetComponent<ColliderComponent>();
-            if (!collider) continue;
+        auto drawObject = [&](GameObject* obj) {
+            auto* collider = obj->GetComponent<ColliderComponent>();
+            if (!collider) return;
 
             Math::Vector3D pos(0, 0, 0), scale(1, 1, 1);
-            auto* transform = Objects[i]->GetComponent<TransformComponent>();
+            auto* transform = obj->GetComponent<TransformComponent>();
             if (transform) {
                 pos = transform->GetWorldPosition() + collider->GetOffset();
                 scale = transform->GetWorldScale();
-            } else if (auto* cam = dynamic_cast<Camera*>(Objects[i])) {
+            } else if (auto* cam = dynamic_cast<Camera*>(obj)) {
                 pos = cam->GetPosition() + collider->GetOffset();
             }
             drawColliderShape(collider, pos, scale);
-        }
+        };
 
+        for (size_t i = 0; i < Objects.GetSize(); ++i) {
+            ForEachOwned(Objects[i], drawObject);
+        }
     }
 
     DebugLineRenderer::Flush(m_activeCamera);
@@ -249,15 +282,9 @@ void SceneBase::AddObject(GameObject* object) {
     if (Objects.indexOf(object) != -1) return; // already in scene
 
     Objects.add(object);
+    object->m_ownedByScene = true;
 
-    if (m_lightManager && object->IsLight()) {
-        m_lightManager->RegisterLight(
-            static_cast<Light*>(object));
-    }
-
-    if (m_physicsWorld) {
-        RegisterCollidersRecursive(object, m_physicsWorld);
-    }
+    RegisterTree(object, m_lightManager, m_physicsWorld);
 
     if (bInitialized && !object->IsInitialized()) {
         object->Initialize();
@@ -266,22 +293,23 @@ void SceneBase::AddObject(GameObject* object) {
 
 void SceneBase::RemoveObject(GameObject* object) {
     if (!object) return;
-    int index = Objects.indexOf(object);
-    if (index == -1) return;
+    if (Objects.indexOf(object) == -1) return;
 
-    if (m_lightManager && object->IsLight()) {
-        m_lightManager->UnregisterLight(static_cast<Light*>(object));
-    }
-    if (m_physicsWorld) {
-        UnregisterCollidersRecursive(object, m_physicsWorld);
+    List<GameObject*> children = object->GetChildren();
+    for (size_t i = 0; i < children.GetSize(); ++i) {
+        if (children[i] && children[i]->IsOwnedByScene())
+            RemoveObject(children[i]);
     }
 
-    int pending = m_pendingDestroy.indexOf(object);
-    if (pending != -1) {
-        m_pendingDestroy.erase(pending);
-    }
+    UnregisterTree(object, m_lightManager, m_physicsWorld);
 
-    Objects.erase(index);
+    auto dropPending = [&](GameObject* o) {
+        int pending = m_pendingDestroy.indexOf(o);
+        if (pending != -1) m_pendingDestroy.erase(pending);
+    };
+    ForEachOwned(object, dropPending);
+
+    Objects.erase(Objects.indexOf(object));
     delete object;
 }
 
@@ -301,29 +329,28 @@ void SceneBase::DestroyObject(GameObject* object) {
 }
 
 GameObject* SceneBase::FindObjectByName(const std::string& objectName) {
+    auto match = [&](GameObject* o) { return o->GetName() == objectName; };
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
-        if (Objects[i] && Objects[i]->GetName() == objectName) {
-            return Objects[i];
-        }
+        if (GameObject* found = FindOwned(Objects[i], match)) return found;
     }
     return nullptr;
 }
 
 GameObject* SceneBase::FindObjectByID(uint64_t id) {
+    auto match = [&](GameObject* o) { return o->GetUniqueID() == id; };
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
-        if (Objects[i] && Objects[i]->GetUniqueID() == id) {
-            return Objects[i];
-        }
+        if (GameObject* found = FindOwned(Objects[i], match)) return found;
     }
     return nullptr;
 }
 
 List<GameObject*> SceneBase::FindObjectsByTag(const std::string& tag) {
     List<GameObject*> result;
+    auto collect = [&](GameObject* o) {
+        if (o->GetTag() == tag) result.add(o);
+    };
     for (size_t i = 0; i < Objects.GetSize(); ++i) {
-        if (Objects[i] && Objects[i]->GetTag() == tag) {
-            result.add(Objects[i]);
-        }
+        ForEachOwned(Objects[i], collect);
     }
     return result;
 }
@@ -331,37 +358,38 @@ List<GameObject*> SceneBase::FindObjectsByTag(const std::string& tag) {
 void SceneBase::ProcessPendingDestroy() {
     if (m_pendingDestroy.empty()) return;
 
-    for (size_t i = 0; i < m_pendingDestroy.GetSize(); ++i) {
-        GameObject* obj = m_pendingDestroy[i];
-        if (!obj) continue;
+    List<GameObject*> pending = std::move(m_pendingDestroy);
 
-        if (m_lightManager && obj->IsLight()) {
-            m_lightManager->UnregisterLight(
-                static_cast<Light*>(obj));
-        }
-
-        if (m_physicsWorld) {
-            UnregisterCollidersRecursive(obj, m_physicsWorld);
-        }
-
+    for (size_t i = 0; i < pending.GetSize(); ++i) {
+        GameObject* obj = pending[i];
+        UnregisterTree(obj, m_lightManager, m_physicsWorld);
         int index = Objects.indexOf(obj);
-        if (index != -1) {
-            Objects.erase(index);
-        }
-
-        delete obj;
+        if (index != -1) Objects.erase(index);
     }
-    m_pendingDestroy.clear();
+
+    // Detach first so no pending object is deleted through its parent.
+    for (size_t i = 0; i < pending.GetSize(); ++i) {
+        if (pending[i]) pending[i]->SetParent(nullptr);
+    }
+    for (size_t i = 0; i < pending.GetSize(); ++i) {
+        delete pending[i];
+    }
 }
 
 void SceneBase::DestroyAllObjects() {
-    // Clear pending list first (those are also in Objects)
     m_pendingDestroy.clear();
 
-    for (size_t i = 0; i < Objects.GetSize(); ++i) {
-        delete Objects[i];
+    List<GameObject*> objects = std::move(Objects);
+
+    for (size_t i = 0; i < objects.GetSize(); ++i) {
+        UnregisterTree(objects[i], m_lightManager, m_physicsWorld);
     }
-    Objects.clear();
+    for (size_t i = 0; i < objects.GetSize(); ++i) {
+        if (objects[i]) objects[i]->SetParent(nullptr);
+    }
+    for (size_t i = 0; i < objects.GetSize(); ++i) {
+        delete objects[i];
+    }
 }
 
 void SceneBase::SetSkybox(Skybox* skybox) {
