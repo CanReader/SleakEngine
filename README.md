@@ -70,6 +70,23 @@ Requires a C++23 compiler and CMake. Vulkan and OpenGL backends build everywhere
 DirectX 11/12 build on Windows. Third-party dependencies live in `vendors/` as
 submodules, so clone with `--recurse-submodules`.
 
+Games can either `add_subdirectory()` the engine and link `Engine` (or the
+`Sleak::Engine` alias), or install it and use it as a CMake package:
+
+```bash
+cmake --install build --prefix /opt/sleak
+```
+
+```cmake
+find_package(Engine 0.1 CONFIG REQUIRED)   # with CMAKE_PREFIX_PATH=/opt/sleak
+target_link_libraries(MyGame PRIVATE Sleak::Engine)
+```
+
+The install carries the engine's shared vendor libraries (SDL3, Assimp,
+freeglut, yaml-cpp) next to it, and the header-only spdlog and nlohmann/json
+under `include/SleakEngine/vendor`, since public headers include them.
+`<Core/Version.hpp>` has the version as `SLEAK_ENGINE_VERSION_*` macros.
+
 ## Quick start
 
 The smallest SleakEngine program is an entry point plus a game class. The entry point

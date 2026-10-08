@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.31)
 
-project(Engine)
+project(Engine VERSION 0.1.0)
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
@@ -32,6 +35,9 @@ endif()
 
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendors)
 
+option(SLEAK_ENGINE_INSTALL "Generate install and package export rules"
+    ${PROJECT_IS_TOP_LEVEL})
+
 # --- Vendor build options ---
 set(SDL_TEST OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -41,9 +47,13 @@ set(YAML_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# --- Shared vendor libraries ship as their own packages when installing ---
+set(SDL_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
+
 # --- Assimp build options ---
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL ${SLEAK_ENGINE_INSTALL} CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
@@ -275,6 +285,21 @@ set(ENGINE_ALL_SOURCES_AND_HEADERS
 
 # --- Create Engine shared library ---
 add_library(Engine SHARED ${ENGINE_ALL_SOURCES_AND_HEADERS})
+add_library(Sleak::Engine ALIAS Engine)
+
+set_target_properties(Engine PROPERTIES
+    VERSION ${Engine_VERSION}
+    SOVERSION ${Engine_VERSION_MAJOR}.${Engine_VERSION_MINOR}
+)
+target_compile_features(Engine PUBLIC cxx_std_23)
+
+# --- Generated version header ---
+set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.hpp.in
+    ${ENGINE_GENERATED_INCLUDE_DIR}/Core/Version.hpp
+    @ONLY
+)
 
 # --- Source groups (mirror disk layout in IDEs) ---
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ENGINE_ALL_SOURCES_AND_HEADERS})
@@ -284,15 +309,18 @@ target_compile_definitions(Engine PRIVATE SLEAK_ENGINE)
 # --- Include directories ---
 target_include_directories(Engine
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/public
-        ${VENDOR_DIR}/spdlog/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/public>
+        $<BUILD_INTERFACE:${ENGINE_GENERATED_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${VENDOR_DIR}/spdlog/include>
+        $<BUILD_INTERFACE:${VENDOR_DIR}/json/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine/vendor>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include/private
         ${Vulkan_INCLUDE_DIR}
         ${OPENGL_INCLUDE_DIR}
         ${VENDOR_DIR}/imgui
         ${VENDOR_DIR}/glad/include
-        ${VENDOR_DIR}/json/include
         ${VENDOR_DIR}/stb
 )
 
@@ -320,37 +348,201 @@ if(WIN32 OR USE_MINGW)
     )
 endif()
 
-# --- SPIR-V shader compilation (optional, requires glslc) ---
-find_program(GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin" "${VULKAN_SDK}/Bin")
+# --- SPIR-V shaders (committed .spv are only the fallback without glslc) ---
+set(ENGINE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
+file(GLOB ENGINE_VULKAN_SHADERS CONFIGURE_DEPENDS
+    "${ENGINE_SHADER_DIR}/*.vert"
+    "${ENGINE_SHADER_DIR}/*.frag"
+)
+list(FILTER ENGINE_VULKAN_SHADERS EXCLUDE REGEX "_gl\\.(vert|frag)$")
+
+find_program(GLSLC glslc
+    HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin" "${VULKAN_SDK}/Bin")
+set(ENGINE_SPIRV_FILES "")
+set(ENGINE_COMMITTED_SPIRV "")
+foreach(_src ${ENGINE_VULKAN_SHADERS})
+    if(EXISTS "${_src}.spv")
+        list(APPEND ENGINE_COMMITTED_SPIRV "${_src}.spv")
+    endif()
+endforeach()
+
 if(GLSLC)
-    set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
-    set(SHADER_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
-
-    # --- Vulkan-targeted shaders only; OpenGL "_gl" variants are not SPIR-V ---
-    file(GLOB VULKAN_SHADERS
-        "${SHADER_SOURCE_DIR}/*.vert"
-        "${SHADER_SOURCE_DIR}/*.frag"
-    )
-    list(FILTER VULKAN_SHADERS EXCLUDE REGEX "_gl\\.(vert|frag)$")
-
-    set(BIN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin/assets/shaders")
-
-    foreach(SHADER ${VULKAN_SHADERS})
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        set(SPV_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
-        set(BIN_SPV    "${BIN_SHADER_DIR}/${SHADER_NAME}.spv")
+    set(ENGINE_SPIRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+    file(MAKE_DIRECTORY "${ENGINE_SPIRV_DIR}")
+    foreach(_src ${ENGINE_VULKAN_SHADERS})
+        get_filename_component(_name "${_src}" NAME)
+        set(_spv "${ENGINE_SPIRV_DIR}/${_name}.spv")
         add_custom_command(
-            OUTPUT ${SPV_OUTPUT}
-            COMMAND ${GLSLC} ${SHADER} -o ${SPV_OUTPUT}
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SPV_OUTPUT} ${BIN_SPV}
-            DEPENDS ${SHADER}
-            COMMENT "Compiling ${SHADER_NAME} to SPIR-V and syncing to bin/"
+            OUTPUT "${_spv}"
+            COMMAND ${GLSLC} "${_src}" -o "${_spv}"
+            DEPENDS "${_src}"
+            COMMENT "Compiling ${_name} to SPIR-V"
+            VERBATIM
         )
-        list(APPEND SPV_SHADERS ${SPV_OUTPUT})
+        list(APPEND ENGINE_SPIRV_FILES "${_spv}")
     endforeach()
-
-    add_custom_target(CompileShaders ALL DEPENDS ${SPV_SHADERS})
-    add_dependencies(Engine CompileShaders)
 else()
-    message(STATUS "glslc not found, SPIR-V shaders will not be auto-compiled")
+    set(_missing "")
+    foreach(_src ${ENGINE_VULKAN_SHADERS})
+        if(NOT EXISTS "${_src}.spv")
+            get_filename_component(_name "${_src}" NAME)
+            list(APPEND _missing "${_name}")
+        endif()
+    endforeach()
+    if(_missing)
+        message(FATAL_ERROR
+            "glslc not found and these shaders have no committed SPIR-V: "
+            "${_missing}. Install the Vulkan SDK or set VULKAN_SDK.")
+    endif()
+    message(WARNING
+        "glslc not found, using the committed SPIR-V in assets/shaders. "
+        "Vulkan GLSL edits will not reach the build until glslc is installed "
+        "(Vulkan SDK, or set VULKAN_SDK).")
+    set(ENGINE_SPIRV_FILES ${ENGINE_COMMITTED_SPIRV})
+endif()
+
+set(_stage_outputs "")
+if(PROJECT_IS_TOP_LEVEL)
+    set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/engine_spirv_staged.stamp")
+    set(_dst "${CMAKE_SOURCE_DIR}/bin/assets/shaders")
+    add_custom_command(
+        OUTPUT "${_stamp}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_dst}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${ENGINE_SPIRV_FILES} "${_dst}"
+        COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
+        DEPENDS ${ENGINE_SPIRV_FILES}
+        COMMENT "Staging engine SPIR-V into bin/assets/shaders"
+        VERBATIM
+    )
+    list(APPEND _stage_outputs "${_stamp}")
+endif()
+
+add_custom_target(CompileShaders ALL
+    DEPENDS ${ENGINE_SPIRV_FILES} ${_stage_outputs})
+add_dependencies(Engine CompileShaders)
+
+set_property(GLOBAL PROPERTY ENGINE_SPIRV_FILES ${ENGINE_SPIRV_FILES})
+set_property(GLOBAL PROPERTY ENGINE_COMMITTED_SPIRV ${ENGINE_COMMITTED_SPIRV})
+
+function(_engine_collect_targets dir out)
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_sub ${_subdirs})
+        _engine_collect_targets("${_sub}" _sub_targets)
+        list(APPEND _targets ${_sub_targets})
+    endforeach()
+    set(${out} ${_targets} PARENT_SCOPE)
+endfunction()
+
+# Stage after each consuming executable so its own asset copy never wins
+function(_engine_stage_spirv_for_consumers)
+    get_property(_spv GLOBAL PROPERTY ENGINE_SPIRV_FILES)
+    get_property(_committed GLOBAL PROPERTY ENGINE_COMMITTED_SPIRV)
+    _engine_collect_targets("${CMAKE_SOURCE_DIR}" _targets)
+    foreach(_target ${_targets})
+        get_target_property(_type ${_target} TYPE)
+        get_target_property(_libs ${_target} LINK_LIBRARIES)
+        if(NOT _type STREQUAL "EXECUTABLE" OR NOT "Engine" IN_LIST _libs)
+            continue()
+        endif()
+        set(_dst "$<TARGET_FILE_DIR:${_target}>/assets/shaders")
+        set(_stamp "${CMAKE_BINARY_DIR}/${_target}_engine_spirv.stamp")
+        add_custom_command(
+            OUTPUT "${_stamp}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_dst}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_spv} "${_dst}"
+            COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
+            DEPENDS ${_spv} ${_committed} "$<TARGET_FILE:${_target}>"
+            COMMENT "Staging engine SPIR-V for ${_target}"
+            VERBATIM
+        )
+        add_custom_target(${_target}_EngineSpirv ALL DEPENDS "${_stamp}")
+        add_dependencies(${_target}_EngineSpirv ${_target})
+    endforeach()
+endfunction()
+
+if(NOT PROJECT_IS_TOP_LEVEL)
+    cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}"
+        CALL _engine_stage_spirv_for_consumers)
+endif()
+
+# --- Install and package export ---
+if(SLEAK_ENGINE_INSTALL)
+    set(ENGINE_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/Engine)
+    set(ENGINE_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR}/SleakEngine)
+
+    if(UNIX AND NOT APPLE)
+        set_target_properties(Engine PROPERTIES INSTALL_RPATH "$ORIGIN")
+    endif()
+
+    install(TARGETS Engine
+        EXPORT EngineTargets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    # WindowHelper.hpp needs SDL3 headers, which are private to the engine
+    install(DIRECTORY include/public/
+        DESTINATION ${ENGINE_INCLUDE_DIR}
+        FILES_MATCHING PATTERN "*.hpp"
+        PATTERN "WindowHelper.hpp" EXCLUDE
+    )
+    install(FILES ${ENGINE_GENERATED_INCLUDE_DIR}/Core/Version.hpp
+        DESTINATION ${ENGINE_INCLUDE_DIR}/Core
+    )
+
+    # Header-only dependencies that public headers include
+    install(DIRECTORY ${VENDOR_DIR}/spdlog/include/spdlog
+        DESTINATION ${ENGINE_INCLUDE_DIR}/vendor
+    )
+    install(DIRECTORY ${VENDOR_DIR}/json/include/nlohmann
+        DESTINATION ${ENGINE_INCLUDE_DIR}/vendor
+    )
+
+    if(UNIX AND NOT APPLE)
+        install(FILES ${Vulkan_LIBRARIES} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+
+    install(EXPORT EngineTargets
+        NAMESPACE Sleak::
+        DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EngineConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/install/EngineConfig.cmake
+        INSTALL_DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfigVersion.cmake
+        VERSION ${Engine_VERSION}
+        COMPATIBILITY SameMinorVersion
+    )
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/install/EngineConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfigVersion.cmake
+        DESTINATION ${ENGINE_CMAKE_DIR}
+    )
+
+    # Build tree package, usable with -DEngine_DIR=<build dir>
+    export(EXPORT EngineTargets
+        NAMESPACE Sleak::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineTargets.cmake
+    )
+    export(TARGETS yaml-cpp
+        NAMESPACE yaml-cpp::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineYamlCppTargets.cmake
+    )
+    export(TARGETS assimp zlibstatic
+        NAMESPACE assimp::
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/EngineAssimpTargets.cmake
+    )
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EngineConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/EngineConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+        INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR}
+    )
 endif()
