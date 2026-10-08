@@ -65,6 +65,33 @@ public:
     // immediate per-buffer submissions (safe during init/scene transitions).
     static void SetBatchingEnabled(bool enabled) { s_batchingEnabled = enabled; }
 
+    /// Opens or closes the window in which image uploads may join the batch.
+    static void SetImageBatchingEnabled(bool enabled) {
+        s_imageBatchingEnabled = enabled;
+    }
+    /// Returns the open batch command buffer for an image upload, or
+    /// VK_NULL_HANDLE when the upload has to be submitted immediately.
+    static VkCommandBuffer GetImageUploadBatch(VkDevice device,
+                                               VkCommandPool pool,
+                                               VkQueue queue);
+    /// Serial of the batch currently recording, 0 when none is open.
+    static uint64_t GetBatchSerial() {
+        return s_batchActive ? s_batchSerial : 0;
+    }
+    /// True while the batch with this serial is still waiting to be submitted.
+    static bool IsBatchPending(uint64_t serial) {
+        return serial != 0 && s_batchActive && serial == s_batchSerial;
+    }
+
+    /// Creates a host-visible staging buffer filled with data.
+    static bool CreateStagingBuffer(const void* data, VkDeviceSize size,
+                                    PendingStagingCleanup& out);
+    static void DestroyStagingBuffer(const PendingStagingCleanup& staging);
+    /// Frees the staging buffer once the batch that reads it has completed.
+    static void ReleaseStagingAfterBatch(const PendingStagingCleanup& staging) {
+        s_pendingCleanup.push_back(staging);
+    }
+
 private:
     /// Allocates a VMA-backed VkBuffer with the given usage/memory properties.
     void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -97,11 +124,13 @@ private:
     VmaAllocation m_stagingMemory = VK_NULL_HANDLE;
 
     void* m_mappedData = nullptr;
-    bool m_pendingInBatch = false;
+    uint64_t m_batchSerial = 0;
 
     // --- Batched transfer state ---
     static bool s_batchingEnabled;
+    static bool s_imageBatchingEnabled;
     static bool s_batchActive;
+    static uint64_t s_batchSerial;
     static VkCommandBuffer s_batchCommandBuffer;
     static VkDevice s_batchDevice;
     static VkCommandPool s_batchCommandPool;
@@ -125,6 +154,11 @@ private:
         VkDeviceSize bufferSize;
     };
     static std::vector<DeferredBufferDelete> s_deferredDeletions;
+    // Destroyed while their copy was still in the unsubmitted batch; aged
+    // from the frame the batch is actually submitted in.
+    static std::vector<DeferredBufferDelete> s_batchBoundDeletions;
+    /// Moves batch-bound deletions into the normal deferred queue.
+    static void ReleaseBatchBoundDeletions();
     static uint64_t s_frameNumber;
 
     // --- Buffer recycling pool ---

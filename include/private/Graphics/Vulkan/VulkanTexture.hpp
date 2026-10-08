@@ -61,9 +61,6 @@ private:
                      VkImageUsageFlags usage, uint32_t mipLevels);
     bool CreateImageView(VkFormat format);
     bool CreateSampler();
-    /// Records a pipeline barrier transitioning the image between layouts.
-    void TransitionImageLayout(VkImage image, VkImageLayout oldLayout,
-                               VkImageLayout newLayout);
     /// Blits progressively smaller mip levels from the base image.
     void GenerateMipmaps(VkCommandBuffer cmd, int32_t width, int32_t height);
 
@@ -88,6 +85,7 @@ private:
     float m_lodBias = 0.0f;
     uint32_t m_mipLevels = 1;      // actual generated levels
     uint32_t m_maxMipLevels = 0;   // 0 = full chain; else clamp
+    uint64_t m_uploadBatchSerial = 0;
 };
 
 }  // namespace RenderEngine
