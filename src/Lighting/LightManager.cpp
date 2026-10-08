@@ -203,6 +203,7 @@ void LightManager::UpdateShadowData() {
     DirectionalLight* activeLight = shadowLight ? shadowLight : anyDirLight;
 
     if (!activeLight) {
+        m_hasShadowLightVP = false;
         static bool warned = false;
         if (!warned) { SLEAK_WARN("UpdateShadowData: No directional light found!"); warned = true; }
         return;
@@ -314,6 +315,8 @@ void LightManager::UpdateShadowData() {
 
     // Set the light VP matrix on the renderer
     renderer->SetLightVP(&lightVP(0, 0));
+    std::memcpy(m_shadowLightVP, &lightVP(0, 0), sizeof(m_shadowLightVP));
+    m_hasShadowLightVP = shadowLight != nullptr;
 
     // Build shadow light UBO
     const auto& camPos = Camera::GetMainCameraPosition();
