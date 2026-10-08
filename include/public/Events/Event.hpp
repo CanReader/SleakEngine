@@ -153,7 +153,7 @@ namespace Sleak {
                 std::make_shared<EventDelegate<EventT>>(std::move(callback));
             eventHandlers[EventT::GetStaticType()].push_back(delegate);
             return delegate->GetID();
-            }
+        }
 
             /// Registers a member-function handler bound to instance, returning an ID for later unregistration.
             template <typename T, typename EventT>
