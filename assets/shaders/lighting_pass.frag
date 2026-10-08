@@ -96,7 +96,7 @@ float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
     float shadow = 0.0;
     for (int i = 0; i < PCF_SAMPLES; ++i) {
         vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
-        shadow  += texture(gShadow, vec3(uv + off, zRef));
+        shadow  += textureLod(gShadow, vec3(uv + off, zRef), 0.0);
     }
     return shadow / float(PCF_SAMPLES);
 }
@@ -209,16 +209,17 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
 // ==================================================================
 void main() {
     // Early-out for sky pixels (depth == 1.0 means nothing was drawn)
-    float depth = texture(gDepth, fragUV).r;
+    ivec2 px    = ivec2(gl_FragCoord.xy);
+    float depth = texelFetch(gDepth, px, 0).r;
     if (depth >= 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
     // Reconstruct world position from depth instead of a GBuffer RT.
     vec3  worldPos  = ReconstructWorldPos(fragUV, depth);
     vec4  ndcPos    = vec4(fragUV.x * 2.0 - 1.0, 1.0 - 2.0 * fragUV.y,
                            depth, 1.0);
-    vec4  albedoAO  = texture(gAlbedoAO,    fragUV);
-    vec4  normalRg  = texture(gNormalRough, fragUV);
-    vec4  metalEmit = texture(gMetalEmit,   fragUV); // R16G16B16A16: .r=metallic, .gba=emissive
+    vec4  albedoAO  = texelFetch(gAlbedoAO,    px, 0);
+    vec4  normalRg  = texelFetch(gNormalRough, px, 0);
+    vec4  metalEmit = texelFetch(gMetalEmit,   px, 0); // R16G16B16A16: .r=metallic, .gba=emissive
 
     vec3  albedo    = albedoAO.rgb;
     float bakedAO   = albedoAO.a;          // vertex AO baked into GBuffer — always [0.4, 1.0]
@@ -308,8 +309,9 @@ void main() {
         vec3  Ldir    = normalize(-uLightDir.xyz);
         float rawNdL  = dot(N, Ldir);
         float wrapNdL = clamp(rawNdL * 0.85 + 0.15, 0.0, 1.0);
-        float shad    = CalcShadow(worldPos, N);
-        shad         *= smoothstep(-0.15, 0.0, rawNdL);
+        float shad    = 0.0;
+        if (rawNdL > -0.15)
+            shad = CalcShadow(worldPos, N) * smoothstep(-0.15, 0.0, rawNdL);
         vec3 direct   = uLightColor.rgb * uLightColor.a * wrapNdL * shad;
         for (uint li = 0u; li < uNumExtraLights; ++li) {
             vec3  Lx   = normalize(-uExtraDir[li].xyz);
