@@ -57,6 +57,7 @@ struct ENGINE_API ApplicationDefaults {
 
 class Window;
 class DebugOverlay;
+class AudioSystem;
 namespace RenderEngine { class Renderer; }
 
 /// Owns the window, renderer, and game loop. One instance per process,
@@ -206,6 +207,7 @@ class ENGINE_API Application {
    private:
     ApplicationDefaults Specification;
     Window* CoreWindow;
+    AudioSystem* m_audioSystem = nullptr;
     GameBase* Game;
     RenderEngine::Renderer* renderer;
     DebugOverlay* m_DebugOverlay = nullptr;

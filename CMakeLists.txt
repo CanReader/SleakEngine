@@ -109,6 +109,12 @@ set(ASSETS_SOURCES
     src/Assets/stb_image_impl.cpp
 )
 
+set(AUDIO_SOURCES
+    src/Audio/AudioClip.cpp
+    src/Audio/AudioSourceComponent.cpp
+    src/Audio/AudioSystem.cpp
+)
+
 set(CORE_SOURCES
     src/Core/Application.cpp
     src/Core/CommandLine.cpp
@@ -231,6 +237,7 @@ set(UI_SOURCES
 set(ENGINE_SOURCES
     ${ANIMATION_SOURCES}
     ${ASSETS_SOURCES}
+    ${AUDIO_SOURCES}
     ${CORE_SOURCES}
     ${CULLING_SOURCES}
     ${DEBUG_SOURCES}

@@ -1,38 +1,39 @@
 #include "../../include/public/Core/Application.hpp"
-#include "../../include/public/Core/CommandLine.hpp"
-#include "../../include/private/Graphics/Common/RendererFactory.hpp" 
-#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp" 
-#include <Core/WindowHelper.hpp>
-#include <Graphics/Common/Renderer.hpp>
+
+#include <Assets/InternalGeometry.hpp>
+#include <Audio/AudioSystem.hpp>
+#include <Camera/Camera.hpp>
+#include <Core/GameObject.hpp>
+#include <Core/ScopedTimer.hpp>
 #include <Core/Window.hpp>
+#include <Core/WindowHelper.hpp>
+#include <Debug/DebugOverlay.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/Common/Renderer.hpp>
+#include <Math/Matrix.hpp>
+#include <Math/Quaternion.hpp>
+#include <Math/Random.hpp>
+#include <Memory/ObjectPtr.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshBatch.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/Skybox.hpp>
+#include <UI/UI.hpp>
+#include <Utility/Container/List.hpp>
 #include <algorithm>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
-#include "Graphics/Vulkan/VulkanRenderer.hpp"
+
+#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include "../../include/private/Graphics/Common/RendererFactory.hpp"
+#include "../../include/public/Core/CommandLine.hpp"
 #include "Core/Logger.hpp"
-#include <Memory/ObjectPtr.hpp>
-
-#include <Assets/InternalGeometry.hpp>
-#include <Runtime/MeshBatch.hpp>
-#include <Camera/Camera.hpp>
-
-#include <Core/GameObject.hpp>
-#include <Math/Quaternion.hpp>
-#include <Math/Random.hpp>
-#include <Utility/Container/List.hpp>
-#include <Core/ScopedTimer.hpp>
-#include <Math/Matrix.hpp>
-#include <UI/UI.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <Runtime/MeshData.hpp>
+#include "ECS/Components/FirstPersonController.hpp"
+#include "ECS/Components/FreeLookCameraController.hpp"
 #include "ECS/Components/MeshComponent.hpp"
 #include "ECS/Components/TransformComponent.hpp"
-#include "ECS/Components/FreeLookCameraController.hpp"
-#include "ECS/Components/FirstPersonController.hpp"
-#include <Runtime/Skybox.hpp>
-#include <Runtime/Material.hpp>
-#include <Debug/DebugOverlay.hpp>
+#include "Graphics/Vulkan/VulkanRenderer.hpp"
 
 using namespace Sleak;
 using namespace Sleak::Math;
@@ -71,6 +72,7 @@ namespace Sleak {
             }
         }
 
+        m_audioSystem = new AudioSystem();
         CoreWindow = new Window(width, height, Specification.Name);
 
         try {
@@ -119,6 +121,8 @@ namespace Sleak {
             renderer->Cleanup();
 
         delete renderer;
+        delete m_audioSystem;
+        m_audioSystem = nullptr;
         delete CoreWindow;
         SLEAK_LOG("The application has been successfully closed, have a good day sir");
     }
@@ -235,6 +239,11 @@ namespace Sleak {
                 // Per-frame game logic
                 if (Game)
                     Game->Loop(DeltaTime);
+                if (m_audioSystem) {
+                    SceneBase* scene = Game ? Game->GetActiveScene() : nullptr;
+                    m_audioSystem->Update(scene ? scene->GetActiveCamera()
+                                                : nullptr);
+                }
                 if (m_DebugOverlay)
                     m_DebugOverlay->Render(DeltaTime);
 
