@@ -195,6 +195,7 @@ void OpenGLRenderer::Cleanup() {
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
         if (m_shadowFBO) { glDeleteFramebuffers(1, &m_shadowFBO); m_shadowFBO = 0; }
         m_shadowMapCreated = false;
+        m_shadowMapRendered = false;
         m_shadowUBOCreated = false;
         CleanupMSAAFramebuffer();
         if (bImInitialized) {
@@ -688,7 +689,10 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     const auto* ubo = static_cast<const RenderEngine::ShadowLightUBO*>(data);
 
     RenderEngine::PCSSShadowGPUData shadowData{};
-    memcpy(shadowData.LightVP, ubo->LightVP, sizeof(float) * 16);
+    // Sample with the map's own matrix
+    memcpy(shadowData.LightVP,
+           m_shadowMapRendered ? m_shadowMapLightVP : ubo->LightVP,
+           sizeof(float) * 16);
     memcpy(shadowData.NdcToShadow, ubo->NdcToShadow, sizeof(float) * 16);
     shadowData.ShadowBias = ubo->ShadowBias;
     shadowData.ShadowStrength = ubo->ShadowStrength;
@@ -780,6 +784,8 @@ void OpenGLRenderer::RenderShadowPass() {
         queue->ExecuteShadowPass(this);
     }
     m_inShadowPass = false;
+    memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
+    m_shadowMapRendered = true;
 
     // Restore state
     glDisable(GL_POLYGON_OFFSET_FILL);

@@ -123,9 +123,14 @@ private:
     float m_lightVP[16] = {};
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
+    // Matrix the shadow map was last rendered with
+    float m_shadowMapLightVP[16] = {};
+    bool m_shadowMapRendered = false;
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
     void SetLightVP(const float* mat) override;
+    /// Uploads light and shadow data, sampling with the matrix the shadow
+    /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
