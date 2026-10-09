@@ -32,3 +32,6 @@
 [submodule "Engine/vendors/assimp"]
 	path = vendors/assimp
 	url = https://github.com/assimp/assimp.git
+[submodule "vendors/SPIRV-Cross"]
+	path = vendors/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross

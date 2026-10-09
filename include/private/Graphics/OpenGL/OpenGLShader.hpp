@@ -26,6 +26,9 @@ private:
     bool CompileShaderSource(const std::string& source, GLenum type,
                              GLuint& shader);
     std::string ReadFile(const std::string& path);
+    /// Maps name_gl.vert/.frag to the generated name.vert.glsl/.frag.glsl
+    /// when that file exists, otherwise returns the path unchanged.
+    static std::string ResolveGenerated(const std::string& path);
 
     GLuint m_program = 0;
 };

@@ -401,6 +401,96 @@ else()
     set(ENGINE_SPIRV_FILES ${ENGINE_COMMITTED_SPIRV})
 endif()
 
+# --- GL GLSL and HLSL generated from the SPIR-V by SPIRV-Cross ---
+# Cross compiling builds can not run the vendored tool, so they need a host
+# spirv-cross (Vulkan SDK) passed in or on PATH.
+if(CMAKE_CROSSCOMPILING)
+    find_program(SLEAK_SPIRV_CROSS spirv-cross
+        HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
+    if(NOT SLEAK_SPIRV_CROSS)
+        message(FATAL_ERROR
+            "Cross compiling needs a host spirv-cross to generate the GL and "
+            "HLSL shaders. Install the Vulkan SDK or set SLEAK_SPIRV_CROSS.")
+    endif()
+else()
+    function(_engine_add_spirv_cross)
+        set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+        set(SPIRV_CROSS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+        set(SPIRV_CROSS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
+        set(_out "${CMAKE_CURRENT_BINARY_DIR}/spirv-cross")
+        foreach(_kind RUNTIME LIBRARY ARCHIVE)
+            set(CMAKE_${_kind}_OUTPUT_DIRECTORY "${_out}")
+            foreach(_cfg ${CMAKE_CONFIGURATION_TYPES} ${CMAKE_BUILD_TYPE})
+                string(TOUPPER "${_cfg}" _cfg)
+                set(CMAKE_${_kind}_OUTPUT_DIRECTORY_${_cfg} "${_out}")
+            endforeach()
+        endforeach()
+        add_subdirectory(vendors/SPIRV-Cross EXCLUDE_FROM_ALL)
+    endfunction()
+    _engine_add_spirv_cross()
+    set(SLEAK_SPIRV_CROSS spirv-cross)
+endif()
+set_property(GLOBAL PROPERTY SLEAK_SPIRV_CROSS "${SLEAK_SPIRV_CROSS}")
+
+# Writes <name>.glsl (GL 4.0 with 420pack bindings, varyings matched by name)
+# and <name>.hlsl (SM 5.0) for one SPIR-V module into out_dir.
+# FLIP_Y undoes a Vulkan clip space Y flip done in the vertex shader.
+function(sleak_cross_compile_shader spirv out_dir outputs_var)
+    cmake_parse_arguments(PARSE_ARGV 3 ARG "FLIP_Y" "" "")
+    get_property(_tool GLOBAL PROPERTY SLEAK_SPIRV_CROSS)
+    get_filename_component(_name "${spirv}" NAME)
+    string(REGEX REPLACE "\\.spv$" "" _name "${_name}")
+    set(_glsl "${out_dir}/${_name}.glsl")
+    set(_hlsl "${out_dir}/${_name}.hlsl")
+    set(_flip "")
+    if(ARG_FLIP_Y)
+        set(_flip --flip-vert-y)
+    endif()
+    add_custom_command(
+        OUTPUT "${_glsl}" "${_hlsl}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
+        COMMAND ${_tool} "${spirv}" --output "${_glsl}"
+            --version 400 --no-es --glsl-emit-push-constant-as-ubo ${_flip}
+        COMMAND ${_tool} "${spirv}" --output "${_hlsl}"
+            --hlsl --shader-model 50
+        DEPENDS "${spirv}"
+        COMMENT "Generating GL and HLSL variants of ${_name}"
+        VERBATIM
+    )
+    set(${outputs_var} ${${outputs_var}} "${_glsl}" "${_hlsl}" PARENT_SCOPE)
+endfunction()
+
+# Authored once as Vulkan GLSL. The loaders prefer these generated variants
+# and fall back to hand-written ones for every shader not listed here.
+set(ENGINE_CROSS_SHADERS
+    debug_line.frag
+    ibl_brdf_lut.vert
+    ibl_brdf_lut.frag
+    ibl_irradiance.vert
+    ibl_irradiance.frag
+    ibl_prefilter.vert
+    ibl_prefilter.frag
+    lighting_pass.vert
+)
+set(ENGINE_CROSS_SHADERS_FLIP_Y
+    debug_line.vert
+)
+set(ENGINE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+set(ENGINE_GENERATED_SHADERS "")
+foreach(_name ${ENGINE_CROSS_SHADERS} ${ENGINE_CROSS_SHADERS_FLIP_Y})
+    if(GLSLC)
+        set(_spv "${ENGINE_SPIRV_DIR}/${_name}.spv")
+    else()
+        set(_spv "${ENGINE_SHADER_DIR}/${_name}.spv")
+    endif()
+    set(_flags "")
+    if(_name IN_LIST ENGINE_CROSS_SHADERS_FLIP_Y)
+        set(_flags FLIP_Y)
+    endif()
+    sleak_cross_compile_shader("${_spv}" "${ENGINE_GENERATED_DIR}"
+        ENGINE_GENERATED_SHADERS ${_flags})
+endforeach()
+
 set(_stage_outputs "")
 if(PROJECT_IS_TOP_LEVEL)
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/engine_spirv_staged.stamp")
@@ -409,20 +499,21 @@ if(PROJECT_IS_TOP_LEVEL)
         OUTPUT "${_stamp}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_dst}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${ENGINE_SPIRV_FILES} "${_dst}"
+            ${ENGINE_SPIRV_FILES} ${ENGINE_GENERATED_SHADERS} "${_dst}"
         COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
-        DEPENDS ${ENGINE_SPIRV_FILES}
-        COMMENT "Staging engine SPIR-V into bin/assets/shaders"
+        DEPENDS ${ENGINE_SPIRV_FILES} ${ENGINE_GENERATED_SHADERS}
+        COMMENT "Staging engine shaders into bin/assets/shaders"
         VERBATIM
     )
     list(APPEND _stage_outputs "${_stamp}")
 endif()
 
 add_custom_target(CompileShaders ALL
-    DEPENDS ${ENGINE_SPIRV_FILES} ${_stage_outputs})
+    DEPENDS ${ENGINE_SPIRV_FILES} ${ENGINE_GENERATED_SHADERS} ${_stage_outputs})
 add_dependencies(Engine CompileShaders)
 
-set_property(GLOBAL PROPERTY ENGINE_SPIRV_FILES ${ENGINE_SPIRV_FILES})
+set_property(GLOBAL PROPERTY ENGINE_SPIRV_FILES
+    ${ENGINE_SPIRV_FILES} ${ENGINE_GENERATED_SHADERS})
 set_property(GLOBAL PROPERTY ENGINE_COMMITTED_SPIRV ${ENGINE_COMMITTED_SPIRV})
 
 function(_engine_collect_targets dir out)
