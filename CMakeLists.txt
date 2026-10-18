@@ -148,6 +148,7 @@ set(GRAPHICS_OPENGL_SOURCES
     src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
     src/Graphics/OpenGL/OpenGLIBL.cpp
     src/Graphics/OpenGL/OpenGLRenderer.cpp
+    src/Graphics/OpenGL/OpenGLSceneRead.cpp
     src/Graphics/OpenGL/OpenGLShader.cpp
     src/Graphics/OpenGL/OpenGLTexture.cpp
 )

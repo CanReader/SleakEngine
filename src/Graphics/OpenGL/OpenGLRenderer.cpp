@@ -117,6 +117,7 @@ void OpenGLRenderer::SetupVertexLayout() {
 }
 
 void OpenGLRenderer::BeginRender() {
+    m_sceneReadPrepared = false;
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
@@ -189,6 +190,7 @@ void OpenGLRenderer::EndRender() {
 
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
+        CleanupSceneRead();
         CleanupGBufferResources();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
@@ -369,6 +371,10 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     const uint32_t customFormat = buffer->GetVertexFormat();
     const VertexLayoutDesc* customDesc =
         customFormat != 0 ? VertexFormatRegistry::Get(customFormat) : nullptr;
+
+    if (customDesc && customDesc->transparentReadsScene &&
+        m_inForwardTransparentPass)
+        PrepareSceneRead();
 
     if (customDesc) {
         // One attribute pointer per registry entry, tracking which slots stay live
@@ -939,20 +945,7 @@ void OpenGLRenderer::CleanupGBufferResources() {
 // IBL — lazy bake from active scene's skybox cubemap.
 // First call (or when the skybox cubemap changes) reruns the precompute.
 void OpenGLRenderer::EnsureIBL() {
-    auto* app = Application::GetInstance();
-    if (!app) return;
-    auto* game = app->GetGame();
-    if (!game) return;
-    auto* scene = game->GetActiveScene();
-    if (!scene) return;
-    auto* skybox = scene->GetSkybox();
-    if (!skybox || !skybox->IsInitialized()) return;
-    auto* cube = skybox->GetCubemapTexture();
-    if (!cube) return;
-    auto* glCube = dynamic_cast<OpenGLCubemapTexture*>(cube);
-    if (!glCube) return;
-
-    GLuint cubeHandle = glCube->GetGLTexture();
+    GLuint cubeHandle = FindSkyboxCubemap();
     if (cubeHandle == 0) return;
 
     if (!m_ibl) m_ibl = new OpenGLIBL();
@@ -1054,6 +1047,13 @@ void OpenGLRenderer::BindPBRMaterial(Sleak::Material* material) {
 
 void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     if (!m_deferredCBCreated) return;
+    if (data && size >= sizeof(DeferredCBData)) {
+        const auto* cb = static_cast<const DeferredCBData*>(data);
+        memcpy(m_cachedInvViewProj, cb->InvViewProj,
+               sizeof(m_cachedInvViewProj));
+        m_cachedNearPlane = cb->NearPlane;
+        m_cachedFarPlane = cb->FarPlane;
+    }
     glBindBuffer(GL_UNIFORM_BUFFER, m_deferredCBUBO);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
