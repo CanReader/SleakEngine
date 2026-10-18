@@ -18,6 +18,7 @@ VmaAllocator VulkanBuffer::s_allocator = VK_NULL_HANDLE;
 // Staging pool whose blocks stay resident, so upload bursts never pay for
 // fresh vkAllocateMemory calls.
 static VmaPool g_stagingPool = VK_NULL_HANDLE;
+#define STAGING_PROBE_BUFFER_BYTES (64 * 1024)
 static constexpr VkDeviceSize kStagingBlockSize = 64ull * 1024 * 1024;
 static constexpr size_t kStagingMinBlocks = 2;
 
@@ -39,7 +40,7 @@ void VulkanBuffer::InitAllocator(VkInstance instance,
     // Staging pool
     VkBufferCreateInfo stagingInfo{};
     stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    stagingInfo.size = 64 * 1024;
+    stagingInfo.size = STAGING_PROBE_BUFFER_BYTES;
     stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     VmaAllocationCreateInfo stagingAlloc{};

@@ -9,12 +9,19 @@
 #include <vulkan/vulkan.h>
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
 #include <Runtime/Material.hpp>
+#include <Runtime/Skeleton.hpp>
 #include <cstdint>
 #include <vector>
 #include <set>
 #include <array>
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
+
+// Shadow caster depth bias
+#define SHADOW_DEPTH_BIAS_CONSTANT 1.25f
+#define SHADOW_DEPTH_BIAS_SLOPE 1.75f
+// WVP + World matrices
+#define PUSH_CONSTANT_BYTES (sizeof(float) * 16 * 2)
 
 namespace Sleak {
 class ENGINE_API Window;
@@ -536,7 +543,9 @@ private:
         VkDeviceMemory memory = VK_NULL_HANDLE;
         void* mapped = nullptr;
     };
-    static constexpr uint32_t BONE_PALETTE_BYTES = 256 * 64;
+    static constexpr uint32_t BONE_MATRIX_BYTES = sizeof(float) * 16;
+    static constexpr uint32_t BONE_PALETTE_BYTES =
+        MAX_BONES * BONE_MATRIX_BYTES;
     static constexpr uint32_t BONE_SLOTS_PER_CHUNK = 32;
     VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;
     std::array<std::vector<BoneUBOChunk>, MAX_FRAMES_IN_FLIGHT> m_boneChunks;

@@ -22,15 +22,17 @@ namespace {
 constexpr const char* kPipelineCacheDir = "cache";
 constexpr const char* kPipelineCachePath = "cache/vulkan_pipelines.bin";
 constexpr const char* kPipelineCacheTempPath = "cache/vulkan_pipelines.bin.tmp";
-// VkPipelineCacheHeaderVersionOne: 4 x uint32 + UUID
-constexpr size_t kPipelineCacheHeaderSize = 16 + VK_UUID_SIZE;
+constexpr size_t kPipelineCacheHeaderSize =
+    sizeof(VkPipelineCacheHeaderVersionOne);
+#define FNV1A_OFFSET_BASIS 14695981039346656037ull
+#define FNV1A_PRIME 1099511628211ull
 
 /// FNV-1a hash, used to skip rewriting an unchanged pipeline cache.
 uint64_t HashBytes(const std::vector<char>& data) {
-    uint64_t hash = 14695981039346656037ull;
+    uint64_t hash = FNV1A_OFFSET_BASIS;
     for (char c : data) {
         hash ^= static_cast<uint8_t>(c);
-        hash *= 1099511628211ull;
+        hash *= FNV1A_PRIME;
     }
     return hash;
 }
@@ -68,11 +70,20 @@ void VulkanRenderer::CreatePipelineCache() {
             blob.size() >= kPipelineCacheHeaderSize &&
             ReadLE32(blob.data()) >= kPipelineCacheHeaderSize &&
             ReadLE32(blob.data()) <= blob.size() &&
-            ReadLE32(blob.data() + 4) ==
+            ReadLE32(blob.data() +
+                     offsetof(VkPipelineCacheHeaderVersionOne,
+                              headerVersion)) ==
                 static_cast<uint32_t>(VK_PIPELINE_CACHE_HEADER_VERSION_ONE) &&
-            ReadLE32(blob.data() + 8) == props.vendorID &&
-            ReadLE32(blob.data() + 12) == props.deviceID &&
-            std::memcmp(blob.data() + 16, props.pipelineCacheUUID,
+            ReadLE32(blob.data() +
+                     offsetof(VkPipelineCacheHeaderVersionOne, vendorID)) ==
+                props.vendorID &&
+            ReadLE32(blob.data() +
+                     offsetof(VkPipelineCacheHeaderVersionOne, deviceID)) ==
+                props.deviceID &&
+            std::memcmp(blob.data() +
+                            offsetof(VkPipelineCacheHeaderVersionOne,
+                                     pipelineCacheUUID),
+                        props.pipelineCacheUUID,
                         VK_UUID_SIZE) == 0;
         if (!valid) {
             SLEAK_INFO(
@@ -208,7 +219,7 @@ bool VulkanRenderer::CreateMainPipelineLayout() {
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pushConstantRange.offset = 0;
-    pushConstantRange.size = 128;  // sizeof(mat4) * 2 = 128 bytes (WVP + World)
+    pushConstantRange.size = PUSH_CONSTANT_BYTES;
 
     // Descriptor set layouts
     std::array<VkDescriptorSetLayout, 4> setLayouts = {
@@ -1016,8 +1027,8 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     if (pass == CustomPass::Shadow) {
         rasterizer.depthBiasEnable = VK_TRUE;
-        rasterizer.depthBiasConstantFactor = 1.25f;
-        rasterizer.depthBiasSlopeFactor = 1.75f;
+        rasterizer.depthBiasConstantFactor = SHADOW_DEPTH_BIAS_CONSTANT;
+        rasterizer.depthBiasSlopeFactor = SHADOW_DEPTH_BIAS_SLOPE;
     }
 
     // Multisampling

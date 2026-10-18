@@ -789,7 +789,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!data) return;
 
     uint32_t size = static_cast<uint32_t>(vkBuf->GetSize());
-    if (size > 128) size = 128;  // Vulkan guarantees at least 128 bytes
+    if (size > PUSH_CONSTANT_BYTES) size = PUSH_CONSTANT_BYTES;
 
     // Choose the pipeline layout that owns the currently bound pipeline.
     // GBuffer geometry pass uses m_gbufferGeomLayout; all other passes use pipelineLay.
@@ -817,7 +817,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         return;
     }
 
-    if (m_shadowPassActive && slot == 0 && size >= 128) {
+    if (m_shadowPassActive && slot == 0 && size >= PUSH_CONSTANT_BYTES) {
         // Shadow mode: push [LightVP*World (64)][World (64)].
         // Buffer layout: [WVP (64 bytes)][World (64 bytes)].
         // LightVP is frame-constant, so memoize on World and reuse the result
@@ -846,7 +846,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         // Pushes survive pipeline binds
         if (m_shadowPCPushedLayout != activeLayout) {
             vkCmdPushConstants(command, activeLayout,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0, 128,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0, PUSH_CONSTANT_BYTES,
                                m_shadowPCCache);
             m_shadowPCPushedLayout = activeLayout;
         }

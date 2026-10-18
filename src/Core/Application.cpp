@@ -34,6 +34,8 @@
 #include <Runtime/Material.hpp>
 #include <Debug/DebugOverlay.hpp>
 
+#define DEFAULT_CAPTURE_FRAME 600
+
 using namespace Sleak;
 using namespace Sleak::Math;
 
@@ -158,11 +160,14 @@ namespace Sleak {
             // Frame capture
             const std::string capturePath = CommandLine::GetValue("-capture");
             const bool captureMode = !capturePath.empty();
-            uint64_t captureFrame = 600;
-            try {
-                captureFrame =
-                    std::stoull(CommandLine::GetValue("-capture-frame", "600"));
-            } catch (...) {
+            uint64_t captureFrame = DEFAULT_CAPTURE_FRAME;
+            const std::string frameArg =
+                CommandLine::GetValue("-capture-frame");
+            if (!frameArg.empty()) {
+                try {
+                    captureFrame = std::stoull(frameArg);
+                } catch (...) {
+                }
             }
             if (captureMode)
                 SLEAK_INFO(

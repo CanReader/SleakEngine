@@ -692,7 +692,7 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     // Sample with the map's own matrix
     memcpy(shadowData.LightVP,
            m_shadowMapRendered ? m_shadowMapLightVP : ubo->LightVP,
-           sizeof(float) * 16);
+           sizeof(shadowData.LightVP));
     memcpy(shadowData.NdcToShadow, ubo->NdcToShadow, sizeof(float) * 16);
     shadowData.ShadowBias = ubo->ShadowBias;
     shadowData.ShadowStrength = ubo->ShadowStrength;

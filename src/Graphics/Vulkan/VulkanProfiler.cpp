@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,7 @@ namespace {
 
 constexpr float kGpuLogIntervalSeconds = 2.0f;
 
-constexpr std::array<const char*, 12> kGpuRowNames = {
+constexpr std::array kGpuRowNames = {
     "shadow", "gbuffer", "ssao",    "lighting", "forward", "taa",
     "ssr",    "bloom",   "tonemap", "ui",       "other",   "total"};
 
@@ -60,7 +61,7 @@ bool VulkanRenderer::CreateGpuProfiler() {
     }
 
     m_gpuTickNs = static_cast<double>(props.limits.timestampPeriod);
-    m_gpuTickMask = validBits >= 64 ? ~0ull : ((1ull << validBits) - 1);
+    m_gpuTickMask = validBits >= std::numeric_limits<uint64_t>::digits ? ~0ull : ((1ull << validBits) - 1);
     m_gpuSlots = {};
     m_gpuSumMs = {};
     m_gpuMaxMs = {};

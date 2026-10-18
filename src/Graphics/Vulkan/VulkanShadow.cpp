@@ -328,8 +328,8 @@ bool VulkanRenderer::CreateShadowPipeline() {
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; // same winding as main pass
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = 1.25f;
-    rasterizer.depthBiasSlopeFactor = 1.75f;
+    rasterizer.depthBiasConstantFactor = SHADOW_DEPTH_BIAS_CONSTANT;
+    rasterizer.depthBiasSlopeFactor = SHADOW_DEPTH_BIAS_SLOPE;
     rasterizer.depthBiasClamp = 0.0f;
 
     VkPipelineMultisampleStateCreateInfo msaa{};

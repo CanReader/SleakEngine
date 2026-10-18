@@ -322,7 +322,7 @@ bool VulkanRenderer::CreateBoneUBOResources() {
 
         // Identity palette in slot 0
         auto* matrices = static_cast<float*>(m_boneChunks[i][0].mapped);
-        for (uint32_t b = 0; b < BONE_PALETTE_BYTES / 64; ++b) {
+        for (uint32_t b = 0; b < BONE_PALETTE_BYTES / BONE_MATRIX_BYTES; ++b) {
             for (int c = 0; c < 16; ++c)
                 matrices[b * 16 + c] = (c % 5 == 0) ? 1.0f : 0.0f;
         }
