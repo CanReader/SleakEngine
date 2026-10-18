@@ -3,6 +3,7 @@
 
 #include <Math/Matrix.hpp>
 #include <Math/Color.hpp>
+#include <cstddef>
 #include <cstdint>
 
 namespace Sleak {
@@ -327,6 +328,20 @@ namespace Sleak {
 
             DeferredCBData gpuData;
         };
+
+        /// Camera block for transparent formats that read the scene behind
+        /// them (VertexLayoutDesc::transparentReadsScene), std140 layout.
+        struct alignas(16) SceneReadUBO {
+            float ViewProj[16];
+            float InvViewProj[16];
+            float ScreenWidth, ScreenHeight, InvScreenWidth, InvScreenHeight;
+            float JitterX, JitterY, NearPlane, FarPlane;  // jitter in NDC
+            float SceneValid, SkyValid, _pad0, _pad1;
+        };
+        static_assert(
+            offsetof(SceneReadUBO, _pad1) + sizeof(float) ==
+                sizeof(SceneReadUBO),
+            "SceneReadUBO must match the std140 block without padding");
     }
 }
 

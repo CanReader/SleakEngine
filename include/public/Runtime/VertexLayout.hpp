@@ -69,6 +69,29 @@ struct VertexAttribute {
 ///     Sleak::VertexFormatRegistry::Register(desc);
 /// @endcode
 ///
+/// Set `transparentReadsScene` for transparent geometry that refracts or
+/// reflects what lies behind it, such as water. The first transparent draw
+/// of the format in a frame snapshots the scene drawn so far, and its
+/// shaders can then read it:
+/// - Vulkan, descriptor set 3: binding 2 scene color (linear HDR),
+///   binding 3 scene depth, binding 4 sky cubemap, binding 5 the
+///   SceneReadUBO block below.
+/// - OpenGL: texture unit 4 scene color (tonemapped, as shown), unit 5
+///   scene depth, unit 6 sky cubemap, uniform block binding 4 SceneReadUBO.
+///
+/// @code{.glsl}
+/// uniform SceneReadUBO {
+///     mat4 ViewProj;     // unjittered, row-major engine matrix
+///     mat4 InvViewProj;
+///     vec4 ScreenSize;   // width, height, 1/width, 1/height
+///     vec4 Camera;       // TAA jitter in NDC (xy), near, far
+///     vec4 Flags;        // x: scene textures valid, y: sky valid
+/// };
+/// @endcode
+///
+/// Add `Camera.xy * gl_Position.w` to the clip position after the Vulkan Y
+/// flip so the draw lines up with the jittered opaque geometry.
+///
 /// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat, MeshBatch
 /// @ingroup vertexformats
 struct VertexLayoutDesc {
@@ -81,6 +104,8 @@ struct VertexLayoutDesc {
     std::string                  gbufferShaderStem;
     // Forward transparent variant; empty string skips the transparent pass.
     std::string                  transparentShaderStem;
+    // Transparent draws sample the opaque scene; see above.
+    bool transparentReadsScene = false;
 };
 
 /// 0 is reserved for the engine's default vertex layout; registered
