@@ -1151,6 +1151,16 @@ void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     m_customFormatUnbound = target == VK_NULL_HANDLE;
     if (m_customFormatUnbound) return;
 
+    // Scene-reading shaders need set 3 bindings 2-5 written
+    if (pass == CustomPass::Transparent) {
+        const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
+        if (desc && desc->transparentReadsScene) {
+            m_customFormatUnbound = !m_sceneReadCreated;
+            if (m_customFormatUnbound) return;
+            PrepareSceneRead();
+        }
+    }
+
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, target);
 }
 

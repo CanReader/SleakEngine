@@ -418,11 +418,13 @@ bool VulkanRenderer::CreateShadowLightUBOResources() {
 
     // Create descriptor pool for light UBO + shadow samplers.
     // Two shadow samplers per frame now (compare + raw for PCSS blocker search).
+    // Set 3 also carries the scene-read color, depth, sky, and UBO bindings.
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSizes[0].descriptorCount =
+        MAX_FRAMES_IN_FLIGHT * LIGHT_POOL_UBOS_PER_FRAME;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
+    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * SET3_SAMPLER_COUNT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;

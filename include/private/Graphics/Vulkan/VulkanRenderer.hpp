@@ -480,6 +480,7 @@ private:
     bool m_skyboxDescriptorsWritten = false;
     VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
     VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
+    uint32_t m_skyboxViewSerial = 0;  // bumped whenever the cached view changes
 
     // Skinned pipeline (uses skinned shaders with bone UBO)
     VkPipeline skinnedPipeline = VK_NULL_HANDLE;
@@ -1095,6 +1096,69 @@ private:
     void FinishFrameCapture();
     /// Frees the capture readback buffer.
     void CleanupFrameCapture();
+
+    // ---- Scene read for transparent formats (set 3, bindings 2-5) ----
+    // Set 3 holds the shadow map samplers first, then the scene-read inputs
+    static constexpr uint32_t SCENE_COLOR_BINDING = 2;
+    static constexpr uint32_t SCENE_DEPTH_BINDING = 3;
+    static constexpr uint32_t SCENE_SKY_BINDING = 4;
+    static constexpr uint32_t SCENE_UBO_BINDING = 5;
+    static constexpr uint32_t SET3_BINDING_COUNT = SCENE_UBO_BINDING + 1;
+    // Every set 3 binding but the UBO is a combined image sampler
+    static constexpr uint32_t SET3_SAMPLER_COUNT = SET3_BINDING_COUNT - 1;
+    static constexpr uint32_t SCENE_READ_IMAGE_COUNT =
+        SCENE_UBO_BINDING - SCENE_COLOR_BINDING;
+    // Light pool uniform buffers per frame: set 2 light UBO, set 3 SceneReadUBO
+    static constexpr uint32_t LIGHT_POOL_UBOS_PER_FRAME = 2;
+    // Snapshots of the HDR scene and depth taken mid forward pass
+    VkImage m_sceneColorCopyImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneColorCopyMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneColorCopyView = VK_NULL_HANDLE;
+    VkImage m_sceneDepthCopyImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneDepthCopyMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneDepthCopyView = VK_NULL_HANDLE;
+    // 1x1 stand-ins bound while there is no snapshot or sky
+    VkImage m_sceneFallbackImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneFallbackMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneFallbackView = VK_NULL_HANDLE;
+    VkImage m_sceneFallbackCubeImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneFallbackCubeMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneFallbackCubeView = VK_NULL_HANDLE;
+    VkSampler m_sceneLinearSampler = VK_NULL_HANDLE;
+    VkSampler m_scenePointSampler = VK_NULL_HANDLE;
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOBuffers{};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOMemory{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOMapped{};
+    /// What one frame's set 3 bindings 2-4 last pointed at; a cleared entry
+    /// forces a rewrite.
+    struct SceneReadViews {
+        VkImageView color = VK_NULL_HANDLE;
+        VkImageView depth = VK_NULL_HANDLE;
+        VkImageView sky = VK_NULL_HANDLE;
+        uint32_t skySerial = 0;
+    };
+    std::array<SceneReadViews, MAX_FRAMES_IN_FLIGHT> m_sceneReadWritten{};
+    bool m_sceneReadCreated = false;
+    bool m_sceneReadPrepared = false;  // UBO filled (and copy taken) this frame
+    float m_cachedNearPlane = 0.0f;
+    float m_cachedFarPlane = 0.0f;
+
+    /// Creates the scene-read samplers, stand-in images, and per-frame UBOs
+    /// and writes them into both frames' set 3.
+    bool CreateSceneReadResources();
+    /// Destroys everything CreateSceneReadResources made plus the snapshots.
+    void CleanupSceneReadResources();
+    /// Creates the extent-sized scene color and depth snapshot images.
+    bool CreateSceneCopyImages();
+    /// Destroys the snapshot images and forces a set 3 rewrite.
+    void CleanupSceneCopyImages();
+    /// Points a frame's set 3 bindings 2-4 at the current snapshot and sky.
+    void UpdateSceneReadDescriptors(uint32_t frame);
+    /// Fills this frame's SceneReadUBO and, inside the forward pass, splits it
+    /// to copy the scene. Runs once per frame on the first scene-reading draw.
+    void PrepareSceneRead();
+    /// Records the scene color and depth copies between two forward passes.
+    void RecordSceneCopy();
 };
 
 }  // namespace RenderEngine

@@ -134,6 +134,10 @@ bool VulkanRenderer::Initialize() {
     if (!CreateShadowLightUBOResources())
         SLEAK_WARN("Failed to create light UBO resources — dynamic lighting disabled");
 
+    if (!CreateSceneReadResources())
+        SLEAK_WARN(
+            "Failed to create scene-read resources for transparent formats");
+
     if (!CreateShadowResources())
         SLEAK_WARN("Failed to create shadow mapping resources — shadows disabled");
 
@@ -177,6 +181,7 @@ void VulkanRenderer::BeginRender() {
     m_inForwardTransparentPass = false;
     m_forwardPassOpen = false;
     m_activeCustomFormat = 0;
+    m_sceneReadPrepared = false;
     if (!bRender)
         return;
 
@@ -203,6 +208,7 @@ void VulkanRenderer::BeginRender() {
         VulkanTexture::DestroyReleased(m_slotSerial[currentFrame]);
     }
     CollectGpuProfile();
+    UpdateSceneReadDescriptors(currentFrame);
 
     // Clean up staging buffers from the previous use of this frame slot.
     // The fence wait above guarantees the GPU finished both the transfer
@@ -923,6 +929,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         // Write cubemap to skybox descriptor sets
         m_skyboxCubemapView = texture->GetImageView();
         m_skyboxCubemapSampler = texture->GetSampler();
+        ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
@@ -971,6 +978,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         // Write cubemap to skybox descriptor sets
         m_skyboxCubemapView = texture->GetImageView();
         m_skyboxCubemapSampler = texture->GetSampler();
+        ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
@@ -1186,6 +1194,7 @@ void VulkanRenderer::Cleanup() {
 
     // Destroy shadow mapping resources
     CleanupShadowResources();
+    CleanupSceneReadResources();
 
     // Backstop: free any shader modules whose resource-guarded cleanup was
     // skipped (guard false while shader non-null). Cleanups null after delete,
@@ -1849,6 +1858,10 @@ bool VulkanRenderer::CreateGBufferResources() {
     // GBuffer sampler set 0 binding 7 samples the SSAO blur result.
     if (!CreateSSAOResources())           { SLEAK_ERROR("GBuffer: SSAO resources failed!");        return false; }
     if (!CreateBloomResources())          { SLEAK_ERROR("GBuffer: bloom/HDR resources failed!");   return false; }
+    if (!CreateSceneCopyImages())
+        SLEAK_WARN(
+            "GBuffer: scene snapshot images failed, transparent formats cannot "
+            "read the scene");
     // SSR needs the HDR scene view (created by CreateBloomResources), so it
     // must come after that. The bloom composite pass later samples SSR.
     if (!CreateSSRResources())            { SLEAK_ERROR("GBuffer: SSR resources failed!");         return false; }

@@ -164,6 +164,7 @@ set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanPipelines.cpp
     src/Graphics/Vulkan/VulkanProfiler.cpp
     src/Graphics/Vulkan/VulkanRenderer.cpp
+    src/Graphics/Vulkan/VulkanSceneRead.cpp
     src/Graphics/Vulkan/VulkanShader.cpp
     src/Graphics/Vulkan/VulkanShadow.cpp
     src/Graphics/Vulkan/VulkanSSAO.cpp

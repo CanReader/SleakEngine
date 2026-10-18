@@ -254,10 +254,12 @@ bool VulkanRenderer::CreateDepthResources() {
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // Always add SAMPLED_BIT so deferred lighting pass can read depth.
     // When deferred is enabled, force 1x samples (GBuffer is non-MSAA).
+    // TRANSFER_SRC_BIT: scene-read snapshot for transparent formats.
     VkSampleCountFlagBits depthSamples = m_deferredEnabled
                                         ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                    | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     imageInfo.samples = depthSamples;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 

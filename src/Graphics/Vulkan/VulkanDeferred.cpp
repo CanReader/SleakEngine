@@ -1102,6 +1102,7 @@ void VulkanRenderer::CleanupGBufferResources() {
     CleanupSSAOResources();
     CleanupSSRResources();
     CleanupBloomResources();
+    CleanupSceneCopyImages();
 
     m_gbufferResourcesCreated    = false;
     m_inGeometryPass             = false;
@@ -1296,6 +1297,11 @@ void VulkanRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     // exact inverse the lighting pass uses to reconstruct world from depth.
     if (copySize >= sizeof(m_cachedInvViewProj))
         memcpy(m_cachedInvViewProj, data, sizeof(m_cachedInvViewProj));
+    if (copySize >= sizeof(DeferredCBData)) {
+        const auto* cb = static_cast<const DeferredCBData*>(data);
+        m_cachedNearPlane = cb->NearP;
+        m_cachedFarPlane = cb->FarP;
+    }
 
     // Compute sub-pixel Halton jitter for this frame (UV space).
     // Applied to WVP push constants in BindConstantBuffer during the geometry pass
