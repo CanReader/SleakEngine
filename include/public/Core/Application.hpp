@@ -154,6 +154,10 @@ class ENGINE_API Application {
     bool GetVSync() const;
     void SetVSync(bool enabled);
 
+    /// Deferred rendering
+    const bool GetIsDeferredEnabled() const;
+    void SetDeferredEnabled(bool enabled); 
+
     // Screen-space ambient occlusion (deferred path only)
     bool  IsSSAOEnabled() const;
     void  SetSSAOEnabled(bool enabled);

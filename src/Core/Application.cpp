@@ -425,6 +425,9 @@ namespace Sleak {
     bool Application::GetVSync() const { return renderer->GetVSync(); }
     void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
 
+    const bool Application::GetIsDeferredEnabled() const { return renderer->GetDeferredEnabled(); }
+    void Application::SetDeferredEnabled(bool enable) { renderer->SetDeferredEnabled(enable); }
+
     bool  Application::IsSSAOEnabled()  const { return renderer->IsSSAOEnabled(); }
     void  Application::SetSSAOEnabled(bool e)  { renderer->SetSSAOEnabled(e); }
     float Application::GetSSAORadius() const   { return renderer->GetSSAORadius(); }
