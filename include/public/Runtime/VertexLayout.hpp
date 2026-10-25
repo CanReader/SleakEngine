@@ -92,6 +92,10 @@ struct VertexAttribute {
 /// Add `Camera.xy * gl_Position.w` to the clip position after the Vulkan Y
 /// flip so the draw lines up with the jittered opaque geometry.
 ///
+/// On Vulkan, transparent draws set the HDR scene alpha to 0. TAA reads that
+/// as a reactive mask and trusts history less there, since animated or
+/// refracted content is not described by the depth buffer.
+///
 /// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat, MeshBatch
 /// @ingroup vertexformats
 struct VertexLayoutDesc {

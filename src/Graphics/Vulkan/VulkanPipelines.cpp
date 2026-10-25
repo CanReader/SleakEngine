@@ -1060,10 +1060,11 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
         blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         blend.colorBlendOp = VK_BLEND_OP_ADD;
-        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstAlphaBlendFactor = pass == CustomPass::Transparent
-                                        ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
-                                        : VK_BLEND_FACTOR_ZERO;
+        // Transparent draws zero the HDR scene alpha: TAA's reactive mask
+        const bool transparent = pass == CustomPass::Transparent;
+        blend.srcAlphaBlendFactor = transparent ? VK_BLEND_FACTOR_ZERO
+                                                : VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
     }
     std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> blends;
