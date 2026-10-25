@@ -402,25 +402,36 @@ void VulkanRenderer::CleanupTAAResources() {
     m_taaResourcesCreated = false;
 }
 
-/// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
+/// Computes the current-to-previous clip reprojection and blend factor into the TAA UBO.
+/// Uses double: in float, inverse(VP) * VP drifts from identity far from the origin.
 void VulkanRenderer::UpdateTAAUBO() {
     if (!m_taaResourcesCreated || !m_taaUboMapped[currentFrame]) return;
 
-    // VP = View * Projection (row-major)
-    float currentVP[16];
-    MatMul4(m_cachedView, m_cachedProjection, currentVP);
+    double view[16], proj[16];
+    for (int i = 0; i < 16; ++i) {
+        view[i] = static_cast<double>(m_cachedView[i]);
+        proj[i] = static_cast<double>(m_cachedProjection[i]);
+    }
 
-    float invCurrentVP[16];
-    if (!InvertMat4(currentVP, invCurrentVP)) {
-        memset(invCurrentVP, 0, sizeof(invCurrentVP));
-        for (int i = 0; i < 4; ++i) invCurrentVP[i * 4 + i] = 1.0f;  // identity fallback
+    // VP = View * Projection (row-major)
+    double currentVP[16];
+    MatMul4(view, proj, currentVP);
+
+    // First frame: identity reprojection
+    if (m_taaFrameIdx == 0)
+        memcpy(m_prevViewProj, currentVP, sizeof(m_prevViewProj));
+
+    double invCurrentVP[16];
+    double currentToPrev[16];
+    if (InvertMat4(currentVP, invCurrentVP)) {
+        MatMul4(invCurrentVP, m_prevViewProj, currentToPrev);
+    } else {
+        for (int i = 0; i < 16; ++i) currentToPrev[i] = (i / 4 == i % 4) ? 1.0 : 0.0;
     }
 
     TAAParams p{};
-    memcpy(p.InvCurrentVP, invCurrentVP, sizeof(p.InvCurrentVP));
-    // First frame: identity reprojection
-    memcpy(p.PrevVP, m_taaFrameIdx == 0 ? currentVP : m_prevViewProj,
-           sizeof(p.PrevVP));
+    for (int i = 0; i < 16; ++i)
+        p.CurrentToPrevClip[i] = static_cast<float>(currentToPrev[i]);
     p.ScreenW     = static_cast<float>(scExtent.width);
     p.ScreenH     = static_cast<float>(scExtent.height);
     // First two frames skip history
@@ -436,7 +447,13 @@ void VulkanRenderer::UpdateTAAUBO() {
 /// Resolves the frame against TAA history into the ping-pong target.
 void VulkanRenderer::RenderTAAPass() {
     m_taaResolvedView = VK_NULL_HANDLE;
-    if (!m_taaResourcesCreated || !m_taaEnabled) return;
+    if (!m_taaResourcesCreated || !m_taaEnabled) {
+        m_taaRanLastFrame = false;
+        return;
+    }
+    // History and the previous VP are stale after TAA was off: restart accumulation
+    if (!m_taaRanLastFrame) m_taaFrameIdx = 0;
+    m_taaRanLastFrame = true;
 
     const uint32_t writeIdx = static_cast<uint32_t>(m_taaFrameIdx % 2);
     const uint32_t readIdx  = 1u - writeIdx;

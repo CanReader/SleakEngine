@@ -874,10 +874,9 @@ private:
 
     // ---- TAA (Temporal Anti-Aliasing) resources ----
     // Ping-pong history accumulation with depth-based reprojection
-    // and 3x3 neighborhood AABB clamping.
+    // and 3x3 YCoCg variance clipping.
     struct alignas(16) TAAParams {
-        float InvCurrentVP[16]; // inverse of unjittered current VP
-        float PrevVP[16];       // previous frame unjittered VP
+        float CurrentToPrevClip[16]; // inverse(current VP) * previous VP, unjittered
         float ScreenW, ScreenH;
         float BlendFactor;
         float _pad;
@@ -886,6 +885,7 @@ private:
     bool     m_taaResourcesCreated = false;
     // m_taaEnabled is inherited from RenderEngine::Renderer (base class).
     uint64_t m_taaFrameIdx         = 0;   // global counter; ping-pong = idx % 2
+    bool     m_taaRanLastFrame     = false;  // false restarts accumulation
 
     VkImage        m_taaImages[2]     = {};
     VkDeviceMemory m_taaMemory[2]     = {};
@@ -910,7 +910,7 @@ private:
     VkPipeline       m_taaPipeline       = VK_NULL_HANDLE;
     VulkanShader*    m_taaShader         = nullptr;
 
-    float m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
+    double m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
     float m_taaJitter[2]     = {};  // current frame jitter in UV space
 
     /// Creates the ping-pong TAA history images, render pass, framebuffers, descriptors, and pipeline.

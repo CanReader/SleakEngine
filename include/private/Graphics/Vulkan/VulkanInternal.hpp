@@ -19,35 +19,38 @@ inline float HaltonSeq(int index, int base) {
 }
 
 /// Row-major mat4 multiply: C = A * B.
-inline void MatMul4(const float A[16], const float B[16], float C[16]) {
+template <typename T>
+void MatMul4(const T A[16], const T B[16], T C[16]) {
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c) {
-            float s = 0.0f;
+            T s = T(0);
             for (int k = 0; k < 4; ++k) s += A[r * 4 + k] * B[k * 4 + c];
             C[r * 4 + c] = s;
         }
 }
 
 /// Row-major 4x4 inverse via Gauss-Jordan elimination.
-inline bool InvertMat4(const float M[16], float out[16]) {
-    float m[4][8];
+template <typename T>
+bool InvertMat4(const T M[16], T out[16]) {
+    constexpr T kSingularEpsilon = T(1e-7);
+    T m[4][8];
     for (int r = 0; r < 4; ++r) {
         for (int c = 0; c < 4; ++c) m[r][c]     = M[r * 4 + c];
-        for (int c = 0; c < 4; ++c) m[r][4 + c] = (r == c) ? 1.0f : 0.0f;
+        for (int c = 0; c < 4; ++c) m[r][4 + c] = (r == c) ? T(1) : T(0);
     }
     for (int col = 0; col < 4; ++col) {
-        int pivot = -1; float maxv = 0.0f;
+        int pivot = -1; T maxv = T(0);
         for (int row = col; row < 4; ++row) {
-            float v = std::abs(m[row][col]);
+            T v = std::abs(m[row][col]);
             if (v > maxv) { maxv = v; pivot = row; }
         }
-        if (pivot < 0 || maxv < 1e-7f) return false;
+        if (pivot < 0 || maxv < kSingularEpsilon) return false;
         if (pivot != col) std::swap(m[col], m[pivot]);
-        float inv = 1.0f / m[col][col];
+        T inv = T(1) / m[col][col];
         for (int c = 0; c < 8; ++c) m[col][c] *= inv;
         for (int row = 0; row < 4; ++row) {
             if (row == col) continue;
-            float f = m[row][col];
+            T f = m[row][col];
             for (int c = 0; c < 8; ++c) m[row][c] -= f * m[col][c];
         }
     }
