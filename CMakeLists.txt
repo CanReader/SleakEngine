@@ -148,6 +148,7 @@ set(GRAPHICS_OPENGL_SOURCES
     src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
     src/Graphics/OpenGL/OpenGLIBL.cpp
     src/Graphics/OpenGL/OpenGLRenderer.cpp
+    src/Graphics/OpenGL/OpenGLSceneRead.cpp
     src/Graphics/OpenGL/OpenGLShader.cpp
     src/Graphics/OpenGL/OpenGLTexture.cpp
 )
@@ -155,13 +156,16 @@ set(GRAPHICS_OPENGL_SOURCES
 set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanBloom.cpp
     src/Graphics/Vulkan/VulkanBuffer.cpp
+    src/Graphics/Vulkan/VulkanCapture.cpp
     src/Graphics/Vulkan/VulkanCubemapTexture.cpp
     src/Graphics/Vulkan/VulkanDeferred.cpp
     src/Graphics/Vulkan/VulkanDescriptors.cpp
     src/Graphics/Vulkan/VulkanDevice.cpp
     src/Graphics/Vulkan/VulkanIBL.cpp
     src/Graphics/Vulkan/VulkanPipelines.cpp
+    src/Graphics/Vulkan/VulkanProfiler.cpp
     src/Graphics/Vulkan/VulkanRenderer.cpp
+    src/Graphics/Vulkan/VulkanSceneRead.cpp
     src/Graphics/Vulkan/VulkanShader.cpp
     src/Graphics/Vulkan/VulkanShadow.cpp
     src/Graphics/Vulkan/VulkanSSAO.cpp

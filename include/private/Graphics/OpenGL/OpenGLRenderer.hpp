@@ -123,9 +123,14 @@ private:
     float m_lightVP[16] = {};
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
+    // Matrix the shadow map was last rendered with
+    float m_shadowMapLightVP[16] = {};
+    bool m_shadowMapRendered = false;
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
     void SetLightVP(const float* mat) override;
+    /// Uploads light and shadow data, sampling with the matrix the shadow
+    /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
@@ -201,6 +206,29 @@ private:
     /// Lazily (re)bakes IBL data when the bound skybox cubemap changes.
     void EnsureIBL();
     void CleanupIBL();
+
+    // ---- Scene read for transparent formats ----
+    static constexpr GLuint SCENE_COLOR_UNIT = 4;
+    static constexpr GLuint SCENE_DEPTH_UNIT = 5;
+    static constexpr GLuint SCENE_SKY_UNIT = 6;
+    static constexpr GLuint SCENE_READ_UBO_BINDING = 4;
+    GLuint m_sceneCopyTex = 0;  // RGBA8 snapshot of the default framebuffer
+    int m_sceneCopyWidth = 0;
+    int m_sceneCopyHeight = 0;
+    GLuint m_sceneReadUBO = 0;
+    GLuint m_sceneFallbackCube = 0;
+    GLuint m_sceneSkyCube = 0;  // skybox cubemap found this frame, 0 if none
+    bool m_sceneReadPrepared = false;  // snapshot taken this frame
+    float m_cachedInvViewProj[16] = {};
+    float m_cachedNearPlane = 0.0f;
+    float m_cachedFarPlane = 0.0f;
+    /// Returns the active scene's skybox cubemap, or 0 when there is none.
+    GLuint FindSkyboxCubemap() const;
+    /// Snapshots the scene once per frame on the first scene-reading draw
+    /// and binds the snapshot, depth, sky, and SceneReadUBO.
+    void PrepareSceneRead();
+    /// Deletes the snapshot texture, stand-in cubemap, and UBO.
+    void CleanupSceneRead();
 };
 
 }  // namespace RenderEngine

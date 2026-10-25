@@ -78,6 +78,8 @@ VulkanRenderer::~VulkanRenderer() {
 /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
 /// pipelines, and sync objects.
 bool VulkanRenderer::Initialize() {
+    m_captureMode = !CommandLine::GetValue("-capture").empty();
+
     if (!InitVulkan())
         SLEAK_RETURN_ERR("Failed to initialize Vulkan Instance!");
 
@@ -90,6 +92,8 @@ bool VulkanRenderer::Initialize() {
 
     if (!CreateDevice())
         SLEAK_RETURN_ERR("Failed to initialize devices!");
+
+    CreatePipelineCache();
 
     if (!CreateSwapChain())
         SLEAK_RETURN_ERR("Failed to create swap chain!");
@@ -124,11 +128,15 @@ bool VulkanRenderer::Initialize() {
     if (!CreateDefaultTexture())
         SLEAK_WARN("Failed to create default white texture for Vulkan");
 
-    if (!CreateGraphicsPipeline())
-        SLEAK_RETURN_ERR("Failed to create graphics pipeline!");
+    if (!CreateMainPipelineLayout())
+        SLEAK_RETURN_ERR("Failed to create graphics pipeline layout!");
 
     if (!CreateShadowLightUBOResources())
         SLEAK_WARN("Failed to create light UBO resources — dynamic lighting disabled");
+
+    if (!CreateSceneReadResources())
+        SLEAK_WARN(
+            "Failed to create scene-read resources for transparent formats");
 
     if (!CreateShadowResources())
         SLEAK_WARN("Failed to create shadow mapping resources — shadows disabled");
@@ -142,6 +150,10 @@ bool VulkanRenderer::Initialize() {
             SLEAK_WARN("Failed to create GBuffer resources — deferred rendering disabled");
     }
 
+    // Forward path
+    if (pipeline == VK_NULL_HANDLE && !CreateGraphicsPipeline())
+        SLEAK_RETURN_ERR("Failed to create graphics pipeline!");
+
     // Eagerly create bone UBO resources so set 1 is always bound at pass start.
     // Must happen after CreateDescriptorSetLayout() (boneDescriptorSetLayout is ready)
     // and after GBuffer init (m_deferredEnabled is known).
@@ -151,6 +163,8 @@ bool VulkanRenderer::Initialize() {
     if (!CreateSyncObjects())
         SLEAK_RETURN_ERR("Failed to synchronization objects of renderer!");
 
+    if (CommandLine::HasFlag("--gpuprofile")) CreateGpuProfiler();
+
     SetPerformanceCounter(true);
 
     SLEAK_INFO("Vulkan renderer has been initialized successfully!");
@@ -158,15 +172,16 @@ bool VulkanRenderer::Initialize() {
     return true;
 }
 
-/// Prepares the command buffer and begins the shadow/GBuffer/forward render
-/// pass. Does not end the command buffer; the RenderCommandQueue records
-/// draw commands via the RenderContext interface after this returns.
+/// Acquires a swapchain image and begins the shadow/GBuffer/forward passes
+/// for the RenderCommandQueue to record into. A failed acquire returns early
+/// with only a UI frame open, leaving deletions unaged and uploads batched.
 void VulkanRenderer::BeginRender() {
     bFrameStarted = false;
     m_inGeometryPass = false;
     m_inForwardTransparentPass = false;
     m_forwardPassOpen = false;
     m_activeCustomFormat = 0;
+    m_sceneReadPrepared = false;
     if (!bRender)
         return;
 
@@ -183,13 +198,17 @@ void VulkanRenderer::BeginRender() {
         ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
+    PrebuildCustomFormatPipelines();
 
     VkResult result;
 
     if (device && !inFlightFences.empty()) {
         vkWaitForFences(device, 1, &inFlightFences[currentFrame],
                         VK_TRUE, UINT64_MAX);
+        VulkanTexture::DestroyReleased(m_slotSerial[currentFrame]);
     }
+    CollectGpuProfile();
+    UpdateSceneReadDescriptors(currentFrame);
 
     // Clean up staging buffers from the previous use of this frame slot.
     // The fence wait above guarantees the GPU finished both the transfer
@@ -210,13 +229,20 @@ void VulkanRenderer::BeginRender() {
         flush = {};
     }
 
-    VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
-    VulkanBuffer::AdvanceDeletionFrame();
-
     // Enable batched buffer uploads for this frame (async, zero CPU blocking).
     // This is disabled during init/scene transitions where buffers may be
     // created and destroyed before a flush.
     VulkanBuffer::SetBatchingEnabled(true);
+
+    // UI frame for skipped frames
+    auto beginSkippedUIFrame = [this]() {
+        bImFrameActive = false;
+        if (!bImInitialized) return;
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        bImFrameActive = true;
+    };
 
     // Acquire the next image from the swapchain
     result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
@@ -224,11 +250,17 @@ void VulkanRenderer::BeginRender() {
                                     VK_NULL_HANDLE, &CurrentFrameIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         RecreateSwapChain();
+        beginSkippedUIFrame();
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         SLEAK_ERROR("Failed to acquire swapchain image!");
+        beginSkippedUIFrame();
         return;
     }
+
+    // Submitting frames age deletions
+    VulkanBuffer::ProcessDeferredDeletions(MAX_FRAMES_IN_FLIGHT);
+    VulkanBuffer::AdvanceDeletionFrame();
 
     // Wait if this swapchain image is still in use by a DIFFERENT frame slot
     if (CurrentFrameIndex < imagesInFlight.size() &&
@@ -259,6 +291,8 @@ void VulkanRenderer::BeginRender() {
 
     bFrameStarted = true;
     m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
+    m_boneSlot[currentFrame] = 1;         // slot 0 is the identity palette
+    BeginGpuFrame();
 
     // Skip shadow pass if no cached draws — preserve previous frame's shadow map
     auto* shadowQueue = RenderCommandQueue::GetInstance();
@@ -277,6 +311,7 @@ void VulkanRenderer::BeginRender() {
         shadowPassInfo.clearValueCount = 1;
         shadowPassInfo.pClearValues = &shadowClear;
 
+        BeginGpuPass(GpuPass::Shadow);
         vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
 
@@ -284,11 +319,7 @@ void VulkanRenderer::BeginRender() {
         // (skinning conditioned on boneWeights). The shader must have set 1 bound even for
         // non-skinned casters, otherwise vkCmdDrawIndexed fires VUID-vkCmdDrawIndexed-None-08600.
         // Bind the bone UBO once at pass start so all shadow draws (skinned or static) are legal.
-        if (m_boneUBOCreated) {
-            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipelineLay, 1, 1,
-                                    &boneDescriptorSets[currentFrame], 0, nullptr);
-        }
+        BindIdentityBonePalette(pipelineLay);
 
         VkViewport shadowViewport{};
         shadowViewport.x = 0.0f;
@@ -306,6 +337,9 @@ void VulkanRenderer::BeginRender() {
 
         m_shadowPassActive = true;
         m_shadowPCCacheValid = false;
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
+        memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
+        m_shadowMapRendered = true;
         auto* queue = RenderCommandQueue::GetInstance();
         if (queue) {
             queue->ExecuteShadowPass(this);
@@ -313,6 +347,7 @@ void VulkanRenderer::BeginRender() {
         m_shadowPassActive = false;
 
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::Shadow);
     }
 
     // ---- Deferred path: begin GBuffer render pass ----
@@ -333,6 +368,7 @@ void VulkanRenderer::BeginRender() {
         gbufferPassInfo.clearValueCount   = GBUFFER_COUNT + 1;
         gbufferPassInfo.pClearValues      = gbufferClears;
 
+        BeginGpuPass(GpuPass::GBuffer);
         vkCmdBeginRenderPass(command, &gbufferPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
 
@@ -353,15 +389,11 @@ void VulkanRenderer::BeginRender() {
 
         // Bind descriptor sets for GBuffer geometry pass.
         // Set 0 (PBR material) is bound per-material by BindPBRMaterial().
-        // Set 1 (bone matrices) is frame-constant: bound here so m_skinnedGbufferPipeline
-        //   can always find a valid set 1, even for frames where no skinned draw fires.
+        // Set 1 (bone matrices) starts at the identity palette so
+        //   m_skinnedGbufferPipeline always finds a valid set 1.
         // Sets 2-3 are frame-constant: light/shadow UBO and shadow samplers.
         if (m_gbufferGeomLayout != VK_NULL_HANDLE && m_lightUBOCreated) {
-            if (m_boneUBOCreated) {
-                vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        m_gbufferGeomLayout, 1, 1,
-                                        &boneDescriptorSets[currentFrame], 0, nullptr);
-            }
+            BindIdentityBonePalette(m_gbufferGeomLayout);
             vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     m_gbufferGeomLayout, 2, 1,
                                     &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
@@ -407,6 +439,7 @@ void VulkanRenderer::BeginRender() {
     passInfo.clearValueCount = clearValueCount;
     passInfo.pClearValues = clearValues;
 
+    BeginGpuPass(GpuPass::Forward);
     vkCmdBeginRenderPass(command, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -460,9 +493,14 @@ void VulkanRenderer::BeginRender() {
 }
 
 /// Ends the active render pass, submits the command buffer, and presents.
+/// A skipped frame only closes its UI frame.
 void VulkanRenderer::EndRender() {
-    if (!bRender || !bFrameStarted)
+    if (!bRender || !bFrameStarted) {
+        // Skipped frame, no UI draw
+        if (bImFrameActive && bImInitialized) ImGui::EndFrame();
+        bImFrameActive = false;
         return;
+    }
 
     const bool deferredPath =
         m_gbufferResourcesCreated && m_deferredEnabled && m_bloomResourcesCreated;
@@ -471,6 +509,7 @@ void VulkanRenderer::EndRender() {
     // end it now so we don't have a dangling render pass.
     if (m_gbufferResourcesCreated && m_deferredEnabled && m_inGeometryPass) {
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::GBuffer);
         m_inGeometryPass = false;
     }
 
@@ -486,6 +525,7 @@ void VulkanRenderer::EndRender() {
         rpBegin.renderArea.offset = {0, 0};
         rpBegin.renderArea.extent = scExtent;
         rpBegin.clearValueCount   = 0;
+        BeginGpuPass(GpuPass::Forward);
         vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
         m_forwardPassOpen = true;
     }
@@ -493,15 +533,16 @@ void VulkanRenderer::EndRender() {
     // Close the forward pass (HDR scene → SHADER_READ_ONLY_OPTIMAL via finalLayout).
     if (m_forwardPassOpen) {
         vkCmdEndRenderPass(command);
+        EndGpuPass(GpuPass::Forward);
         m_forwardPassOpen = false;
     }
 
     if (deferredPath) {
-        // TAA: accumulate current HDR frame with history, write resolved result
-        // back into hdrScene. Also handles the depth barrier (ATTACHMENT → READ_ONLY)
-        // so SSR can skip its own barrier when TAA is enabled.
+        // TAA: accumulate current HDR frame with history into a ping-pong
+        // target that SSR, bloom and the composite read. Also handles the depth
+        // barrier (ATTACHMENT → READ_ONLY) so SSR can skip its own barrier.
         RenderTAAPass();
-        // Screen-space reflections — reads TAA-resolved hdrScene + GBuffer.
+        // Screen-space reflections — reads the TAA-resolved scene + GBuffer.
         RenderSSRPass();
         // Bloom pyramid generates the bloom result from the HDR scene.
         RenderBloomPass();
@@ -510,12 +551,22 @@ void VulkanRenderer::EndRender() {
         RenderBloomCompositePass();
     } else {
         // Forward (non-deferred) path — ImGui inside main render pass.
+        const bool drawUI = bImFrameActive && m_capturePath.empty();
+        if (drawUI) {
+            EndGpuPass(GpuPass::Forward);
+            BeginGpuPass(GpuPass::UI);
+        }
         if (bImFrameActive) {
             ImGui::Render();
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
+            if (drawUI)
+                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
         }
         vkCmdEndRenderPass(command);
+        EndGpuPass(drawUI ? GpuPass::UI : GpuPass::Forward);
     }
+
+    if (!m_capturePath.empty()) RecordFrameCaptureCopy();
+    EndGpuFrame();
 
     if (vkEndCommandBuffer(command) != VK_SUCCESS) {
         SLEAK_ERROR("Failed to end command buffer!");
@@ -558,6 +609,10 @@ void VulkanRenderer::EndRender() {
     if (vkQueueSubmit(graphicsQueue, 1, &submitInfo,
                        inFlightFences[currentFrame]) != VK_SUCCESS) {
         SLEAK_ERROR("Failed to submit draw command buffer!");
+    } else {
+        MarkGpuFrameSubmitted();
+        m_slotSerial[currentFrame] = ++m_submitSerial;
+        VulkanTexture::SetReleaseSerial(m_submitSerial + 1);
     }
 
     // Present
@@ -573,12 +628,17 @@ void VulkanRenderer::EndRender() {
 
     VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
 
+    // Capture pins the extent
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
-        presentResult == VK_SUBOPTIMAL_KHR) {
+        (presentResult == VK_SUBOPTIMAL_KHR && !m_captureMode &&
+         SurfaceExtentChanged())) {
         RecreateSwapChain();
-    } else if (presentResult != VK_SUCCESS) {
+    } else if (presentResult != VK_SUCCESS &&
+               presentResult != VK_SUBOPTIMAL_KHR) {
         SLEAK_ERROR("Failed to present render!");
     }
+
+    if (m_captureRecorded) FinishFrameCapture();
 
     // Reset per-frame deferred state flags
     m_forwardPassOpen = false;
@@ -721,8 +781,9 @@ void VulkanRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                          VK_INDEX_TYPE_UINT32);
 }
 
-/// Pushes constant-buffer data via push constants, applying TAA jitter or
-/// the shadow push-constant cache as needed.
+/// Pushes constant-buffer data via push constants, applying TAA jitter or the
+/// shadow push-constant cache. A shadow push that would repeat the bytes
+/// already pushed in this pass is skipped.
 void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                          uint32_t slot) {
     if (!bFrameStarted) return;
@@ -734,7 +795,7 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!data) return;
 
     uint32_t size = static_cast<uint32_t>(vkBuf->GetSize());
-    if (size > 128) size = 128;  // Vulkan guarantees at least 128 bytes
+    if (size > PUSH_CONSTANT_BYTES) size = PUSH_CONSTANT_BYTES;
 
     // Choose the pipeline layout that owns the currently bound pipeline.
     // GBuffer geometry pass uses m_gbufferGeomLayout; all other passes use pipelineLay.
@@ -758,10 +819,11 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         }
         vkCmdPushConstants(command, activeLayout,
                            VK_SHADER_STAGE_VERTEX_BIT, 0, size, jdata);
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
         return;
     }
 
-    if (m_shadowPassActive && slot == 0 && size >= 128) {
+    if (m_shadowPassActive && slot == 0 && size >= PUSH_CONSTANT_BYTES) {
         // Shadow mode: push [LightVP*World (64)][World (64)].
         // Buffer layout: [WVP (64 bytes)][World (64 bytes)].
         // LightVP is frame-constant, so memoize on World and reuse the result
@@ -784,13 +846,20 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
             memcpy(&m_shadowPCCache[16], srcWorld, 64);
             memcpy(m_shadowWorldCache, srcWorld, 64);
             m_shadowPCCacheValid = true;
+            m_shadowPCPushedLayout = VK_NULL_HANDLE;
         }
 
-        vkCmdPushConstants(command, activeLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT, 0, 128, m_shadowPCCache);
+        // Pushes survive pipeline binds
+        if (m_shadowPCPushedLayout != activeLayout) {
+            vkCmdPushConstants(command, activeLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               PUSH_CONSTANT_BYTES, m_shadowPCCache);
+            m_shadowPCPushedLayout = activeLayout;
+        }
     } else {
         vkCmdPushConstants(command, activeLayout,
                            VK_SHADER_STAGE_VERTEX_BIT, 0, size, data);
+        m_shadowPCPushedLayout = VK_NULL_HANDLE;
     }
 }
 
@@ -860,6 +929,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         // Write cubemap to skybox descriptor sets
         m_skyboxCubemapView = texture->GetImageView();
         m_skyboxCubemapSampler = texture->GetSampler();
+        ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
@@ -908,6 +978,7 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         // Write cubemap to skybox descriptor sets
         m_skyboxCubemapView = texture->GetImageView();
         m_skyboxCubemapSampler = texture->GetSampler();
+        ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
@@ -1020,8 +1091,10 @@ void VulkanRenderer::WaitIdle() {
     if (device) vkDeviceWaitIdle(device);
 }
 
-/// Kicks off the current frame's async buffer upload batch.
+/// Submits the open upload batch for this frame. A frame that failed to
+/// start leaves it open, so it rides along with the next submitted frame.
 void VulkanRenderer::FlushPendingTransfers() {
+    if (!bFrameStarted) return;
     m_asyncFlush[currentFrame] = VulkanBuffer::FlushPendingCopiesAsync(
         m_transferSemaphores[currentFrame]);
 }
@@ -1045,6 +1118,7 @@ void VulkanRenderer::Cleanup() {
     // Wait for the device to finish all work
     if (device) {
         vkDeviceWaitIdle(device);
+        VulkanBuffer::DiscardPendingCopies();
     }
 
     RenderCommandQueue::Shutdown();
@@ -1062,6 +1136,15 @@ void VulkanRenderer::Cleanup() {
     if (imguiDescriptorPool) {
         vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
         imguiDescriptorPool = VK_NULL_HANDLE;
+    }
+
+    DestroyPipelineCache();
+
+    // Drain released textures
+    if (device) {
+        delete m_defaultTexture;
+        m_defaultTexture = nullptr;
+        VulkanTexture::DestroyAllReleased();
     }
 
     // Destroy descriptor pool (frees descriptor sets too)
@@ -1111,6 +1194,7 @@ void VulkanRenderer::Cleanup() {
 
     // Destroy shadow mapping resources
     CleanupShadowResources();
+    CleanupSceneReadResources();
 
     // Backstop: free any shader modules whose resource-guarded cleanup was
     // skipped (guard false while shader non-null). Cleanups null after delete,
@@ -1233,12 +1317,6 @@ void VulkanRenderer::Cleanup() {
         renderPass = VK_NULL_HANDLE;
     }
 
-    // Destroy default texture
-    if (m_defaultTexture) {
-        delete m_defaultTexture;
-        m_defaultTexture = nullptr;
-    }
-
     // Destroy command pool (this will also free command buffers)
     if (commands) {
         vkDestroyCommandPool(device, commands, nullptr);
@@ -1256,6 +1334,9 @@ void VulkanRenderer::Cleanup() {
         vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         debugMessenger = VK_NULL_HANDLE;
     }
+
+    CleanupGpuProfiler();
+    CleanupFrameCapture();
 
     // Drain any buffers freed during teardown, then destroy the VMA allocator
     // (it must outlive every vmaDestroyBuffer, and both precede vkDestroyDevice).
@@ -1275,9 +1356,9 @@ void VulkanRenderer::Cleanup() {
     }
 }
 
-/// Recreates the swapchain for the new window dimensions.
+/// Recreates the swapchain when the surface extent no longer matches it.
 void VulkanRenderer::Resize(uint32_t width, uint32_t height) {
-    if (device) {
+    if (device && (swapChain == VK_NULL_HANDLE || SurfaceExtentChanged())) {
         RecreateSwapChain();
     }
 }
@@ -1316,8 +1397,10 @@ bool VulkanRenderer::RecreateSwapChain() {
         return false;
     }
 
-    // Resize imagesInFlight in case swapchain image count changed
-    imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
+    if (!CreateImageSyncObjects()) {
+        SLEAK_ERROR("Failed to recreate swapchain image semaphores!");
+        return false;
+    }
 
     // Recreate GBuffer resources if they were previously created
     if (hadGBuffer && m_deferredEnabled) {
@@ -1388,6 +1471,10 @@ void VulkanRenderer::ApplyMSAAChange() {
         ImGui::DestroyContext();
         bImInitialized = false;
     }
+    if (imguiDescriptorPool) {
+        vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
+        imguiDescriptorPool = VK_NULL_HANDLE;
+    }
 
     // Cleanup swapchain-related resources
     CleanupMSAAColorResources();
@@ -1395,6 +1482,7 @@ void VulkanRenderer::ApplyMSAAChange() {
 
     // Recreate everything
     CreateSwapChain();
+    CreateImageSyncObjects();
     CreateImageViews();
     CreateDepthResources();
     CreateMSAAColorResources();
@@ -1465,17 +1553,37 @@ bool VulkanRenderer::CreateCommandPool() {
     return true;
 }
 
+/// Grows the per-image semaphores to the swapchain image count and clears
+/// the image-to-fence table. Existing semaphores are kept: a present may
+/// still reference them, and indices beyond the image count are harmless.
+bool VulkanRenderer::CreateImageSyncObjects() {
+    const size_t imageCount = swapChainImages.size();
+    imagesInFlight.assign(imageCount, VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    while (imageAvailableSemaphores.size() < imageCount) {
+        VkSemaphore available = VK_NULL_HANDLE;
+        VkSemaphore finished = VK_NULL_HANDLE;
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &available) !=
+                VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &finished) !=
+                VK_SUCCESS) {
+            if (available) vkDestroySemaphore(device, available, nullptr);
+            SLEAK_RETURN_ERR("Failed to create synchronization objects!");
+        }
+        imageAvailableSemaphores.push_back(available);
+        renderFinishedSemaphores.push_back(finished);
+    }
+    return true;
+}
+
 /// Creates the per-swapchain-image semaphores and per-frame fences and
 /// transfer semaphores.
 bool VulkanRenderer::CreateSyncObjects() {
-    uint32_t imageCount = static_cast<uint32_t>(swapChainImages.size());
-
-    // Semaphores sized to swapchain image count to prevent reuse
-    // while the presentation engine still holds a reference.
-    imageAvailableSemaphores.resize(imageCount);
-    renderFinishedSemaphores.resize(imageCount);
+    if (!CreateImageSyncObjects()) return false;
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-    imagesInFlight.resize(imageCount, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1483,16 +1591,6 @@ bool VulkanRenderer::CreateSyncObjects() {
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    // Create per-swapchain-image semaphores
-    for (uint32_t i = 0; i < imageCount; i++) {
-        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-                               &renderFinishedSemaphores[i]) != VK_SUCCESS) {
-            SLEAK_RETURN_ERR("Failed to create synchronization objects!");
-        }
-    }
 
     // Create per-frame-in-flight fences and transfer semaphores
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -1530,6 +1628,7 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
     m_shadowImageMemory = VK_NULL_HANDLE;
 
     m_shadowMapResolution = m_pendingShadowMapResolution;
+    m_shadowMapRendered = false;
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1619,24 +1718,19 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
         cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmdBuf, &cmdBeginInfo);
 
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_shadowImage;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &barrier);
+        // Clear to far depth
+        VkClearValue clear{};
+        clear.depthStencil = {1.0f, 0};
+        VkRenderPassBeginInfo clearPass{};
+        clearPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        clearPass.renderPass = m_shadowRenderPass;
+        clearPass.framebuffer = m_shadowFramebuffer;
+        clearPass.renderArea.extent = {m_shadowMapResolution,
+                                       m_shadowMapResolution};
+        clearPass.clearValueCount = 1;
+        clearPass.pClearValues = &clear;
+        vkCmdBeginRenderPass(cmdBuf, &clearPass, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdEndRenderPass(cmdBuf);
 
         vkEndCommandBuffer(cmdBuf);
 
@@ -1764,6 +1858,10 @@ bool VulkanRenderer::CreateGBufferResources() {
     // GBuffer sampler set 0 binding 7 samples the SSAO blur result.
     if (!CreateSSAOResources())           { SLEAK_ERROR("GBuffer: SSAO resources failed!");        return false; }
     if (!CreateBloomResources())          { SLEAK_ERROR("GBuffer: bloom/HDR resources failed!");   return false; }
+    if (!CreateSceneCopyImages())
+        SLEAK_WARN(
+            "GBuffer: scene snapshot images failed, transparent formats cannot "
+            "read the scene");
     // SSR needs the HDR scene view (created by CreateBloomResources), so it
     // must come after that. The bloom composite pass later samples SSR.
     if (!CreateSSRResources())            { SLEAK_ERROR("GBuffer: SSR resources failed!");         return false; }
@@ -1799,23 +1897,16 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (pipeline)         { vkDestroyPipeline(device, pipeline, nullptr);         pipeline = VK_NULL_HANDLE; }
         if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
-        if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
-        if (m_skinnedGbufferPipeline) { vkDestroyPipeline(device, m_skinnedGbufferPipeline, nullptr); m_skinnedGbufferPipeline = VK_NULL_HANDLE; }
-        DestroyCustomFormatPipelines();
-        // Destroy old skybox descriptor pool (CreateSkyboxPipeline allocates new ones)
-        if (skyboxDescriptorPool) {
-            vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
-            skyboxDescriptorPool = VK_NULL_HANDLE;
+        if (skinnedPipeline) {
+            vkDestroyPipeline(device, skinnedPipeline, nullptr);
+            skinnedPipeline = VK_NULL_HANDLE;
         }
-        skyboxDescriptorSets.clear();
-        delete skyboxShader;
-        skyboxShader = nullptr;
+        DestroyCustomFormatPipelines();
 
         CreateGraphicsPipeline();
         CreateSkyboxPipeline();
         CreateDebugLinePipeline();
         CreateSkinnedPipeline();
-        CreateSkinnedGbufferPipeline();
 
         m_gbufferResourcesCreated = true;
 
@@ -1840,6 +1931,8 @@ bool VulkanRenderer::CreateGBufferResources() {
             }
             m_skyboxDescriptorsWritten = true;
         }
+
+        PrebuildCustomFormatPipelines();
     }
 
     SLEAK_INFO("VulkanRenderer: Deferred GBuffer resources created ({}x{})",

@@ -1,21 +1,29 @@
 #ifndef VULKANRENDERER_HPP
 #define VULKANRENDERER_HPP
 
-#include "../Common/Renderer.hpp"
+#include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
+#include <vulkan/vulkan.h>
+
+#include <Runtime/Material.hpp>
+#include <Runtime/Skeleton.hpp>
+#include <array>
+#include <cstdint>
+#include <set>
+#include <vector>
+
 #include "../Common/RenderContext.hpp"
+#include "../Common/Renderer.hpp"
+#include "Core/Logger.hpp"
+#include "Graphics/Vulkan/VulkanBuffer.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
-#include "Core/Logger.hpp"
-#include <vulkan/vulkan.h>
-#include "Graphics/Vulkan/VulkanBuffer.hpp"
-#include <Runtime/Material.hpp>
-#include <cstdint>
-#include <vector>
-#include <set>
-#include <array>
-#include <unordered_map>
-#include <imgui.h>
-#include <backends/imgui_impl_vulkan.h>
+
+// Shadow caster depth bias
+#define SHADOW_DEPTH_BIAS_CONSTANT 1.25f
+#define SHADOW_DEPTH_BIAS_SLOPE 1.75f
+// WVP + World matrices
+#define PUSH_CONSTANT_BYTES (sizeof(float) * 16 * 2)
 
 namespace Sleak {
 class ENGINE_API Window;
@@ -57,8 +65,8 @@ public:
     /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
     /// pipelines, and sync objects.
     virtual bool Initialize() override;
-    /// Prepares the command buffer and begins the shadow/GBuffer/forward
-    /// render pass; drawing happens via the RenderContext methods below.
+    /// Acquires a swapchain image and begins the shadow/GBuffer/forward
+    /// passes; drawing happens via the RenderContext methods below.
     virtual void BeginRender() override;
     /// Ends the active render pass, submits the command buffer, and presents.
     virtual void EndRender() override;
@@ -66,7 +74,8 @@ public:
     virtual void Cleanup() override;
     /// Blocks until the device finishes all submitted GPU work.
     virtual void WaitIdle() override;
-    /// Kicks off the current frame's async buffer upload batch.
+    /// Submits the open upload batch for this frame. A frame that failed to
+    /// start leaves it open, so it rides along with the next submitted frame.
     virtual void FlushPendingTransfers() override;
 
     // GPU memory tracking
@@ -165,7 +174,7 @@ public:
     virtual void BeginSkyboxPass() override;
     /// Restores the previous pipeline and descriptor set after the skybox draw.
     virtual void EndSkyboxPass() override;
-    /// Copies bone matrices into the current frame's UBO and binds its descriptor set.
+    /// Copies bone matrices into their own bone ring slot and binds it.
     virtual void BindBoneBuffer(RefPtr<BufferBase> buffer) override;
     /// Binds the skinned pipeline matching the currently active render pass.
     virtual void BeginSkinnedPass() override;
@@ -219,371 +228,453 @@ public:
     /// Recreates the extent-dependent shadow map objects at the queued resolution.
     void ApplyShadowResolutionChange() override;
 
+    // Measurement
+    /// Adds per-pass GPU millisecond columns when --gpuprofile is on.
+    void RegisterBenchmarkMetrics(Benchmark& bench) override;
+    /// Arms a UI-free readback of the next presented frame into a binary PPM.
+    bool RequestFrameCapture(const std::string& path) override;
+    /// True while an armed capture has not been written yet.
+    bool IsFrameCapturePending() const override {
+        return !m_capturePath.empty();
+    }
+
 private:
-    /// Compiles the skybox shaders and creates the skybox descriptor set and pipeline.
-    bool CreateSkyboxPipeline();
-    /// Compiles the skinned shaders and creates the forward skinned pipeline.
-    bool CreateSkinnedPipeline();
+ /// Compiles the skybox shaders on first use, sizes the skybox descriptor
+ /// sets to the swapchain image count, and creates the skybox pipeline.
+ bool CreateSkyboxPipeline();
+ /// Compiles the skinned shaders on first use and creates the forward
+ /// skinned pipeline.
+ bool CreateSkinnedPipeline();
 
-    // Deferred rendering
-    /// Creates the GBuffer color images, render passes, descriptors, and
-    /// pipelines that make up the deferred lighting path.
-    bool CreateGBufferResources();
-    /// Creates the GBuffer render pass with its three color attachments and depth.
-    bool CreateGBufferRenderPass();
-    /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
-    bool CreateGBufferFramebuffer();
-    /// Compiles the GBuffer shaders and creates the geometry pipeline, reusing pipelineLay.
-    bool CreateGBufferPipeline();
-    /// Compiles the skinned GBuffer shaders so skinned meshes write into the GBuffer.
-    bool CreateSkinnedGbufferPipeline();
-    /// Creates the deferred lighting render pass with a single color attachment.
-    bool CreateLightingRenderPass();
-    /// Creates one lighting pass framebuffer per swapchain image, all aliasing the HDR target.
-    bool CreateLightingFramebuffers();
-    /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
-    bool CreateLightingPipeline();
-    /// Creates the forward transparent render pass writing into the HDR scene image.
-    bool CreateForwardRenderPass();
-    /// Creates one forward transparent framebuffer per swapchain image, all aliasing the HDR target.
-    bool CreateForwardFramebuffers();
-    /// Creates the GBuffer sampler descriptor set layout, pool, and per-frame sets.
-    bool CreateGBufferDescriptorSets();
-    /// Creates the per-frame deferred constant buffer holding InvViewProj and screen size.
-    bool CreateDeferredCBResources();
-    /// Creates the PBR material descriptor layout, pool, ring of sets, and GBuffer geometry pipeline layout.
-    bool CreatePBRMaterialResources();
-    /// Appends one chunk of PBR material sets and UBO slots to a frame's ring.
-    bool AddPBRMaterialChunk(uint32_t frame);
-    /// Destroys every PBR material chunk of every frame.
-    void DestroyPBRMaterialChunks();
-    /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and descriptor set.
-    bool CreateIBLResources();
-    /// Destroys all GBuffer, lighting, and forward transparent pass resources.
-    void CleanupGBufferResources();
-    /// Destroys the IBL images, samplers, and descriptor resources.
-    void CleanupIBLResources();
-    /// Writes the GBuffer, depth, and shadow images into the sampler descriptor sets before the lighting pass.
-    void UpdateGBufferDescriptors();
+ // Deferred rendering
+ /// Creates the GBuffer color images, render passes, descriptors, and
+ /// pipelines that make up the deferred lighting path.
+ bool CreateGBufferResources();
+ /// Creates the GBuffer render pass with its three color attachments and depth.
+ bool CreateGBufferRenderPass();
+ /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
+ bool CreateGBufferFramebuffer();
+ /// Compiles the GBuffer shaders and creates the geometry pipeline, reusing
+ /// pipelineLay.
+ bool CreateGBufferPipeline();
+ /// Compiles the skinned GBuffer shaders so skinned meshes write into the
+ /// GBuffer.
+ bool CreateSkinnedGbufferPipeline();
+ /// Creates the deferred lighting render pass with a single color attachment.
+ bool CreateLightingRenderPass();
+ /// Creates one lighting pass framebuffer per swapchain image, all aliasing the
+ /// HDR target.
+ bool CreateLightingFramebuffers();
+ /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
+ bool CreateLightingPipeline();
+ /// Creates the forward transparent render pass writing into the HDR scene
+ /// image.
+ bool CreateForwardRenderPass();
+ /// Creates one forward transparent framebuffer per swapchain image, all
+ /// aliasing the HDR target.
+ bool CreateForwardFramebuffers();
+ /// Creates the GBuffer sampler descriptor set layout, pool, and per-frame
+ /// sets.
+ bool CreateGBufferDescriptorSets();
+ /// Creates the per-frame deferred constant buffer holding InvViewProj and
+ /// screen size.
+ bool CreateDeferredCBResources();
+ /// Creates the PBR material descriptor layout, pool, ring of sets, and GBuffer
+ /// geometry pipeline layout.
+ bool CreatePBRMaterialResources();
+ /// Appends one chunk of PBR material sets and UBO slots to a frame's ring.
+ bool AddPBRMaterialChunk(uint32_t frame);
+ /// Destroys every PBR material chunk of every frame.
+ void DestroyPBRMaterialChunks();
+ /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and
+ /// descriptor set.
+ bool CreateIBLResources();
+ /// Destroys all GBuffer, lighting, and forward transparent pass resources.
+ void CleanupGBufferResources();
+ /// Destroys the IBL images, samplers, and descriptor resources.
+ void CleanupIBLResources();
+ /// Writes the GBuffer, depth, and shadow images into the sampler descriptor
+ /// sets before the lighting pass.
+ void UpdateGBufferDescriptors();
 
-    // Shadow mapping
-    /// Creates the shadow depth image, sampler, render pass, and framebuffer.
-    bool CreateShadowResources();
-    /// Compiles the shadow depth shader and creates the shadow pass pipeline.
-    bool CreateShadowPipeline();
-    /// Creates the per-frame light and shadow UBO buffers and descriptor sets.
-    bool CreateShadowLightUBOResources();
-    /// Destroys the shadow map image, pipeline, render pass, and light UBO resources.
-    void CleanupShadowResources();
-    /// Creates the Vulkan instance with validation layers when available.
-    bool InitVulkan();
-    /// Creates the SDL-backed Vulkan presentation surface.
-    bool CreateSurface();
-    /// Selects the physical GPU and creates the logical device and queues.
-    bool CreateDevice();
-    /// Creates the swapchain from the queried surface capabilities.
-    bool CreateSwapChain();
-    /// Rebuilds the swapchain and its dependents after resize or resolution change.
-    bool RecreateSwapChain();
-    /// Creates an image view for each swapchain image.
-    bool CreateImageViews();
-    /// Creates the main forward graphics pipeline and its pipeline layout.
-    bool CreateGraphicsPipeline();
-    /// Creates the main forward render pass with optional MSAA color and resolve attachments.
-    bool CreateRenderPass();
-    /// Creates one framebuffer per swapchain image for the main render pass.
-    bool CreateFrameBuffer();
-    /// Creates the graphics command pool.
-    bool CreateCommandPool();
-    /// Allocates one primary command buffer per frame in flight.
-    bool CreateCommandBuffer();
-    /// Creates the per-swapchain-image semaphores and per-frame fences and
-    /// transfer semaphores.
-    bool CreateSyncObjects();
-    /// Creates the depth image, memory, and image view.
-    bool CreateDepthResources();
-    /// Creates the texture, bone UBO, light UBO, and shadow sampler descriptor set layouts.
-    bool CreateDescriptorSetLayout();
-    /// Creates the descriptor pool backing the per-texture descriptor sets.
-    bool CreateDescriptorPool();
-    /// Allocates one texture descriptor set per swapchain image.
-    bool AllocateDescriptorSets();
-    /// Creates the fallback 1x1 white texture and writes it into the global descriptor sets.
-    bool CreateDefaultTexture();
-    /// Allocates and writes a per-texture descriptor set for the given texture.
-    void WriteTextureDescriptors(VulkanTexture* texture);
-    /// Registers the debug messenger callback for validation output.
-    bool SetupDebugMessenger();
+ // Shadow mapping
+ /// Creates the shadow depth image, sampler, render pass, and framebuffer.
+ bool CreateShadowResources();
+ /// Compiles the shadow depth shader and creates the shadow pass pipeline.
+ bool CreateShadowPipeline();
+ /// Creates the per-frame light and shadow UBO buffers and descriptor sets.
+ bool CreateShadowLightUBOResources();
+ /// Destroys the shadow map image, pipeline, render pass, and light UBO
+ /// resources.
+ void CleanupShadowResources();
+ /// Creates the Vulkan instance. The validation layer is on in Debug builds
+ /// or with --validate, and --syncval adds synchronization validation.
+ bool InitVulkan();
+ /// Creates the SDL-backed Vulkan presentation surface.
+ bool CreateSurface();
+ /// Selects the physical GPU and creates the logical device and queues.
+ bool CreateDevice();
+ /// Creates the swapchain from the queried surface capabilities.
+ bool CreateSwapChain();
+ /// Rebuilds the swapchain and its dependents after resize or resolution
+ /// change.
+ bool RecreateSwapChain();
+ /// True when the surface wants a different extent than the swapchain.
+ bool SurfaceExtentChanged();
+ /// Creates an image view for each swapchain image.
+ bool CreateImageViews();
+ /// Creates the layout shared by the forward, skybox, debug line, skinned,
+ /// and shadow pipelines.
+ bool CreateMainPipelineLayout();
+ /// Creates the main forward graphics pipeline, plus its layout and shader
+ /// on first use.
+ bool CreateGraphicsPipeline();
+ /// Creates the pipeline cache, seeded from disk when the saved blob was
+ /// written by this device and driver.
+ void CreatePipelineCache();
+ /// Saves the pipeline cache to disk when it changed, then destroys it.
+ void DestroyPipelineCache();
+ /// Creates the main forward render pass with optional MSAA color and resolve
+ /// attachments.
+ bool CreateRenderPass();
+ /// Creates one framebuffer per swapchain image for the main render pass.
+ bool CreateFrameBuffer();
+ /// Creates the graphics command pool.
+ bool CreateCommandPool();
+ /// Allocates one primary command buffer per frame in flight.
+ bool CreateCommandBuffer();
+ /// Creates the per-swapchain-image semaphores and per-frame fences and
+ /// transfer semaphores.
+ bool CreateSyncObjects();
+ /// Grows the per-image semaphores to the swapchain image count and
+ /// clears the image-to-fence table.
+ bool CreateImageSyncObjects();
+ /// Creates the depth image, memory, and image view.
+ bool CreateDepthResources();
+ /// Creates the texture, bone UBO, light UBO, and shadow sampler descriptor set
+ /// layouts.
+ bool CreateDescriptorSetLayout();
+ /// Creates the descriptor pool backing the per-texture descriptor sets.
+ bool CreateDescriptorPool();
+ /// Allocates one texture descriptor set per swapchain image.
+ bool AllocateDescriptorSets();
+ /// Creates the fallback 1x1 white texture and writes it into the global
+ /// descriptor sets.
+ bool CreateDefaultTexture();
+ /// Allocates and writes a per-texture descriptor set for the given texture.
+ void WriteTextureDescriptors(VulkanTexture* texture);
+ /// Registers the debug messenger callback when the validation layer is on.
+ bool SetupDebugMessenger();
 
-    /// Destroys the swapchain, its image views, and framebuffers.
-    void CleanupSwapChain();
-    /// Destroys the depth image, memory, and image view.
-    void CleanupDepthResources();
+ /// Destroys the swapchain, its image views, and framebuffers.
+ void CleanupSwapChain();
+ /// Destroys the depth image, memory, and image view.
+ void CleanupDepthResources();
 
-    // MSAA resources
-    /// Creates the MSAA color image used as the multisampled render target.
-    bool CreateMSAAColorResources();
-    /// Destroys the MSAA color image, view, and memory.
-    void CleanupMSAAColorResources();
-    /// Queries the highest MSAA sample count the GPU supports.
-    VkSampleCountFlagBits GetMaxUsableSampleCount();
+ // MSAA resources
+ /// Creates the MSAA color image used as the multisampled render target.
+ bool CreateMSAAColorResources();
+ /// Destroys the MSAA color image, view, and memory.
+ void CleanupMSAAColorResources();
+ /// Queries the highest MSAA sample count the GPU supports.
+ VkSampleCountFlagBits GetMaxUsableSampleCount();
 
-    /// No-op; Vulkan polygon mode changes require pipeline recreation.
-    virtual void ConfigureRenderMode() override;
-    /// No-op; Vulkan cull mode changes require pipeline recreation.
-    virtual void ConfigureRenderFace() override;
+ /// No-op; Vulkan polygon mode changes require pipeline recreation.
+ virtual void ConfigureRenderMode() override;
+ /// No-op; Vulkan cull mode changes require pipeline recreation.
+ virtual void ConfigureRenderFace() override;
 
-    /// Builds one queue create info per unique queue family index.
-    std::vector<VkDeviceQueueCreateInfo>
-    GetUniqueQueueCreateInfos();
+ /// Builds one queue create info per unique queue family index.
+ std::vector<VkDeviceQueueCreateInfo> GetUniqueQueueCreateInfos();
 
-    /// Queries surface capabilities, formats, and present modes.
-    std::optional<SwapchainDetails> QuerySwapchain();
+ /// Queries surface capabilities, formats, and present modes.
+ std::optional<SwapchainDetails> QuerySwapchain();
 
-    /// Picks a UNORM surface format to avoid double sRGB encoding.
-    VkSurfaceFormatKHR ChooseFormat(
-        const std::vector<VkSurfaceFormatKHR>& formats);
-    /// Picks FIFO when VSync is on, otherwise MAILBOX or IMMEDIATE.
-    VkPresentModeKHR ChoosePresentMode(
-        const std::vector<VkPresentModeKHR>& modes);
-    /// Clamps the window size to the surface's supported extent.
-    VkExtent2D ChooseExtend(SwapchainDetails details);
+ /// Picks a UNORM surface format to avoid double sRGB encoding.
+ VkSurfaceFormatKHR ChooseFormat(
+     const std::vector<VkSurfaceFormatKHR>& formats);
+ /// Picks FIFO when VSync is on, otherwise MAILBOX or IMMEDIATE.
+ VkPresentModeKHR ChoosePresentMode(const std::vector<VkPresentModeKHR>& modes);
+ /// Clamps the window size to the surface's supported extent.
+ VkExtent2D ChooseExtend(const VkSurfaceCapabilitiesKHR& caps);
 
-    /// Picks the first supported depth-stencil format from the candidate list.
-    VkFormat FindDepthFormat();
-    /// Finds a memory type index matching the filter and property flags.
-    uint32_t FindMemoryType(uint32_t typeFilter,
-                            VkMemoryPropertyFlags properties);
+ /// Picks the first supported depth-stencil format from the candidate list.
+ VkFormat FindDepthFormat();
+ /// Finds a memory type index matching the filter and property flags.
+ uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
-    /// Fills the debug messenger create info with severity and callback.
-    void PopulateDebugMessengerCreateInfo(
-        VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+ /// Fills the debug messenger create info with severity and callback.
+ void PopulateDebugMessengerCreateInfo(
+     VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
-    /// Debug messenger callback that routes Vulkan messages to the logger.
-    static VkBool32 Validation(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData);
+ /// Debug messenger callback that routes Vulkan messages to the logger.
+ static VkBool32 Validation(
+     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+     VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+     void* pUserData);
 
-    bool bRender = true;
-    bool bFrameStarted = false;
+ bool bRender = true;
+ bool bFrameStarted = false;
 
-    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-    uint32_t currentFrame = 0;
-    uint32_t CurrentFrameIndex = 0;
-    uint32_t m_semaphoreIndex = 0;  // cycles through swapchain image count
-    VkInstance instance = VK_NULL_HANDLE;
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-    VkSwapchainKHR swapChain = VK_NULL_HANDLE;
-    VkCommandPool commands = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> commandBuffers;
-    VkCommandBuffer command = VK_NULL_HANDLE;  // alias for commandBuffers[currentFrame]
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-    std::vector<VkImage> swapChainImages;
-    std::vector<VkImageView> swapChainImageViews;
-    VkFormat scImageFormat;
-    VkExtent2D scExtent;
-    VkDevice device = VK_NULL_HANDLE;
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    std::vector<VkPhysicalDevice> GPUs;
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLay = VK_NULL_HANDLE;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> imagesInFlight;
-    VulkanShader* simpleShader = nullptr;
-    VkClearValue clearColor;
+ static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+ uint32_t currentFrame = 0;
+ uint32_t CurrentFrameIndex = 0;
+ uint32_t m_semaphoreIndex = 0;  // cycles through swapchain image count
+ VkInstance instance = VK_NULL_HANDLE;
+ VkSurfaceKHR surface = VK_NULL_HANDLE;
+ VkRenderPass renderPass = VK_NULL_HANDLE;
+ VkSwapchainKHR swapChain = VK_NULL_HANDLE;
+ VkCommandPool commands = VK_NULL_HANDLE;
+ std::vector<VkCommandBuffer> commandBuffers;
+ VkCommandBuffer command =
+     VK_NULL_HANDLE;  // alias for commandBuffers[currentFrame]
+ std::vector<VkFramebuffer> swapChainFramebuffers;
+ std::vector<VkImage> swapChainImages;
+ std::vector<VkImageView> swapChainImageViews;
+ VkFormat scImageFormat;
+ VkExtent2D scExtent;
+ VkDevice device = VK_NULL_HANDLE;
+ VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+ std::vector<VkPhysicalDevice> GPUs;
+ VkPipeline pipeline = VK_NULL_HANDLE;
+ VkPipelineLayout pipelineLay = VK_NULL_HANDLE;
+ VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
+ // Loaded blob size and hash, so an unchanged cache is not rewritten
+ size_t m_pipelineCacheLoadedSize = 0;
+ uint64_t m_pipelineCacheLoadedHash = 0;
+ std::vector<VkSemaphore> imageAvailableSemaphores;
+ std::vector<VkSemaphore> renderFinishedSemaphores;
+ std::vector<VkFence> inFlightFences;
+ std::vector<VkFence> imagesInFlight;
+ // Submission serial of the last frame recorded in each frame slot
+ std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> m_slotSerial{};
+ uint64_t m_submitSerial = 0;
+ VulkanShader* simpleShader = nullptr;
+ VkClearValue clearColor;
 
-    // Depth buffer
-    VkImage depthImage = VK_NULL_HANDLE;
-    VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
-    VkImageView depthImageView = VK_NULL_HANDLE;
-    VkFormat depthFormat;
+ // Depth buffer
+ VkImage depthImage = VK_NULL_HANDLE;
+ VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
+ VkImageView depthImageView = VK_NULL_HANDLE;
+ VkFormat depthFormat;
 
-    // MSAA color buffer (multisample resolve target)
-    VkSampleCountFlagBits m_msaaSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkImage m_msaaColorImage = VK_NULL_HANDLE;
-    VkDeviceMemory m_msaaColorImageMemory = VK_NULL_HANDLE;
-    VkImageView m_msaaColorImageView = VK_NULL_HANDLE;
+ // MSAA color buffer (multisample resolve target)
+ VkSampleCountFlagBits m_msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+ VkImage m_msaaColorImage = VK_NULL_HANDLE;
+ VkDeviceMemory m_msaaColorImageMemory = VK_NULL_HANDLE;
+ VkImageView m_msaaColorImageView = VK_NULL_HANDLE;
 
-    // Descriptor sets for uniform buffers
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> descriptorSets;
+ // Descriptor sets for uniform buffers
+ VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+ VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+ std::vector<VkDescriptorSet> descriptorSets;
 
-    QueueIndices QueueIDs;
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue computeQueue = VK_NULL_HANDLE;
-    VkQueue transferQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue = VK_NULL_HANDLE;
+ QueueIndices QueueIDs;
+ VkQueue graphicsQueue = VK_NULL_HANDLE;
+ VkQueue computeQueue = VK_NULL_HANDLE;
+ VkQueue transferQueue = VK_NULL_HANDLE;
+ VkQueue presentQueue = VK_NULL_HANDLE;
 
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-    PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT =
-        nullptr;
+ VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+ PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT = nullptr;
+ bool m_validationEnabled = false;
 
-    Window* sdlWindow;
+ Window* sdlWindow;
 
-    // Texture binding
-    bool m_textureDescriptorsWritten = false;
-    VulkanTexture* m_defaultTexture = nullptr;
+ // Texture binding
+ bool m_textureDescriptorsWritten = false;
+ VulkanTexture* m_defaultTexture = nullptr;
 
-    // Skybox pipeline
-    VkPipeline skyboxPipeline = VK_NULL_HANDLE;
-    VulkanShader* skyboxShader = nullptr;
-    VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> skyboxDescriptorSets;
-    bool m_skyboxDescriptorsWritten = false;
-    VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
-    VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
+ // Skybox pipeline
+ VkPipeline skyboxPipeline = VK_NULL_HANDLE;
+ VulkanShader* skyboxShader = nullptr;
+ VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
+ std::vector<VkDescriptorSet> skyboxDescriptorSets;
+ bool m_skyboxDescriptorsWritten = false;
+ VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
+ VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
+ uint32_t m_skyboxViewSerial = 0;  // bumped whenever the cached view changes
 
-    // Skinned pipeline (uses skinned shaders with bone UBO)
-    VkPipeline skinnedPipeline = VK_NULL_HANDLE;
-    VulkanShader* skinnedShader = nullptr;
+ // Skinned pipeline (uses skinned shaders with bone UBO)
+ VkPipeline skinnedPipeline = VK_NULL_HANDLE;
+ VulkanShader* skinnedShader = nullptr;
 
-    // Debug line pipeline
-    VkPipeline debugLinePipeline = VK_NULL_HANDLE;
-    VulkanShader* debugLineShader = nullptr;
-    /// Compiles the debug line shaders and creates the line-list pipeline.
-    bool CreateDebugLinePipeline();
+ // Debug line pipeline
+ VkPipeline debugLinePipeline = VK_NULL_HANDLE;
+ VulkanShader* debugLineShader = nullptr;
+ /// Compiles the debug line shaders and creates the line-list pipeline.
+ bool CreateDebugLinePipeline();
 
-    // Custom vertex format pipelines (built lazily per registered VertexFormatHandle)
-    /// The four pipeline variants a registered vertex layout can drive.
-    /// A failed flag marks a variant as permanently absent so draws skip it
-    /// instead of retrying compilation every frame.
-    struct CustomFormatPipelines {
-        VkPipeline main = VK_NULL_HANDLE;
-        VkPipeline shadow = VK_NULL_HANDLE;
-        VkPipeline gbuffer = VK_NULL_HANDLE;
-        VkPipeline transparent = VK_NULL_HANDLE;
-        bool mainFailed = false;
-        bool shadowFailed = false;
-        bool gbufferFailed = false;
-        bool transparentFailed = false;
-    };
-    std::unordered_map<VertexFormatHandle, CustomFormatPipelines>
-        m_customFormatPipelines;
-    VertexFormatHandle m_activeCustomFormat = 0;
-    /// Set while the active custom format has no pipeline for the current pass;
-    /// draws are dropped rather than issued against a mismatched vertex layout.
-    bool m_customFormatUnbound = false;
-    /// True while the bound vertex buffer's format has no pipeline for this pass.
-    bool CustomFormatDrawsSuppressed() const;
-    /// Creates any missing pipeline variant for a registered format; returns false when the main variant is unusable.
-    bool CreateCustomFormatPipelines(VertexFormatHandle format);
-    /// Destroys every cached custom-format pipeline (all variants, all formats).
-    void DestroyCustomFormatPipelines();
+ // Custom vertex format pipelines (one per registered VertexFormatHandle)
+ /// Render pass a custom-format pipeline variant is built for.
+ enum class CustomPass : uint8_t { Main, Shadow, GBuffer, Transparent, Count };
+ static constexpr size_t CUSTOM_PASS_COUNT =
+     static_cast<size_t>(CustomPass::Count);
+ /// The pipeline variants a registered vertex layout can drive, indexed by
+ /// CustomPass. A failed flag marks a variant as permanently absent so
+ /// draws skip it instead of retrying compilation every frame.
+ struct CustomFormatPipelines {
+     std::array<VkPipeline, CUSTOM_PASS_COUNT> pipelines{};
+     std::array<bool, CUSTOM_PASS_COUNT> failed{};
+ };
+ // Indexed by handle - 1 (handles are dense and start at 1)
+ std::vector<CustomFormatPipelines> m_customFormatPipelines;
+ // Registered formats whose active-path variants were prebuilt
+ VertexFormatHandle m_customFormatsPrebuilt = 0;
+ VertexFormatHandle m_activeCustomFormat = 0;
+ /// Set while the active custom format has no pipeline for the current pass;
+ /// draws are dropped rather than issued against a mismatched vertex layout.
+ bool m_customFormatUnbound = false;
+ /// True while the bound vertex buffer's format has no pipeline for this pass.
+ bool CustomFormatDrawsSuppressed() const;
+ /// True when the render pass a custom-format variant targets exists.
+ bool CustomPassAvailable(CustomPass pass) const;
+ /// Returns a format's pipeline for a pass, compiling it on first request.
+ VkPipeline GetCustomFormatPipeline(VertexFormatHandle format, CustomPass pass);
+ /// Compiles one pipeline variant of a registered layout; returns
+ /// VK_NULL_HANDLE when its stem is empty or compilation fails.
+ VkPipeline BuildCustomFormatPipeline(VertexFormatHandle format,
+                                      const VertexLayoutDesc& desc,
+                                      CustomPass pass);
+ /// Compiles the variants the active render path draws with for every
+ /// registered format not prebuilt yet.
+ void PrebuildCustomFormatPipelines();
+ /// Destroys every cached custom-format pipeline (all variants, all formats).
+ void DestroyCustomFormatPipelines();
 
-    // Bone UBO (for skeletal animation — set 1, binding 0)
-    VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool boneDescriptorPool = VK_NULL_HANDLE;
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> boneUBOBuffers = {};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> boneUBOMemory = {};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> boneUBOMapped = {};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> boneDescriptorSets = {};
-    bool m_boneUBOCreated = false;
-    /// Creates the per-frame bone UBO buffers and their descriptor sets.
-    bool CreateBoneUBOResources();
-    /// Destroys the bone UBO buffers, memory, and descriptor pool.
-    void CleanupBoneUBOResources();
+ // Bone palette ring (set 1, binding 0, dynamic offset per bind)
+ struct BoneUBOChunk {
+     VkDescriptorPool pool = VK_NULL_HANDLE;
+     VkDescriptorSet set = VK_NULL_HANDLE;
+     VkBuffer buffer = VK_NULL_HANDLE;
+     VkDeviceMemory memory = VK_NULL_HANDLE;
+     void* mapped = nullptr;
+ };
+ static constexpr uint32_t BONE_MATRIX_BYTES = sizeof(float) * 16;
+ static constexpr uint32_t BONE_PALETTE_BYTES = MAX_BONES * BONE_MATRIX_BYTES;
+ static constexpr uint32_t BONE_SLOTS_PER_CHUNK = 32;
+ VkDescriptorSetLayout boneDescriptorSetLayout = VK_NULL_HANDLE;
+ std::array<std::vector<BoneUBOChunk>, MAX_FRAMES_IN_FLIGHT> m_boneChunks;
+ VkDeviceSize m_boneSlotStride = BONE_PALETTE_BYTES;
+ uint32_t m_boneSlot[MAX_FRAMES_IN_FLIGHT] = {};
+ bool m_boneUBOCreated = false;
+ /// Creates each frame's first bone ring chunk; slot 0 holds identity.
+ bool CreateBoneUBOResources();
+ /// Appends BONE_SLOTS_PER_CHUNK palette slots to one frame's bone ring.
+ bool AddBoneUBOChunk(uint32_t frame);
+ /// Destroys every bone ring chunk of every frame.
+ void CleanupBoneUBOResources();
+ /// Binds the identity palette (ring slot 0) at set 1.
+ void BindIdentityBonePalette(VkPipelineLayout layout);
 
-    // ImGUI
-    VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
+ // ImGUI
+ VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
 
-    // Shadow mapping resources
-    VkImage m_shadowImage = VK_NULL_HANDLE;
-    VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
-    VkImageView m_shadowImageView = VK_NULL_HANDLE;
-    VkSampler m_shadowSampler = VK_NULL_HANDLE;      // compare sampler (hardware PCF)
-    VkSampler m_shadowRawSampler = VK_NULL_HANDLE;   // non-compare sampler (PCSS blocker search)
-    VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
-    VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
-    VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
-    VulkanShader* m_shadowShader = nullptr;
-    bool m_shadowPassActive = false;
-    // m_shadowResourcesCreated lives in the Renderer base (shared with the
-    // shadow-resolution change-request logic)
+ // Shadow mapping resources
+ VkImage m_shadowImage = VK_NULL_HANDLE;
+ VkDeviceMemory m_shadowImageMemory = VK_NULL_HANDLE;
+ VkImageView m_shadowImageView = VK_NULL_HANDLE;
+ VkSampler m_shadowSampler = VK_NULL_HANDLE;  // compare sampler (hardware PCF)
+ VkSampler m_shadowRawSampler =
+     VK_NULL_HANDLE;  // non-compare sampler (PCSS blocker search)
+ VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
+ VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
+ VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
+ VulkanShader* m_shadowShader = nullptr;
+ bool m_shadowPassActive = false;
+ // m_shadowResourcesCreated lives in the Renderer base (shared with the
+ // shadow-resolution change-request logic)
 
-    // Shadow push-constant memo: LightVP*World is frame-constant per unique
-    // World, so cache it and skip the matmul when consecutive casters (all
-    // draws share the identity transform) reuse the same World matrix.
-    float m_shadowWorldCache[16] = {};
-    float m_shadowPCCache[32] = {};
-    bool  m_shadowPCCacheValid = false;
+ // Shadow push-constant memo: LightVP*World is frame-constant per unique
+ // World, so cache it and skip the matmul when consecutive casters (all
+ // draws share the identity transform) reuse the same World matrix.
+ float m_shadowWorldCache[16] = {};
+ float m_shadowPCCache[32] = {};
+ bool m_shadowPCCacheValid = false;
+ // Layout m_shadowPCCache was last pushed with in this shadow pass, or
+ // null once anything else overwrote the push constants.
+ VkPipelineLayout m_shadowPCPushedLayout = VK_NULL_HANDLE;
 
-    // Light VP matrix (stored as raw floats for push constant computation)
-    float m_lightVP[16] = {};
-    // Staging slot: SetLightVP writes here; BeginRender copies it to
-    // m_lightVP before the shadow pass. Keeps m_lightVP stable for the
-    // entire frame so shadow pass and main pass agree on the transform.
-    float m_pendingLightVP[16] = {};
-    bool  m_hasPendingLightVP = false;
+ // Light VP matrix (stored as raw floats for push constant computation)
+ float m_lightVP[16] = {};
+ // Staging slot: SetLightVP writes here; BeginRender copies it to
+ // m_lightVP before the shadow pass. Keeps m_lightVP stable for the
+ // entire frame so shadow pass and main pass agree on the transform.
+ float m_pendingLightVP[16] = {};
+ bool m_hasPendingLightVP = false;
+ // Matrix the shadow map was last rendered with
+ float m_shadowMapLightVP[16] = {};
+ bool m_shadowMapRendered = false;
 
-    // Light/Shadow UBO (set 2, binding 0)
-    VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_lightUBODescriptorPool = VK_NULL_HANDLE;
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_lightUBOBuffers = {};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_lightUBOMemory = {};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> m_lightUBOMapped = {};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_lightUBODescriptorSets = {};
+ // Light/Shadow UBO (set 2, binding 0)
+ VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
+ VkDescriptorPool m_lightUBODescriptorPool = VK_NULL_HANDLE;
+ std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_lightUBOBuffers = {};
+ std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_lightUBOMemory = {};
+ std::array<void*, MAX_FRAMES_IN_FLIGHT> m_lightUBOMapped = {};
+ std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_lightUBODescriptorSets =
+     {};
 
-    // Shadow map sampler descriptor (set 3, binding 0)
-    VkDescriptorSetLayout m_shadowSamplerDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_shadowSamplerDescriptorPool = VK_NULL_HANDLE;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_shadowSamplerDescriptorSets = {};
-    bool m_lightUBOCreated = false;
+ // Shadow map sampler descriptor (set 3, binding 0)
+ VkDescriptorSetLayout m_shadowSamplerDescriptorSetLayout = VK_NULL_HANDLE;
+ VkDescriptorPool m_shadowSamplerDescriptorPool = VK_NULL_HANDLE;
+ std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>
+     m_shadowSamplerDescriptorSets = {};
+ bool m_lightUBOCreated = false;
 
-    // Async buffer transfer (zero-CPU-blocking GPU uploads)
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_transferSemaphores = {};
-    std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
+ // Async buffer transfer (zero-CPU-blocking GPU uploads)
+ std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_transferSemaphores = {};
+ std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 
-    // ---- Deferred GBuffer ----
-    // 3 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit.
-    // World position is reconstructed from the depth buffer + InvViewProj in
-    // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
-    // bandwidth on a fill-bound renderer.
-    static constexpr uint32_t GBUFFER_COUNT = 3;
-    VkImage        m_gbufferImages[GBUFFER_COUNT]   = {};
-    VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT]   = {};
-    VkImageView    m_gbufferViews[GBUFFER_COUNT]    = {};
-    /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit. Defined in VulkanDeferred.cpp.
-    static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
-    VkRenderPass   m_gbufferRenderPass              = VK_NULL_HANDLE;
-    VkFramebuffer  m_gbufferFramebuffer             = VK_NULL_HANDLE;
-    VkPipeline     m_gbufferPipeline                = VK_NULL_HANDLE;
-    VkPipeline     m_skinnedGbufferPipeline         = VK_NULL_HANDLE;
-    VkPipelineLayout m_gbufferPipelineLayout        = VK_NULL_HANDLE;
-    VulkanShader*  m_gbufferShader                  = nullptr;
-    bool           m_gbufferResourcesCreated        = false;
-    bool           m_inGeometryPass                 = false;
+ // ---- Deferred GBuffer ----
+ // 3 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit.
+ // World position is reconstructed from the depth buffer + InvViewProj in
+ // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
+ // bandwidth on a fill-bound renderer.
+ static constexpr uint32_t GBUFFER_COUNT = 3;
+ VkImage m_gbufferImages[GBUFFER_COUNT] = {};
+ VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT] = {};
+ VkImageView m_gbufferViews[GBUFFER_COUNT] = {};
+ /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit.
+ /// Defined in VulkanDeferred.cpp.
+ static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
+ VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
+ VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;
+ VkPipeline m_gbufferPipeline = VK_NULL_HANDLE;
+ VkPipeline m_skinnedGbufferPipeline = VK_NULL_HANDLE;
+ VkPipelineLayout m_gbufferPipelineLayout = VK_NULL_HANDLE;
+ VulkanShader* m_gbufferShader = nullptr;
+ bool m_gbufferResourcesCreated = false;
+ bool m_inGeometryPass = false;
 
-    // Lighting pass
-    VkRenderPass   m_lightingRenderPass             = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> m_lightingFramebuffers;   // one per swapchain image
-    VkPipeline     m_lightingPipeline               = VK_NULL_HANDLE;
-    VkPipelineLayout m_lightingPipelineLayout       = VK_NULL_HANDLE;
-    VulkanShader*  m_lightingShader                 = nullptr;
+ // Lighting pass
+ VkRenderPass m_lightingRenderPass = VK_NULL_HANDLE;
+ std::vector<VkFramebuffer> m_lightingFramebuffers;  // one per swapchain image
+ VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
+ VkPipelineLayout m_lightingPipelineLayout = VK_NULL_HANDLE;
+ VulkanShader* m_lightingShader = nullptr;
 
-    // Forward transparent pass
-    VkRenderPass   m_forwardRenderPass              = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> m_forwardFramebuffers;  // one per swapchain image (color+depth, non-MSAA)
-    bool           m_inForwardTransparentPass       = false;
-    bool           m_forwardPassOpen                = false; // true when forward RP is currently recording
+ // Forward transparent pass
+ VkRenderPass m_forwardRenderPass = VK_NULL_HANDLE;
+ std::vector<VkFramebuffer>
+     m_forwardFramebuffers;  // one per swapchain image (color+depth, non-MSAA)
+ bool m_inForwardTransparentPass = false;
+ bool m_forwardPassOpen = false;  // true when forward RP is currently recording
 
-    // GBuffer sampler descriptor set (set 0 in lighting pass)
-    VkDescriptorSetLayout m_gbufferSamplerDSL       = VK_NULL_HANDLE;
-    VkDescriptorPool      m_gbufferSamplerPool      = VK_NULL_HANDLE;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_gbufferSamplerSets = {};
-    VkSampler      m_gbufferSampler                 = VK_NULL_HANDLE;
-    VkSampler      m_depthSampler                   = VK_NULL_HANDLE;
+ // GBuffer sampler descriptor set (set 0 in lighting pass)
+ VkDescriptorSetLayout m_gbufferSamplerDSL = VK_NULL_HANDLE;
+ VkDescriptorPool m_gbufferSamplerPool = VK_NULL_HANDLE;
+ std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_gbufferSamplerSets = {};
+ VkSampler m_gbufferSampler = VK_NULL_HANDLE;
+ VkSampler m_depthSampler = VK_NULL_HANDLE;
 
-    // Deferred CB UBO (set 1 in lighting pass): InvViewProj + screenSize + near/far
-    struct DeferredCBData {
-        float InvViewProj[16];
-        float ScreenW, ScreenH, NearP, FarP;
-    };
+ // Deferred CB UBO (set 1 in lighting pass): InvViewProj + screenSize +
+ // near/far
+ struct DeferredCBData {
+     float InvViewProj[16];
+     float ScreenW, ScreenH, NearP, FarP;
+ };
     VkDescriptorSetLayout m_deferredCBDSL           = VK_NULL_HANDLE;
     VkDescriptorPool      m_deferredCBPool          = VK_NULL_HANDLE;
     std::array<VkBuffer,       MAX_FRAMES_IN_FLIGHT> m_deferredCBBuffers = {};
@@ -795,10 +886,10 @@ private:
 
     // ---- TAA (Temporal Anti-Aliasing) resources ----
     // Ping-pong history accumulation with depth-based reprojection
-    // and 3x3 neighborhood AABB clamping.
+    // and 3x3 YCoCg variance clipping.
     struct alignas(16) TAAParams {
-        float InvCurrentVP[16]; // inverse of unjittered current VP
-        float PrevVP[16];       // previous frame unjittered VP
+        float CurrentToPrevClip[16];  // inverse(current VP) * previous VP,
+                                      // unjittered
         float ScreenW, ScreenH;
         float BlendFactor;
         float _pad;
@@ -807,6 +898,7 @@ private:
     bool     m_taaResourcesCreated = false;
     // m_taaEnabled is inherited from RenderEngine::Renderer (base class).
     uint64_t m_taaFrameIdx         = 0;   // global counter; ping-pong = idx % 2
+    bool m_taaRanLastFrame = false;       // false restarts accumulation
 
     VkImage        m_taaImages[2]     = {};
     VkDeviceMemory m_taaMemory[2]     = {};
@@ -814,6 +906,8 @@ private:
     VkRenderPass   m_taaRenderPass    = VK_NULL_HANDLE;
     VkFramebuffer  m_taaFramebufs[2]  = {};
     VkSampler      m_taaSampler       = VK_NULL_HANDLE;
+
+    VkImageView m_taaResolvedView = VK_NULL_HANDLE;  // null if TAA is off
 
     VkDescriptorSetLayout m_taaInputDSL = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_taaUboDSL   = VK_NULL_HANDLE;
@@ -829,7 +923,7 @@ private:
     VkPipeline       m_taaPipeline       = VK_NULL_HANDLE;
     VulkanShader*    m_taaShader         = nullptr;
 
-    float m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
+    double m_prevViewProj[16] = {};  // previous frame unjittered VP (row-major)
     float m_taaJitter[2]     = {};  // current frame jitter in UV space
 
     /// Creates the ping-pong TAA history images, render pass, framebuffers, descriptors, and pipeline.
@@ -838,8 +932,10 @@ private:
     void CleanupTAAResources();
     /// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
     void UpdateTAAUBO();
-    /// Resolves the current frame against TAA history and copies the result back into the HDR scene image.
+    /// Resolves the frame against TAA history into the ping-pong target.
     void RenderTAAPass();
+    /// HDR scene color for the post passes: the TAA resolve when TAA ran.
+    VkImageView PostSceneView() const;
 
     // Per-image "fallback content is valid" flags. Set true once the image is
     // primed (static black/white in SHADER_READ_ONLY) by either
@@ -931,6 +1027,151 @@ private:
 
     /// Sets the dynamic viewport and scissor to fill the given extent. Defined in VulkanBloom.cpp (most call sites of the four post-effect TUs).
     static void FillFullscreenViewportScissor(VkCommandBuffer cmd, VkExtent2D ext);
+
+    // ---- GPU timestamp profiler (--gpuprofile) ----
+    /// Frame passes bracketed by timestamp pairs, in log-table order.
+    enum class GpuPass : uint8_t {
+        Shadow,
+        GBuffer,
+        SSAO,
+        Lighting,
+        Forward,
+        TAA,
+        SSR,
+        Bloom,
+        Tonemap,
+        UI,
+        Count
+    };
+    static constexpr uint32_t GPU_PASS_COUNT =
+        static_cast<uint32_t>(GpuPass::Count);
+    static constexpr uint32_t GPU_ROW_OTHER = GPU_PASS_COUNT;
+    static constexpr uint32_t GPU_ROW_TOTAL = GPU_PASS_COUNT + 1;
+    static constexpr uint32_t GPU_ROW_COUNT = GPU_PASS_COUNT + 2;
+    static constexpr uint32_t GPU_MAX_PAIRS = 16;
+    static constexpr uint32_t GPU_QUERIES_PER_FRAME = 2 + 2 * GPU_MAX_PAIRS;
+
+    /// Timestamp pairs recorded into one frame-in-flight slot of the pool.
+    struct GpuProfileSlot {
+        std::array<GpuPass, GPU_MAX_PAIRS> pairPass{};
+        uint32_t pairCount = 0;
+        bool pairOpen = false;
+        bool recording = false;
+        bool submitted = false;
+    };
+
+    VkQueryPool m_gpuQueryPool = VK_NULL_HANDLE;
+    bool m_gpuProfilerEnabled = false;
+    double m_gpuTickNs = 0.0;
+    uint64_t m_gpuTickMask = 0;
+    std::array<GpuProfileSlot, MAX_FRAMES_IN_FLIGHT> m_gpuSlots{};
+    std::array<double, GPU_ROW_COUNT> m_gpuSumMs{};
+    std::array<float, GPU_ROW_COUNT> m_gpuMaxMs{};
+    std::array<uint32_t, GPU_ROW_COUNT> m_gpuRuns{};
+    std::array<float, GPU_ROW_COUNT> m_gpuLastMs{};
+    uint32_t m_gpuWindowFrames = 0;
+    Timer m_gpuWindowTimer;
+
+    /// Creates the timestamp query pool; leaves profiling off when the
+    /// graphics queue has no timestamp support.
+    bool CreateGpuProfiler();
+    /// Destroys the timestamp query pool.
+    void CleanupGpuProfiler();
+    /// Folds this slot's finished timestamps into the running window and
+    /// logs the table once the window elapses. Call after the slot's fence.
+    void CollectGpuProfile();
+    /// Resets this slot's queries and stamps the frame start.
+    void BeginGpuFrame();
+    /// Closes any pass left open and stamps the frame end.
+    void EndGpuFrame();
+    /// Flags this slot's queries for readback on its next fence wait.
+    void MarkGpuFrameSubmitted();
+    /// Stamps the start of a pass.
+    void BeginGpuPass(GpuPass pass);
+    /// Stamps the end of the pass opened by the matching BeginGpuPass.
+    void EndGpuPass(GpuPass pass);
+    /// Logs the averaged per-pass table for the current window.
+    void LogGpuProfile(float seconds) const;
+
+    // ---- Frame capture (-capture) ----
+    bool m_captureMode = false;
+    bool m_swapchainTransferSrc = false;
+    std::string m_capturePath;
+    bool m_captureRecorded = false;
+    VkBuffer m_captureBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_captureMemory = VK_NULL_HANDLE;
+    VkExtent2D m_captureExtent = {0, 0};
+    VkFormat m_captureFormat = VK_FORMAT_UNDEFINED;
+
+    /// Records the swapchain-image-to-buffer copy for an armed capture.
+    void RecordFrameCaptureCopy();
+    /// Waits for the captured frame, writes the PPM, and disarms the capture.
+    void FinishFrameCapture();
+    /// Frees the capture readback buffer.
+    void CleanupFrameCapture();
+
+    // ---- Scene read for transparent formats (set 3, bindings 2-5) ----
+    // Set 3 holds the shadow map samplers first, then the scene-read inputs
+    static constexpr uint32_t SCENE_COLOR_BINDING = 2;
+    static constexpr uint32_t SCENE_DEPTH_BINDING = 3;
+    static constexpr uint32_t SCENE_SKY_BINDING = 4;
+    static constexpr uint32_t SCENE_UBO_BINDING = 5;
+    static constexpr uint32_t SET3_BINDING_COUNT = SCENE_UBO_BINDING + 1;
+    // Every set 3 binding but the UBO is a combined image sampler
+    static constexpr uint32_t SET3_SAMPLER_COUNT = SET3_BINDING_COUNT - 1;
+    static constexpr uint32_t SCENE_READ_IMAGE_COUNT =
+        SCENE_UBO_BINDING - SCENE_COLOR_BINDING;
+    // Light pool uniform buffers per frame: set 2 light UBO, set 3 SceneReadUBO
+    static constexpr uint32_t LIGHT_POOL_UBOS_PER_FRAME = 2;
+    // Snapshots of the HDR scene and depth taken mid forward pass
+    VkImage m_sceneColorCopyImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneColorCopyMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneColorCopyView = VK_NULL_HANDLE;
+    VkImage m_sceneDepthCopyImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneDepthCopyMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneDepthCopyView = VK_NULL_HANDLE;
+    // 1x1 stand-ins bound while there is no snapshot or sky
+    VkImage m_sceneFallbackImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneFallbackMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneFallbackView = VK_NULL_HANDLE;
+    VkImage m_sceneFallbackCubeImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sceneFallbackCubeMemory = VK_NULL_HANDLE;
+    VkImageView m_sceneFallbackCubeView = VK_NULL_HANDLE;
+    VkSampler m_sceneLinearSampler = VK_NULL_HANDLE;
+    VkSampler m_scenePointSampler = VK_NULL_HANDLE;
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOBuffers{};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOMemory{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT> m_sceneReadUBOMapped{};
+    /// What one frame's set 3 bindings 2-4 last pointed at; a cleared entry
+    /// forces a rewrite.
+    struct SceneReadViews {
+        VkImageView color = VK_NULL_HANDLE;
+        VkImageView depth = VK_NULL_HANDLE;
+        VkImageView sky = VK_NULL_HANDLE;
+        uint32_t skySerial = 0;
+    };
+    std::array<SceneReadViews, MAX_FRAMES_IN_FLIGHT> m_sceneReadWritten{};
+    bool m_sceneReadCreated = false;
+    bool m_sceneReadPrepared = false;  // UBO filled (and copy taken) this frame
+    float m_cachedNearPlane = 0.0f;
+    float m_cachedFarPlane = 0.0f;
+
+    /// Creates the scene-read samplers, stand-in images, and per-frame UBOs
+    /// and writes them into both frames' set 3.
+    bool CreateSceneReadResources();
+    /// Destroys everything CreateSceneReadResources made plus the snapshots.
+    void CleanupSceneReadResources();
+    /// Creates the extent-sized scene color and depth snapshot images.
+    bool CreateSceneCopyImages();
+    /// Destroys the snapshot images and forces a set 3 rewrite.
+    void CleanupSceneCopyImages();
+    /// Points a frame's set 3 bindings 2-4 at the current snapshot and sky.
+    void UpdateSceneReadDescriptors(uint32_t frame);
+    /// Fills this frame's SceneReadUBO and, inside the forward pass, splits it
+    /// to copy the scene. Runs once per frame on the first scene-reading draw.
+    void PrepareSceneRead();
+    /// Records the scene color and depth copies between two forward passes.
+    void RecordSceneCopy();
 };
 
 }  // namespace RenderEngine

@@ -34,6 +34,8 @@
 #include <Runtime/Material.hpp>
 #include <Debug/DebugOverlay.hpp>
 
+#define DEFAULT_CAPTURE_FRAME 600
+
 using namespace Sleak;
 using namespace Sleak::Math;
 
@@ -141,6 +143,7 @@ namespace Sleak {
 
             m_benchmark = new Benchmark();
             m_benchmark->Initialize(renderer);
+            renderer->RegisterBenchmarkMetrics(*m_benchmark);
             {
                 auto& cfg = m_DebugOverlay->GetConfig();
                 cfg.ShowCameraPanel = false;
@@ -152,7 +155,27 @@ namespace Sleak {
 
             float lastTime = FrameTimer.Elapsed();
             float accumulator = 0.0f;
-            const float fixedTimestep = 1.0f / 60.0f;  
+            const float fixedTimestep = 1.0f / 60.0f;
+
+            // Frame capture
+            const std::string capturePath = CommandLine::GetValue("-capture");
+            const bool captureMode = !capturePath.empty();
+            uint64_t captureFrame = DEFAULT_CAPTURE_FRAME;
+            const std::string frameArg =
+                CommandLine::GetValue("-capture-frame");
+            if (!frameArg.empty()) {
+                try {
+                    captureFrame = std::stoull(frameArg);
+                } catch (...) {
+                }
+            }
+            if (captureMode)
+                SLEAK_INFO(
+                    "Frame capture: frame {} -> {} (fixed 1/60 s step, "
+                    "resizes ignored)",
+                    captureFrame, capturePath);
+            uint64_t frameIndex = 0;
+            bool captureArmed = false;
 
             // Initialize and begin the game (and scene)
             if (Game) {
@@ -187,7 +210,8 @@ namespace Sleak {
             while(!CoreWindow->ShouldClose()) {
                 
                 float currentTime = FrameTimer.Elapsed();
-                DeltaTime = currentTime - lastTime;
+                DeltaTime =
+                    captureMode ? fixedTimestep : currentTime - lastTime;
                 lastTime = currentTime;
                 
                 #if defined(_DEBUG) && defined(COUNT_FRAME)
@@ -197,7 +221,7 @@ namespace Sleak {
                 CoreWindow->Update();
 
                 // Apply any pending resize (deferred from event handler to avoid GPU hang)
-                if (m_pendingResize) {
+                if (m_pendingResize && !captureMode) {
                     renderer->Resize(m_pendingResizeW, m_pendingResizeH);
                     width  = static_cast<int>(m_pendingResizeW);
                     height = static_cast<int>(m_pendingResizeH);
@@ -209,6 +233,16 @@ namespace Sleak {
                     if (Game && Game->GetActiveScene()) {
                         if (auto* cam = Game->GetActiveScene()->GetActiveCamera())
                             cam->OnResize(m_pendingResizeW, m_pendingResizeH);
+                    }
+                }
+
+                if (captureMode && !captureArmed &&
+                    frameIndex >= captureFrame) {
+                    captureArmed = true;
+                    if (!renderer->RequestFrameCapture(capturePath)) {
+                        SLEAK_ERROR("Frame capture unavailable on {}",
+                                    renderer->GetTypeStr());
+                        CoreWindow->Close();
                     }
                 }
 
@@ -247,6 +281,10 @@ namespace Sleak {
                     queue->ExecuteCommands(context);
 
                 renderer->EndRender();
+
+                if (captureArmed && !renderer->IsFrameCapturePending())
+                    CoreWindow->Close();
+                ++frameIndex;
             }
         } 
         else{
@@ -387,6 +425,13 @@ namespace Sleak {
     bool Application::GetVSync() const { return renderer->GetVSync(); }
     void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
 
+    const bool Application::GetIsDeferredEnabled() const {
+        return renderer->GetDeferredEnabled();
+    }
+    void Application::SetDeferredEnabled(bool enable) {
+        renderer->SetDeferredEnabled(enable);
+    }
+
     bool  Application::IsSSAOEnabled()  const { return renderer->IsSSAOEnabled(); }
     void  Application::SetSSAOEnabled(bool e)  { renderer->SetSSAOEnabled(e); }
     float Application::GetSSAORadius() const   { return renderer->GetSSAORadius(); }
@@ -407,6 +452,13 @@ namespace Sleak {
     bool  Application::IsTAAEnabled()  const   { return renderer->IsTAAEnabled(); }
     void  Application::SetTAAEnabled(bool e)   { renderer->SetTAAEnabled(e); }
 
+    float Application::GetSharpenStrength() const {
+        return renderer->GetSharpenStrength();
+    }
+    void Application::SetSharpenStrength(float s) {
+        renderer->SetSharpenStrength(s);
+    }
+
     bool  Application::IsBloomEnabled() const  { return renderer->IsBloomEnabled(); }
     void  Application::SetBloomEnabled(bool e) { renderer->SetBloomEnabled(e); }
 
@@ -421,6 +473,7 @@ namespace Sleak {
         renderer->SetIBLEnabled(cfg.iblEnabled);
         renderer->SetIBLIntensity(cfg.iblIntensity);
         renderer->SetTAAEnabled(cfg.taaEnabled);
+        renderer->SetSharpenStrength(cfg.sharpenStrength);
         renderer->SetShadowMapResolution(cfg.shadowMapResolution);
         renderer->SetMSAASampleCount(cfg.msaaSamples);
         renderer->SetTonemappingEnabled(cfg.tonemapEnabled);

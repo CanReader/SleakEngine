@@ -154,6 +154,10 @@ class ENGINE_API Application {
     bool GetVSync() const;
     void SetVSync(bool enabled);
 
+    /// Deferred rendering
+    const bool GetIsDeferredEnabled() const;
+    void SetDeferredEnabled(bool enabled);
+
     // Screen-space ambient occlusion (deferred path only)
     bool  IsSSAOEnabled() const;
     void  SetSSAOEnabled(bool enabled);
@@ -177,6 +181,11 @@ class ENGINE_API Application {
     // Temporal anti-aliasing (deferred path only)
     bool  IsTAAEnabled() const;
     void  SetTAAEnabled(bool enabled);
+
+    /// Post-TAA contrast-adaptive sharpening strength, 0 = off, 1 = strongest.
+    float GetSharpenStrength() const;
+    /// Sets post-TAA sharpening strength; only applied on frames TAA resolves.
+    void SetSharpenStrength(float strength);
 
     // Bloom (deferred path only)
     bool  IsBloomEnabled() const;

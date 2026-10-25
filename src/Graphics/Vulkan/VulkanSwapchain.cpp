@@ -12,6 +12,26 @@
 namespace Sleak {
     namespace RenderEngine {
 
+    namespace {
+
+    /// Short name of a present mode for logs.
+    const char* PresentModeName(VkPresentModeKHR mode) {
+        switch (mode) {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR:
+                return "IMMEDIATE";
+            case VK_PRESENT_MODE_MAILBOX_KHR:
+                return "MAILBOX";
+            case VK_PRESENT_MODE_FIFO_KHR:
+                return "FIFO";
+            case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+                return "FIFO_RELAXED";
+            default:
+                return "OTHER";
+        }
+    }
+
+    }  // namespace
+
 /// Creates the swapchain from the queried surface capabilities.
 bool VulkanRenderer::CreateSwapChain() {
     auto details = QuerySwapchain();
@@ -23,7 +43,7 @@ bool VulkanRenderer::CreateSwapChain() {
 
     auto format = ChooseFormat(details->formats);
     auto mode = ChoosePresentMode(details->presentModes);
-    auto extent = ChooseExtend(details.value());
+    auto extent = ChooseExtend(details->caps);
 
     uint32_t imageCount = details->caps.minImageCount + 1;
     if (details->caps.maxImageCount > 0 &&
@@ -39,6 +59,11 @@ bool VulkanRenderer::CreateSwapChain() {
     info.imageArrayLayers = 1;
     info.presentMode = mode;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    m_swapchainTransferSrc =
+        m_captureMode &&
+        (details->caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    if (m_swapchainTransferSrc)
+        info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     uint32_t indices[] = {QueueIDs.GraphicsIndex, QueueIDs.PresentIndex};
 
@@ -70,6 +95,9 @@ bool VulkanRenderer::CreateSwapChain() {
     scImageFormat = format.format;
     scExtent = extent;
 
+    SLEAK_INFO("Swapchain: {}x{}, {} images, format {}, present mode {}",
+               extent.width, extent.height, scImageCount,
+               static_cast<int>(format.format), PresentModeName(mode));
     return true;
 }
 
@@ -226,10 +254,12 @@ bool VulkanRenderer::CreateDepthResources() {
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // Always add SAMPLED_BIT so deferred lighting pass can read depth.
     // When deferred is enabled, force 1x samples (GBuffer is non-MSAA).
+    // TRANSFER_SRC_BIT: scene-read snapshot for transparent formats.
     VkSampleCountFlagBits depthSamples = m_deferredEnabled
                                         ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                    | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     imageInfo.samples = depthSamples;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -411,10 +441,9 @@ VkPresentModeKHR VulkanRenderer::ChoosePresentMode(
 
 /// Clamps the window size to the surface's supported extent.
 // Fixed: clamp height using height, not width
-VkExtent2D VulkanRenderer::ChooseExtend(SwapchainDetails details) {
-    if (details.caps.currentExtent.width !=
-        std::numeric_limits<uint32_t>::max())
-        return details.caps.currentExtent;
+VkExtent2D VulkanRenderer::ChooseExtend(const VkSurfaceCapabilitiesKHR& caps) {
+    if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max())
+        return caps.currentExtent;
 
     int width, height;
     SDL_GetWindowSizeInPixels(sdlWindow->GetSDLWindow(), &width, &height);
@@ -423,17 +452,25 @@ VkExtent2D VulkanRenderer::ChooseExtend(SwapchainDetails details) {
                                 static_cast<uint32_t>(height)};
 
     actualExtent.width =
-        std::clamp(actualExtent.width,
-                   details.caps.minImageExtent.width,
-                   details.caps.maxImageExtent.width);
+        std::clamp(actualExtent.width, caps.minImageExtent.width,
+                   caps.maxImageExtent.width);
 
     actualExtent.height =
-        std::clamp(actualExtent.height,
-                   details.caps.minImageExtent.height,
-                   details.caps.maxImageExtent.height);
+        std::clamp(actualExtent.height, caps.minImageExtent.height,
+                   caps.maxImageExtent.height);
 
     return actualExtent;
 }
 
+/// True when the surface now wants a different extent than the swapchain
+/// has. A failed query keeps the current swapchain.
+bool VulkanRenderer::SurfaceExtentChanged() {
+    VkSurfaceCapabilitiesKHR caps{};
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
+                                                  &caps) != VK_SUCCESS)
+        return false;
+    const VkExtent2D extent = ChooseExtend(caps);
+    return extent.width != scExtent.width || extent.height != scExtent.height;
+}
 }
 }

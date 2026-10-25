@@ -1,15 +1,42 @@
 #include "../../include/private/Core/Window.hpp"
 
-#include "../../include/private/Graphics/Common/RendererFactory.hpp"
-#include <cstdlib>
-#include <cstring>
+#include <Core/CommandLine.hpp>
 #include <Core/Logger.hpp>
 #include <Events/ApplicationEvent.hpp>
 #include <Events/KeyboardEvent.hpp>
 #include <Events/MouseEvent.hpp>
+#include <cstdlib>
+#include <cstring>
 
+#include "../../include/private/Graphics/Common/RendererFactory.hpp"
 
 namespace Sleak {
+
+namespace {
+
+/// True for keyboard and mouse events that carry user input.
+bool IsUserInputEvent(Uint32 type) {
+    switch (type) {
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+        case SDL_EVENT_TEXT_INPUT:
+        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+        case SDL_EVENT_MOUSE_WHEEL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// SDL event filter that drops user input while a capture runs.
+bool SDLCALL DropUserInput(void* userdata, SDL_Event* event) {
+    (void)userdata;
+    return !IsUserInputEvent(event->type);
+}
+
+}  // namespace
 
 int Window::Width = 0;
 int Window::Height = 0;
@@ -37,6 +64,8 @@ bool Window::InitializeWindow() {
   if(bIsInitialized)
     return false;
 
+  m_inputLocked = !CommandLine::GetValue("-capture").empty();
+
   auto type = RenderEngine::RendererFactory::GetRendererType();
 
   int GraphicsAPI = 0;
@@ -50,13 +79,15 @@ bool Window::InitializeWindow() {
       SLEAK_FATAL("Failed to initialize SDL: {0}", SDL_GetError());
       return false;
     }
+    if (m_inputLocked) SDL_SetEventFilter(DropUserInput, nullptr);
 
-  SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height, GraphicsAPI | SDL_WINDOW_RESIZABLE); 
+    SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height,
+                                 GraphicsAPI | SDL_WINDOW_RESIZABLE);
 
-  if (!SDLWindow) {
-    SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError()); 
-    return false;
-  }
+    if (!SDLWindow) {
+        SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError());
+        return false;
+    }
 
   if (SDL_Surface* icon = SDL_LoadBMP("assets/branding/icon.bmp")) {
     SDL_SetWindowIcon(SDLWindow, icon);
@@ -180,6 +211,8 @@ void Window::Update() {
       }
     }
   }
+
+  if (m_inputLocked) SDL_GetRelativeMouseState(nullptr, nullptr);
 }
 
 void Window::SetFullScreen(bool isFullscreen) {

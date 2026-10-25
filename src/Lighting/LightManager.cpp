@@ -203,6 +203,7 @@ void LightManager::UpdateShadowData() {
     DirectionalLight* activeLight = shadowLight ? shadowLight : anyDirLight;
 
     if (!activeLight) {
+        m_hasShadowLightVP = false;
         static bool warned = false;
         if (!warned) { SLEAK_WARN("UpdateShadowData: No directional light found!"); warned = true; }
         return;
@@ -314,6 +315,8 @@ void LightManager::UpdateShadowData() {
 
     // Set the light VP matrix on the renderer
     renderer->SetLightVP(&lightVP(0, 0));
+    std::memcpy(m_shadowLightVP, &lightVP(0, 0), sizeof(m_shadowLightVP));
+    m_hasShadowLightVP = shadowLight != nullptr;
 
     // Build shadow light UBO
     const auto& camPos = Camera::GetMainCameraPosition();
@@ -340,10 +343,14 @@ void LightManager::UpdateShadowData() {
     // nowhere else to stash time). Using a static Timer keeps this
     // self-contained and independent of Application state.
     static Sleak::Timer s_sceneClock;
+    static const bool s_fixedStep = !CommandLine::GetValue("-capture").empty();
+    static uint64_t s_sceneFrames = 0;
     ubo.CameraPos[0] = camPos.GetX();
     ubo.CameraPos[1] = camPos.GetY();
     ubo.CameraPos[2] = camPos.GetZ();
-    ubo.CameraPos[3] = s_sceneClock.Elapsed();
+    // Capture: frame-driven clock
+    ubo.CameraPos[3] = s_fixedStep ? static_cast<float>(s_sceneFrames++) / 60.0f
+                                   : s_sceneClock.Elapsed();
 
     // CURRENT lightVP — renderers stage SetLightVP and commit at BeginRender,
     // so this frame's shadow map IS rendered with this matrix. The old

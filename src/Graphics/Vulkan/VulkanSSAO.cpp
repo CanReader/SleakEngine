@@ -519,7 +519,8 @@ bool VulkanRenderer::CreateSSAOPipelines() {
     gpi.renderPass          = m_ssaoRenderPass;
     gpi.subpass             = 0;
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssaoPipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_ssaoPipeline) != VK_SUCCESS) {
         SLEAK_ERROR("SSAO: failed to create ssao pipeline");
         return false;
     }
@@ -547,7 +548,8 @@ bool VulkanRenderer::CreateSSAOPipelines() {
     };
     gpi.pStages  = blurStages;
     gpi.layout   = m_ssaoBlurPipelineLayout;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssaoBlurPipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_ssaoBlurPipeline) != VK_SUCCESS) {
         SLEAK_ERROR("SSAO: failed to create ssao blur pipeline");
         return false;
     }
@@ -860,6 +862,7 @@ void VulkanRenderer::RenderSSAOPasses() {
     rp.renderArea.extent = m_ssaoExtent;
     rp.clearValueCount   = 0;
 
+    BeginGpuPass(GpuPass::SSAO);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, m_ssaoExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ssaoPipeline);
@@ -879,6 +882,7 @@ void VulkanRenderer::RenderSSAOPasses() {
                             &m_ssaoBlurSets[currentFrame], 0, nullptr);
     vkCmdDraw(command, 3, 1, 0, 0);
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::SSAO);
 }
 
 }  // namespace RenderEngine

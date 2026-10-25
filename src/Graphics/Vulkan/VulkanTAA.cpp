@@ -30,10 +30,8 @@ bool VulkanRenderer::CreateTAAResources() {
         ic.format        = fmt;
         ic.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ic.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ic.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                         | VK_IMAGE_USAGE_SAMPLED_BIT
-                         | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-                         | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        ic.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         ic.samples       = VK_SAMPLE_COUNT_1_BIT;
         ic.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
         if (vkCreateImage(device, &ic, nullptr, &m_taaImages[i]) != VK_SUCCESS) return false;
@@ -149,13 +147,21 @@ bool VulkanRenderer::CreateTAAResources() {
         sub.colorAttachmentCount = 1;
         sub.pColorAttachments    = &ref;
 
-        VkSubpassDependency dep{};
-        dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-        dep.dstSubpass    = 0;
-        dep.srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        // Feeds history and the post passes
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
         VkRenderPassCreateInfo rpi{};
         rpi.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -163,8 +169,8 @@ bool VulkanRenderer::CreateTAAResources() {
         rpi.pAttachments    = &att;
         rpi.subpassCount    = 1;
         rpi.pSubpasses      = &sub;
-        rpi.dependencyCount = 1;
-        rpi.pDependencies   = &dep;
+        rpi.dependencyCount = static_cast<uint32_t>(deps.size());
+        rpi.pDependencies = deps.data();
         if (vkCreateRenderPass(device, &rpi, nullptr, &m_taaRenderPass) != VK_SUCCESS) return false;
     }
 
@@ -346,8 +352,8 @@ bool VulkanRenderer::CreateTAAResources() {
         gpi.layout              = m_taaPipelineLayout;
         gpi.renderPass          = m_taaRenderPass;
         gpi.subpass             = 0;
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr,
-                                       &m_taaPipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                      &m_taaPipeline) != VK_SUCCESS) {
             SLEAK_ERROR("TAA: failed to create pipeline");
             return false;
         }
@@ -391,29 +397,45 @@ void VulkanRenderer::CleanupTAAResources() {
         if (m_taaMemory[i]) { vkFreeMemory(device, m_taaMemory[i], nullptr);        m_taaMemory[i] = VK_NULL_HANDLE; }
     }
 
+    m_taaResolvedView = VK_NULL_HANDLE;
     m_taaResourcesCreated = false;
 }
 
-/// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
+/// Computes the current-to-previous clip reprojection and blend factor into the
+/// TAA UBO. Uses double: in float, inverse(VP) * VP drifts from identity far
+/// from the origin.
 void VulkanRenderer::UpdateTAAUBO() {
     if (!m_taaResourcesCreated || !m_taaUboMapped[currentFrame]) return;
 
-    // VP = View * Projection (row-major)
-    float currentVP[16];
-    MatMul4(m_cachedView, m_cachedProjection, currentVP);
+    double view[16], proj[16];
+    for (int i = 0; i < 16; ++i) {
+        view[i] = static_cast<double>(m_cachedView[i]);
+        proj[i] = static_cast<double>(m_cachedProjection[i]);
+    }
 
-    float invCurrentVP[16];
-    if (!InvertMat4(currentVP, invCurrentVP)) {
-        memset(invCurrentVP, 0, sizeof(invCurrentVP));
-        for (int i = 0; i < 4; ++i) invCurrentVP[i * 4 + i] = 1.0f;  // identity fallback
+    // VP = View * Projection (row-major)
+    double currentVP[16];
+    MatMul4(view, proj, currentVP);
+
+    // First frame: identity reprojection
+    if (m_taaFrameIdx == 0)
+        memcpy(m_prevViewProj, currentVP, sizeof(m_prevViewProj));
+
+    double invCurrentVP[16];
+    double currentToPrev[16];
+    if (InvertMat4(currentVP, invCurrentVP)) {
+        MatMul4(invCurrentVP, m_prevViewProj, currentToPrev);
+    } else {
+        for (int i = 0; i < 16; ++i)
+            currentToPrev[i] = (i / 4 == i % 4) ? 1.0 : 0.0;
     }
 
     TAAParams p{};
-    memcpy(p.InvCurrentVP, invCurrentVP, sizeof(p.InvCurrentVP));
-    memcpy(p.PrevVP,       m_prevViewProj, sizeof(p.PrevVP));
+    for (int i = 0; i < 16; ++i)
+        p.CurrentToPrevClip[i] = static_cast<float>(currentToPrev[i]);
     p.ScreenW     = static_cast<float>(scExtent.width);
     p.ScreenH     = static_cast<float>(scExtent.height);
-    // First two frames skip history (prev VP is zero-initialized)
+    // First two frames skip history
     p.BlendFactor = (m_taaFrameIdx <= 1) ? 1.0f : m_taaBlendFactor;
     p._pad        = 0.0f;
 
@@ -423,12 +445,21 @@ void VulkanRenderer::UpdateTAAUBO() {
     memcpy(m_prevViewProj, currentVP, sizeof(m_prevViewProj));
 }
 
-/// Resolves the current frame against TAA history and copies the result back into the HDR scene image.
+/// Resolves the frame against TAA history into the ping-pong target.
 void VulkanRenderer::RenderTAAPass() {
-    if (!m_taaResourcesCreated || !m_taaEnabled) return;
+    m_taaResolvedView = VK_NULL_HANDLE;
+    if (!m_taaResourcesCreated || !m_taaEnabled) {
+        m_taaRanLastFrame = false;
+        return;
+    }
+    // History and the previous VP are stale after TAA was off: restart
+    // accumulation
+    if (!m_taaRanLastFrame) m_taaFrameIdx = 0;
+    m_taaRanLastFrame = true;
 
     const uint32_t writeIdx = static_cast<uint32_t>(m_taaFrameIdx % 2);
     const uint32_t readIdx  = 1u - writeIdx;
+    BeginGpuPass(GpuPass::TAA);
 
     // ---- 1. Depth barrier: DEPTH_STENCIL_ATTACHMENT → READ_ONLY ----
     // (SSR will skip its own depth barrier since TAA already handles it)
@@ -518,57 +549,16 @@ void VulkanRenderer::RenderTAAPass() {
         // taaImages[writeIdx] is now SHADER_READ_ONLY_OPTIMAL (render pass finalLayout)
     }
 
-    // ---- 6. Copy TAA resolve → hdrScene ----
-    // Both images are SHADER_READ_ONLY; transition for transfer then restore.
-    {
-        VkImageMemoryBarrier toTransfer[2]{};
-        toTransfer[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toTransfer[0].oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toTransfer[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        toTransfer[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer[0].srcAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-        toTransfer[0].dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
-        toTransfer[0].image               = m_taaImages[writeIdx];
-        toTransfer[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        toTransfer[1]             = toTransfer[0];
-        toTransfer[1].newLayout   = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toTransfer[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toTransfer[1].image       = m_hdrSceneImage;
-
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, nullptr, 0, nullptr, 2, toTransfer);
-
-        VkImageCopy region{};
-        region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-        region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-        region.extent         = { scExtent.width, scExtent.height, 1 };
-        vkCmdCopyImage(command,
-            m_taaImages[writeIdx], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            m_hdrSceneImage,       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1, &region);
-
-        VkImageMemoryBarrier toRead[2]{};
-        toRead[0]              = toTransfer[0];
-        toRead[0].oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        toRead[0].newLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toRead[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        toRead[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        toRead[1]              = toRead[0];
-        toRead[1].oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toRead[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toRead[1].image        = m_hdrSceneImage;
-
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 2, toRead);
-    }
+    m_taaResolvedView = m_taaViews[writeIdx];
+    EndGpuPass(GpuPass::TAA);
 
     // Advance ping-pong for next frame
     m_taaFrameIdx++;
+}
+
+/// HDR scene color for the post passes: the TAA resolve when TAA ran.
+VkImageView VulkanRenderer::PostSceneView() const {
+    return m_taaResolvedView ? m_taaResolvedView : m_hdrSceneView;
 }
 
 }  // namespace RenderEngine

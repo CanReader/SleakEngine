@@ -350,7 +350,8 @@ bool VulkanRenderer::CreateSSRResources() {
         gpi.renderPass          = m_ssrRenderPass;
         gpi.subpass             = 0;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_ssrPipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                      &m_ssrPipeline) != VK_SUCCESS) {
             SLEAK_ERROR("SSR: failed to create pipeline");
             return false;
         }
@@ -426,7 +427,7 @@ void VulkanRenderer::UpdateSSRDescriptors() {
         infos[3].imageView   = m_gbufferViews[0];
         infos[3].sampler     = m_gbufferSampler ? m_gbufferSampler : m_ssrSampler;
 
-        // sceneHDR — forward pass finalLayout is SHADER_READ_ONLY_OPTIMAL.
+        // sceneHDR — RenderSSRPass retargets it to the TAA resolve.
         infos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         infos[4].imageView   = m_hdrSceneView;
         infos[4].sampler     = m_ssrSampler;
@@ -546,6 +547,20 @@ void VulkanRenderer::RenderSSRPass() {
 
     UpdateSSRUBO();
 
+    // Scene input for this frame
+    VkDescriptorImageInfo sceneInfo{};
+    sceneInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    sceneInfo.imageView = PostSceneView();
+    sceneInfo.sampler = m_ssrSampler;
+    VkWriteDescriptorSet sceneWrite{};
+    sceneWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    sceneWrite.dstSet = m_ssrInputSets[currentFrame];
+    sceneWrite.dstBinding = 4;
+    sceneWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sceneWrite.descriptorCount = 1;
+    sceneWrite.pImageInfo = &sceneInfo;
+    vkUpdateDescriptorSets(device, 1, &sceneWrite, 0, nullptr);
+
     VkRenderPassBeginInfo rp{};
     rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rp.renderPass        = m_ssrRenderPass;
@@ -554,6 +569,7 @@ void VulkanRenderer::RenderSSRPass() {
     rp.renderArea.extent = scExtent;
     rp.clearValueCount   = 0;  // DONT_CARE load — we write every pixel
 
+    BeginGpuPass(GpuPass::SSR);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ssrPipeline);
@@ -563,6 +579,7 @@ void VulkanRenderer::RenderSSRPass() {
                             m_ssrPipelineLayout, 0, 2, sets, 0, nullptr);
     vkCmdDraw(command, 3, 1, 0, 0);
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::SSR);
 }
 
 }  // namespace RenderEngine

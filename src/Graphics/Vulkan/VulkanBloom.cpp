@@ -45,12 +45,9 @@ bool VulkanRenderer::CreateHDRSceneResources() {
     info.format        = m_hdrSceneFormat;
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // TRANSFER_DST_BIT: TAA copies its resolved result back into hdrScene.
     // TRANSFER_SRC_BIT: MSAA resolve from the forward render pass.
-    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                       | VK_IMAGE_USAGE_SAMPLED_BIT
-                       | VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                       | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     info.samples       = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     if (vkCreateImage(device, &info, nullptr, &m_hdrSceneImage) != VK_SUCCESS) return false;
@@ -332,7 +329,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     VkPushConstantRange compPushRange{};
     compPushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     compPushRange.offset     = 0;
-    compPushRange.size       = 16;
+    compPushRange.size = 32;
 
     VkPipelineLayoutCreateInfo cliInfo{};
     cliInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -433,7 +430,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.layout              = m_bloomFilterPipelineLayout;
     gpi.renderPass          = m_bloomRenderPass;
     gpi.subpass             = 0;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomThresholdPipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomThresholdPipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Downsample pipeline ----
     VkPipelineShaderStageCreateInfo downStages[] = {
@@ -441,7 +440,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
         m_bloomDownsampleShader->GetFragInfo()
     };
     gpi.pStages = downStages;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomDownsamplePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomDownsamplePipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Upsample pipeline (additive blend, LOAD render pass) ----
     VkPipelineShaderStageCreateInfo upStages[] = {
@@ -451,7 +452,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.pStages          = upStages;
     gpi.pColorBlendState = &cbAdd;
     gpi.renderPass       = m_bloomAddRenderPass;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomUpsamplePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomUpsamplePipeline) != VK_SUCCESS)
+        return false;
 
     // ---- Composite pipeline ----
     VkPipelineShaderStageCreateInfo compStages[] = {
@@ -462,7 +465,9 @@ bool VulkanRenderer::CreateBloomPipelines() {
     gpi.pColorBlendState = &cbOpaque;
     gpi.layout           = m_bloomCompositePipelineLayout;
     gpi.renderPass       = m_bloomCompositeRenderPass;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_bloomCompositePipeline) != VK_SUCCESS) return false;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &gpi, nullptr,
+                                  &m_bloomCompositePipeline) != VK_SUCCESS)
+        return false;
 
     return true;
 }
@@ -609,11 +614,13 @@ void VulkanRenderer::RenderBloomPass() {
     //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
     // BLOOM_TRANSITION_COUNT = 1 + (MIP-1) + (MIP-1) = 11 for MIP=6.
     auto& setArray = m_bloomFilterSets[currentFrame];
+    BeginGpuPass(GpuPass::Bloom);
 
     // ---------- 1. Threshold / prefilter pass ----------
-    //   Input: sceneHDR (already SHADER_READ_ONLY_OPTIMAL via forward RP finalLayout)
+    //   Input: scene color (TAA resolve or HDR scene, SHADER_READ_ONLY_OPTIMAL)
     //   Output: bloomMip[0]
-    WriteSingleImageSampler(device, setArray[0], m_hdrSceneView, m_bloomSampler,
+    WriteSingleImageSampler(device, setArray[0], PostSceneView(),
+                            m_bloomSampler,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     {
@@ -695,6 +702,7 @@ void VulkanRenderer::RenderBloomPass() {
         vkCmdDraw(command, 3, 1, 0, 0);
         vkCmdEndRenderPass(command);
     }
+    EndGpuPass(GpuPass::Bloom);
 }
 
 /// Tonemaps and composites the HDR scene, bloom, and SSR into the swapchain image, then draws ImGui.
@@ -708,7 +716,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     VkDescriptorSet compSet = m_bloomCompositeSets[currentFrame];
     std::array<VkDescriptorImageInfo, 3> infos{};
     infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    infos[0].imageView   = m_hdrSceneView;
+    infos[0].imageView = PostSceneView();
     infos[0].sampler     = m_bloomSampler;
 
     infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -720,7 +728,8 @@ void VulkanRenderer::RenderBloomCompositePass() {
     // is disabled). Fall back to the bloom mip view only when SSR resources
     // haven't been created yet (should never happen once init completes).
     infos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (m_ssrResourcesCreated && m_ssrView != VK_NULL_HANDLE) {
+    const bool ssrReady = m_ssrResourcesCreated && m_ssrView != VK_NULL_HANDLE;
+    if (ssrReady) {
         infos[2].imageView = m_ssrView;
         infos[2].sampler   = m_ssrSampler ? m_ssrSampler : m_bloomSampler;
     } else {
@@ -748,6 +757,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     rp.renderArea.extent = scExtent;
     rp.clearValueCount   = 0;
 
+    BeginGpuPass(GpuPass::Tonemap);
     vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomCompositePipeline);
@@ -755,24 +765,38 @@ void VulkanRenderer::RenderBloomCompositePass() {
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
     struct {
-        float bloomStrength, exposure, gamma, p1;
-    } pc;
+        float bloomStrength, exposure, gamma;
+        uint32_t ssrEnabled;
+        float sharpenStrength;
+        float _pad[3];
+    } pc{};
     // bloom disabled -> 0 so the (black) mip contributes nothing
     pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
     pc.exposure      = m_exposure;
     pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
-    pc.p1            = 0.0f;
+    pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
+    // Sharpening an aliased (non-TAA) frame only amplifies the stair-steps
+    pc.sharpenStrength =
+        (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);
 
     // ImGui draws inside the composite pass, AFTER the HDR → LDR tonemap.
+    // Captures skip UI
+    const bool drawUI = bImFrameActive && m_capturePath.empty();
+    if (drawUI) {
+        EndGpuPass(GpuPass::Tonemap);
+        BeginGpuPass(GpuPass::UI);
+    }
     if (bImFrameActive) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
+        if (drawUI)
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command);
     }
 
     vkCmdEndRenderPass(command);
+    EndGpuPass(drawUI ? GpuPass::UI : GpuPass::Tonemap);
 }
 
 }  // namespace RenderEngine
