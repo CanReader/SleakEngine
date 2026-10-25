@@ -1,0 +1,43 @@
+name: Branch policy
+
+# staging is the testing layer: every change lands there first, and main only
+# takes pull requests from staging. This check fails any other pull request
+# into main. It also runs on pull requests into staging, where it always
+# passes, so retargeting a pull request from main to staging clears the
+# failure it picked up there.
+#
+# pull_request_target runs this file as it exists on the base branch, so a
+# pull request cannot edit the check into passing. Nothing from the pull
+# request is checked out or run, and the job holds no token permissions.
+on:
+  pull_request_target:
+    branches: [main, staging]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  # The job name is a required status check in .github/rulesets/main.json.
+  # Keep the verdict inside the step: a job skipped by an `if:` reports
+  # success, which would satisfy the required check.
+  staging-to-main:
+    name: Only staging merges into main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check where the pull request comes from
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$BASE_REF" != "main" ]; then
+            echo "Targets $BASE_REF, which accepts pull requests from any branch."
+            exit 0
+          fi
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [ "$HEAD_REF" = "staging" ]; then
+            echo "Release pull request from staging into main."
+            exit 0
+          fi
+          echo "This pull request comes from ${HEAD_REPO:-a deleted fork}:${HEAD_REF}."
+          echo "::error::main only accepts pull requests from staging. Edit this pull request and change its base branch to staging."
+          exit 1

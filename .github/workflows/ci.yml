@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 # A newer push to the same branch makes the older run irrelevant.
@@ -245,10 +245,12 @@ jobs:
           submodules: recursive
           path: SleakEngine
 
+      # Engine staging pairs with game staging, engine main with game main
       - name: Check out the game
         uses: actions/checkout@v7
         with:
           repository: CanReader/SleakCraft
+          ref: ${{ github.base_ref }}
           path: SleakCraft
 
       - name: Install dependencies
