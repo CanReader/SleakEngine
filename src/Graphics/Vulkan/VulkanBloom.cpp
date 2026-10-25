@@ -330,7 +330,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     VkPushConstantRange compPushRange{};
     compPushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     compPushRange.offset     = 0;
-    compPushRange.size       = 16;
+    compPushRange.size       = 32;
 
     VkPipelineLayoutCreateInfo cliInfo{};
     cliInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -768,12 +768,16 @@ void VulkanRenderer::RenderBloomCompositePass() {
     struct {
         float bloomStrength, exposure, gamma;
         uint32_t ssrEnabled;
-    } pc;
+        float sharpenStrength;
+        float _pad[3];
+    } pc{};
     // bloom disabled -> 0 so the (black) mip contributes nothing
     pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
     pc.exposure      = m_exposure;
     pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
     pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
+    // Sharpening an aliased (non-TAA) frame only amplifies the stair-steps
+    pc.sharpenStrength = (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);

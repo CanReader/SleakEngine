@@ -192,6 +192,10 @@ public:
     void SetTAAEnabled(bool enabled) { m_taaEnabled = enabled; }
     bool IsTAAEnabled() const { return m_taaEnabled; }
 
+    /// Contrast-adaptive sharpening applied after TAA, 0 = off, 1 = strongest.
+    void SetSharpenStrength(float strength) { m_sharpenStrength = strength; }
+    float GetSharpenStrength() const { return m_sharpenStrength; }
+
     // Post-process: Bloom
     void SetBloomEnabled(bool enabled) { m_bloomEnabled = enabled; }
     bool IsBloomEnabled() const { return m_bloomEnabled; }
@@ -324,6 +328,7 @@ public:
     int m_ssrBinarySteps = 6;
     float m_ssrRoughnessThreshold = 0.9f;
     float m_taaBlendFactor = 0.1f;
+    float m_sharpenStrength = 0.0f;
     float m_bloomRadius = 1.0f;
     float m_bloomIntensity = 1.0f;
 

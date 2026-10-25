@@ -182,6 +182,11 @@ class ENGINE_API Application {
     bool  IsTAAEnabled() const;
     void  SetTAAEnabled(bool enabled);
 
+    /// Post-TAA contrast-adaptive sharpening strength, 0 = off, 1 = strongest.
+    float GetSharpenStrength() const;
+    /// Sets post-TAA sharpening strength; only applied on frames TAA resolves.
+    void  SetSharpenStrength(float strength);
+
     // Bloom (deferred path only)
     bool  IsBloomEnabled() const;
     void  SetBloomEnabled(bool enabled);

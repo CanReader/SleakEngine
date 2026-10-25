@@ -448,6 +448,9 @@ namespace Sleak {
     bool  Application::IsTAAEnabled()  const   { return renderer->IsTAAEnabled(); }
     void  Application::SetTAAEnabled(bool e)   { renderer->SetTAAEnabled(e); }
 
+    float Application::GetSharpenStrength() const   { return renderer->GetSharpenStrength(); }
+    void  Application::SetSharpenStrength(float s)  { renderer->SetSharpenStrength(s); }
+
     bool  Application::IsBloomEnabled() const  { return renderer->IsBloomEnabled(); }
     void  Application::SetBloomEnabled(bool e) { renderer->SetBloomEnabled(e); }
 
@@ -462,6 +465,7 @@ namespace Sleak {
         renderer->SetIBLEnabled(cfg.iblEnabled);
         renderer->SetIBLIntensity(cfg.iblIntensity);
         renderer->SetTAAEnabled(cfg.taaEnabled);
+        renderer->SetSharpenStrength(cfg.sharpenStrength);
         renderer->SetShadowMapResolution(cfg.shadowMapResolution);
         renderer->SetMSAASampleCount(cfg.msaaSamples);
         renderer->SetTonemappingEnabled(cfg.tonemapEnabled);
