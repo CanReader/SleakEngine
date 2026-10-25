@@ -1,3 +1,5 @@
+<!-- Open this against staging. main only accepts pull requests from staging; see CONTRIBUTING.md. -->
+
 ## What this changes
 
 <!-- One or two sentences. What behavior is different after this merges? -->
