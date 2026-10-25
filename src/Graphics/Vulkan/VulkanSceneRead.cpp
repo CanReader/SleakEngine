@@ -162,10 +162,11 @@ void ClearToShaderRead(VkDevice device, VkCommandPool pool, VkQueue queue,
 
         const VkImageSubresourceRange range = {t.aspect, 0, 1, 0, t.layers};
         if (t.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) {
-            const VkClearDepthStencilValue far = {FAR_DEPTH, 0};
+            // windows.h defines `far` as an empty macro
+            const VkClearDepthStencilValue farDepth = {FAR_DEPTH, 0};
             vkCmdClearDepthStencilImage(cmd, t.image,
                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                        &far, 1, &range);
+                                        &farDepth, 1, &range);
         } else {
             const VkClearColorValue zero = {};
             vkCmdClearColorImage(cmd, t.image,
