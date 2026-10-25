@@ -72,65 +72,65 @@ public:
     static void SetBatchingEnabled(bool enabled) { s_batchingEnabled = enabled; }
 
 private:
-    /// Allocates a VMA-backed VkBuffer with the given usage/memory properties.
-    /// Constant buffers get CPU-cached memory since every bind reads them, and
-    /// staging buffers come from the resident staging pool.
-    void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                      VkMemoryPropertyFlags properties,
-                      VkBuffer& buffer, VmaAllocation& memory,
-                      VkDeviceSize* outAllocSize = nullptr,
-                      uint32_t* outMemTypeIdx = nullptr);
+ /// Allocates a VMA-backed VkBuffer with the given usage/memory properties.
+ /// Constant buffers get CPU-cached memory since every bind reads them, and
+ /// staging buffers come from the resident staging pool.
+ void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                   VkMemoryPropertyFlags properties, VkBuffer& buffer,
+                   VmaAllocation& memory, VkDeviceSize* outAllocSize = nullptr,
+                   uint32_t* outMemTypeIdx = nullptr);
 
-    /// Records a GPU-side copy between buffers, batched or submitted immediately per SetBatchingEnabled.
-    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
-                    VkDeviceSize size);
+ /// Records a GPU-side copy between buffers, batched or submitted immediately
+ /// per SetBatchingEnabled.
+ void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-    /// Finds a physical device memory type matching the filter and required properties.
-    uint32_t FindMemoryType(uint32_t typeFilter,
-                            VkMemoryPropertyFlags properties);
+ /// Finds a physical device memory type matching the filter and required
+ /// properties.
+ uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
-    VkDevice m_device = VK_NULL_HANDLE;
-    VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-    VkCommandPool m_commandPool = VK_NULL_HANDLE;
-    VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+ VkDevice m_device = VK_NULL_HANDLE;
+ VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+ VkCommandPool m_commandPool = VK_NULL_HANDLE;
+ VkQueue m_graphicsQueue = VK_NULL_HANDLE;
 
-    VkBuffer m_buffer = VK_NULL_HANDLE;
-    VmaAllocation m_memory = VK_NULL_HANDLE;
-    VkDeviceSize m_allocSize = 0;      // backing memory size (memReq)
-    VkDeviceSize m_bufferSize = 0;     // logical VkBuffer size (bucketed)
-    VkBufferUsageFlags m_usage = 0;
-    uint32_t m_memoryTypeIndex = 0;
+ VkBuffer m_buffer = VK_NULL_HANDLE;
+ VmaAllocation m_memory = VK_NULL_HANDLE;
+ VkDeviceSize m_allocSize = 0;   // backing memory size (memReq)
+ VkDeviceSize m_bufferSize = 0;  // logical VkBuffer size (bucketed)
+ VkBufferUsageFlags m_usage = 0;
+ uint32_t m_memoryTypeIndex = 0;
 
-    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
-    VmaAllocation m_stagingMemory = VK_NULL_HANDLE;
+ VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
+ VmaAllocation m_stagingMemory = VK_NULL_HANDLE;
 
-    void* m_mappedData = nullptr;
+ void* m_mappedData = nullptr;
 
-    // --- Batched transfer state ---
-    static bool s_batchingEnabled;
-    static bool s_batchActive;
-    static VkCommandBuffer s_batchCommandBuffer;
-    static VkDevice s_batchDevice;
-    static VkCommandPool s_batchCommandPool;
-    static VkQueue s_batchQueue;
-    static std::vector<PendingStagingCleanup> s_pendingCleanup;
+ // --- Batched transfer state ---
+ static bool s_batchingEnabled;
+ static bool s_batchActive;
+ static VkCommandBuffer s_batchCommandBuffer;
+ static VkDevice s_batchDevice;
+ static VkCommandPool s_batchCommandPool;
+ static VkQueue s_batchQueue;
+ static std::vector<PendingStagingCleanup> s_pendingCleanup;
 
-    /// Opens the shared batch command buffer if one isn't already recording.
-    static void EnsureBatchStarted(VkDevice device, VkCommandPool pool,
-                                   VkQueue queue);
+ /// Opens the shared batch command buffer if one isn't already recording.
+ static void EnsureBatchStarted(VkDevice device, VkCommandPool pool,
+                                VkQueue queue);
 
-    // --- Deferred buffer deletion ---
-    /// A buffer queued for destruction once the GPU is guaranteed done referencing it.
-    struct DeferredBufferDelete {
-        VkBuffer buffer;
-        VmaAllocation memory;
-        VkDevice device;
-        VkDeviceSize allocSize;
-        VkBufferUsageFlags usage;
-        uint32_t memoryTypeIndex;
-        uint64_t frameNumber;
-        VkDeviceSize bufferSize;
-    };
+ // --- Deferred buffer deletion ---
+ /// A buffer queued for destruction once the GPU is guaranteed done referencing
+ /// it.
+ struct DeferredBufferDelete {
+     VkBuffer buffer;
+     VmaAllocation memory;
+     VkDevice device;
+     VkDeviceSize allocSize;
+     VkBufferUsageFlags usage;
+     uint32_t memoryTypeIndex;
+     uint64_t frameNumber;
+     VkDeviceSize bufferSize;
+ };
     static std::vector<DeferredBufferDelete> s_deferredDeletions;
     static uint64_t s_frameNumber;
 
@@ -163,18 +163,20 @@ private:
     static void EvictPoolOverBudget();
 
 public:
-    // Called by the renderer once per submitted frame, after its fence wait,
-    // to safely destroy buffers that are no longer referenced by the GPU.
-    static void ProcessDeferredDeletions(uint32_t maxFramesInFlight);
-    static void FlushAllDeferredDeletions();
-    static void AdvanceDeletionFrame() { s_frameNumber++; }
+ // Called by the renderer once per submitted frame, after its fence wait,
+ // to safely destroy buffers that are no longer referenced by the GPU.
+ static void ProcessDeferredDeletions(uint32_t maxFramesInFlight);
+ static void FlushAllDeferredDeletions();
+ static void AdvanceDeletionFrame() { s_frameNumber++; }
 
-    // VRAM tracking
-    static VkDeviceSize GetTotalAllocatedBytes();
-    static VkDeviceSize GetDeviceLocalHeapSize();
-    static VkDeviceSize GetDeviceLocalAllocatedBytes();
-    static void SetPhysicalDevice(VkPhysicalDevice device);
-    static void UntrackAllocation(VkDeviceSize size) { s_totalAllocatedBytes -= size; }
+ // VRAM tracking
+ static VkDeviceSize GetTotalAllocatedBytes();
+ static VkDeviceSize GetDeviceLocalHeapSize();
+ static VkDeviceSize GetDeviceLocalAllocatedBytes();
+ static void SetPhysicalDevice(VkPhysicalDevice device);
+ static void UntrackAllocation(VkDeviceSize size) {
+     s_totalAllocatedBytes -= size;
+ }
     static void UntrackAllocation(VkDeviceSize size, uint32_t memTypeIdx) {
         s_totalAllocatedBytes -= size;
         if (memTypeIdx < s_memTypeCount)

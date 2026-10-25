@@ -67,7 +67,8 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
         SLEAK_RETURN_ERR("Failed to create light UBO descriptor set layout!");
 
     // Set 3: shadow map samplers — binding 0 = compare sampler (PCF),
-    //                              binding 1 = raw sampler (PCSS blocker search)
+    //                              binding 1 = raw sampler (PCSS blocker
+    //                              search)
     // Bindings 2-5: scene color, depth, sky, SceneReadUBO (scene-read formats)
     std::array<VkDescriptorSetLayoutBinding, SET3_BINDING_COUNT>
         shadowSamplerBindings{};

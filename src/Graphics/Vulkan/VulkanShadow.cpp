@@ -1,12 +1,12 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
-
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "Core/Logger.hpp"
 
 namespace Sleak {
@@ -417,8 +417,9 @@ bool VulkanRenderer::CreateShadowLightUBOResources() {
     }
 
     // Create descriptor pool for light UBO + shadow samplers.
-    // Two shadow samplers per frame now (compare + raw for PCSS blocker search).
-    // Set 3 also carries the scene-read color, depth, sky, and UBO bindings.
+    // Two shadow samplers per frame now (compare + raw for PCSS blocker
+    // search). Set 3 also carries the scene-read color, depth, sky, and UBO
+    // bindings.
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount =

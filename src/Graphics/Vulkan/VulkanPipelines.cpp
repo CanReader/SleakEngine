@@ -1,5 +1,3 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-
 #include <Runtime/MeshData.hpp>
 #include <array>
 #include <cstddef>
@@ -11,160 +9,162 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "Core/Logger.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
 
-namespace {
+    namespace {
 
-// Relative to the working directory, which is the executable's directory
-constexpr const char* kPipelineCacheDir = "cache";
-constexpr const char* kPipelineCachePath = "cache/vulkan_pipelines.bin";
-constexpr const char* kPipelineCacheTempPath = "cache/vulkan_pipelines.bin.tmp";
-constexpr size_t kPipelineCacheHeaderSize =
-    sizeof(VkPipelineCacheHeaderVersionOne);
+    // Relative to the working directory, which is the executable's directory
+    constexpr const char* kPipelineCacheDir = "cache";
+    constexpr const char* kPipelineCachePath = "cache/vulkan_pipelines.bin";
+    constexpr const char* kPipelineCacheTempPath =
+        "cache/vulkan_pipelines.bin.tmp";
+    constexpr size_t kPipelineCacheHeaderSize =
+        sizeof(VkPipelineCacheHeaderVersionOne);
 #define FNV1A_OFFSET_BASIS 14695981039346656037ull
 #define FNV1A_PRIME 1099511628211ull
 
-/// FNV-1a hash, used to skip rewriting an unchanged pipeline cache.
-uint64_t HashBytes(const std::vector<char>& data) {
-    uint64_t hash = FNV1A_OFFSET_BASIS;
-    for (char c : data) {
-        hash ^= static_cast<uint8_t>(c);
-        hash *= FNV1A_PRIME;
-    }
-    return hash;
-}
-
-/// Reads one little-endian field of a pipeline cache header.
-uint32_t ReadLE32(const char* bytes) {
-    const auto* b = reinterpret_cast<const uint8_t*>(bytes);
-    return static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 |
-           static_cast<uint32_t>(b[2]) << 16 |
-           static_cast<uint32_t>(b[3]) << 24;
-}
-
-}  // namespace
-
-/// Creates the pipeline cache, seeded from disk when the saved blob was
-/// written by this device and driver.
-void VulkanRenderer::CreatePipelineCache() {
-    std::vector<char> blob;
-    std::ifstream file(kPipelineCachePath, std::ios::binary | std::ios::ate);
-    if (file) {
-        const std::streamoff size = file.tellg();
-        if (size > 0) {
-            blob.resize(static_cast<size_t>(size));
-            file.seekg(0);
-            if (!file.read(blob.data(), size)) blob.clear();
+    /// FNV-1a hash, used to skip rewriting an unchanged pipeline cache.
+    uint64_t HashBytes(const std::vector<char>& data) {
+        uint64_t hash = FNV1A_OFFSET_BASIS;
+        for (char c : data) {
+            hash ^= static_cast<uint8_t>(c);
+            hash *= FNV1A_PRIME;
         }
+        return hash;
     }
-    file.close();
 
-    // Header check
-    if (!blob.empty()) {
-        VkPhysicalDeviceProperties props{};
-        vkGetPhysicalDeviceProperties(physicalDevice, &props);
-        const bool valid =
-            blob.size() >= kPipelineCacheHeaderSize &&
-            ReadLE32(blob.data()) >= kPipelineCacheHeaderSize &&
-            ReadLE32(blob.data()) <= blob.size() &&
-            ReadLE32(blob.data() +
-                     offsetof(VkPipelineCacheHeaderVersionOne,
-                              headerVersion)) ==
-                static_cast<uint32_t>(VK_PIPELINE_CACHE_HEADER_VERSION_ONE) &&
-            ReadLE32(blob.data() +
-                     offsetof(VkPipelineCacheHeaderVersionOne, vendorID)) ==
-                props.vendorID &&
-            ReadLE32(blob.data() +
-                     offsetof(VkPipelineCacheHeaderVersionOne, deviceID)) ==
-                props.deviceID &&
-            std::memcmp(blob.data() +
-                            offsetof(VkPipelineCacheHeaderVersionOne,
-                                     pipelineCacheUUID),
-                        props.pipelineCacheUUID,
-                        VK_UUID_SIZE) == 0;
-        if (!valid) {
-            SLEAK_INFO(
-                "Pipeline cache: ignoring blob from another device or "
-                "driver");
-            blob.clear();
+    /// Reads one little-endian field of a pipeline cache header.
+    uint32_t ReadLE32(const char* bytes) {
+        const auto* b = reinterpret_cast<const uint8_t*>(bytes);
+        return static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 |
+               static_cast<uint32_t>(b[2]) << 16 |
+               static_cast<uint32_t>(b[3]) << 24;
+    }
+
+    }  // namespace
+
+    /// Creates the pipeline cache, seeded from disk when the saved blob was
+    /// written by this device and driver.
+    void VulkanRenderer::CreatePipelineCache() {
+        std::vector<char> blob;
+        std::ifstream file(kPipelineCachePath,
+                           std::ios::binary | std::ios::ate);
+        if (file) {
+            const std::streamoff size = file.tellg();
+            if (size > 0) {
+                blob.resize(static_cast<size_t>(size));
+                file.seekg(0);
+                if (!file.read(blob.data(), size)) blob.clear();
+            }
         }
-    }
+        file.close();
 
-    VkPipelineCacheCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-    info.initialDataSize = blob.size();
-    info.pInitialData = blob.empty() ? nullptr : blob.data();
-    VkResult result =
-        vkCreatePipelineCache(device, &info, nullptr, &m_pipelineCache);
-    if (result != VK_SUCCESS && !blob.empty()) {
-        blob.clear();
-        info.initialDataSize = 0;
-        info.pInitialData = nullptr;
-        result =
+        // Header check
+        if (!blob.empty()) {
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(physicalDevice, &props);
+            const bool valid =
+                blob.size() >= kPipelineCacheHeaderSize &&
+                ReadLE32(blob.data()) >= kPipelineCacheHeaderSize &&
+                ReadLE32(blob.data()) <= blob.size() &&
+                ReadLE32(blob.data() + offsetof(VkPipelineCacheHeaderVersionOne,
+                                                headerVersion)) ==
+                    static_cast<uint32_t>(
+                        VK_PIPELINE_CACHE_HEADER_VERSION_ONE) &&
+                ReadLE32(blob.data() + offsetof(VkPipelineCacheHeaderVersionOne,
+                                                vendorID)) == props.vendorID &&
+                ReadLE32(blob.data() + offsetof(VkPipelineCacheHeaderVersionOne,
+                                                deviceID)) == props.deviceID &&
+                std::memcmp(
+                    blob.data() + offsetof(VkPipelineCacheHeaderVersionOne,
+                                           pipelineCacheUUID),
+                    props.pipelineCacheUUID, VK_UUID_SIZE) == 0;
+            if (!valid) {
+                SLEAK_INFO(
+                    "Pipeline cache: ignoring blob from another device or "
+                    "driver");
+                blob.clear();
+            }
+        }
+
+        VkPipelineCacheCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        info.initialDataSize = blob.size();
+        info.pInitialData = blob.empty() ? nullptr : blob.data();
+        VkResult result =
             vkCreatePipelineCache(device, &info, nullptr, &m_pipelineCache);
+        if (result != VK_SUCCESS && !blob.empty()) {
+            blob.clear();
+            info.initialDataSize = 0;
+            info.pInitialData = nullptr;
+            result =
+                vkCreatePipelineCache(device, &info, nullptr, &m_pipelineCache);
+        }
+        if (result != VK_SUCCESS) {
+            m_pipelineCache = VK_NULL_HANDLE;
+            SLEAK_WARN(
+                "Pipeline cache: creation failed, pipelines compile uncached");
+            return;
+        }
+
+        m_pipelineCacheLoadedSize = blob.size();
+        m_pipelineCacheLoadedHash = blob.empty() ? 0 : HashBytes(blob);
+        SLEAK_INFO("Pipeline cache: {} ({} bytes)",
+                   blob.empty() ? "empty" : "loaded", blob.size());
     }
-    if (result != VK_SUCCESS) {
-        m_pipelineCache = VK_NULL_HANDLE;
-        SLEAK_WARN(
-            "Pipeline cache: creation failed, pipelines compile uncached");
-        return;
-    }
 
-    m_pipelineCacheLoadedSize = blob.size();
-    m_pipelineCacheLoadedHash = blob.empty() ? 0 : HashBytes(blob);
-    SLEAK_INFO("Pipeline cache: {} ({} bytes)",
-               blob.empty() ? "empty" : "loaded", blob.size());
-}
+    /// Saves the pipeline cache to disk when it changed, then destroys it.
+    /// Writes a temp file and renames it so a failed write never leaves a torn
+    /// cache.
+    void VulkanRenderer::DestroyPipelineCache() {
+        if (m_pipelineCache == VK_NULL_HANDLE) return;
 
-/// Saves the pipeline cache to disk when it changed, then destroys it. Writes
-/// a temp file and renames it so a failed write never leaves a torn cache.
-void VulkanRenderer::DestroyPipelineCache() {
-    if (m_pipelineCache == VK_NULL_HANDLE) return;
-
-    std::vector<char> data;
-    size_t size = 0;
-    if (vkGetPipelineCacheData(device, m_pipelineCache, &size, nullptr) ==
-            VK_SUCCESS &&
-        size > 0) {
-        data.resize(size);
-        if (vkGetPipelineCacheData(device, m_pipelineCache, &size,
-                                   data.data()) == VK_SUCCESS)
+        std::vector<char> data;
+        size_t size = 0;
+        if (vkGetPipelineCacheData(device, m_pipelineCache, &size, nullptr) ==
+                VK_SUCCESS &&
+            size > 0) {
             data.resize(size);
-        else
-            data.clear();
-    }
-    vkDestroyPipelineCache(device, m_pipelineCache, nullptr);
-    m_pipelineCache = VK_NULL_HANDLE;
+            if (vkGetPipelineCacheData(device, m_pipelineCache, &size,
+                                       data.data()) == VK_SUCCESS)
+                data.resize(size);
+            else
+                data.clear();
+        }
+        vkDestroyPipelineCache(device, m_pipelineCache, nullptr);
+        m_pipelineCache = VK_NULL_HANDLE;
 
-    if (data.empty()) return;
-    if (data.size() == m_pipelineCacheLoadedSize &&
-        HashBytes(data) == m_pipelineCacheLoadedHash)
-        return;
+        if (data.empty()) return;
+        if (data.size() == m_pipelineCacheLoadedSize &&
+            HashBytes(data) == m_pipelineCacheLoadedHash)
+            return;
 
-    std::error_code ec;
-    std::filesystem::create_directories(kPipelineCacheDir, ec);
-    std::ofstream out(kPipelineCacheTempPath,
-                      std::ios::binary | std::ios::trunc);
-    out.write(data.data(), static_cast<std::streamsize>(data.size()));
-    out.close();
-    if (!out) {
-        SLEAK_WARN("Pipeline cache: could not write {}",
-                   kPipelineCacheTempPath);
-        std::filesystem::remove(kPipelineCacheTempPath, ec);
-        return;
+        std::error_code ec;
+        std::filesystem::create_directories(kPipelineCacheDir, ec);
+        std::ofstream out(kPipelineCacheTempPath,
+                          std::ios::binary | std::ios::trunc);
+        out.write(data.data(), static_cast<std::streamsize>(data.size()));
+        out.close();
+        if (!out) {
+            SLEAK_WARN("Pipeline cache: could not write {}",
+                       kPipelineCacheTempPath);
+            std::filesystem::remove(kPipelineCacheTempPath, ec);
+            return;
+        }
+        std::filesystem::rename(kPipelineCacheTempPath, kPipelineCachePath, ec);
+        if (ec) {
+            SLEAK_WARN("Pipeline cache: could not replace {}: {}",
+                       kPipelineCachePath, ec.message());
+            std::filesystem::remove(kPipelineCacheTempPath, ec);
+            return;
+        }
+        SLEAK_INFO("Pipeline cache: saved {} bytes", data.size());
     }
-    std::filesystem::rename(kPipelineCacheTempPath, kPipelineCachePath, ec);
-    if (ec) {
-        SLEAK_WARN("Pipeline cache: could not replace {}: {}",
-                   kPipelineCachePath, ec.message());
-        std::filesystem::remove(kPipelineCacheTempPath, ec);
-        return;
-    }
-    SLEAK_INFO("Pipeline cache: saved {} bytes", data.size());
-}
 
 /// Binds the skybox pipeline and its descriptor set for the current frame.
 void VulkanRenderer::BeginSkyboxPass() {
@@ -407,7 +407,6 @@ bool VulkanRenderer::CreateGraphicsPipeline() {
 
     return true;
 }
-
 
 /// Creates the main forward render pass with optional MSAA color and resolve attachments.
 bool VulkanRenderer::CreateRenderPass() {
@@ -1062,8 +1061,8 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
         blend.colorBlendOp = VK_BLEND_OP_ADD;
         // Transparent draws zero the HDR scene alpha: TAA's reactive mask
         const bool transparent = pass == CustomPass::Transparent;
-        blend.srcAlphaBlendFactor = transparent ? VK_BLEND_FACTOR_ZERO
-                                                : VK_BLEND_FACTOR_ONE;
+        blend.srcAlphaBlendFactor =
+            transparent ? VK_BLEND_FACTOR_ZERO : VK_BLEND_FACTOR_ONE;
         blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
     }
@@ -1129,7 +1128,6 @@ void VulkanRenderer::PrebuildCustomFormatPipelines() {
     }
 }
 
-
 /// Binds the custom-format pipeline matching the currently active render pass.
 void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     if (!bFrameStarted) return;
@@ -1194,7 +1192,6 @@ void VulkanRenderer::EndCustomFormatPass() {
                                 &descriptorSets[CurrentFrameIndex], 0, nullptr);
     }
 }
-
 
 /// Destroys every cached custom-format pipeline and clears the table.
 void VulkanRenderer::DestroyCustomFormatPipelines() {

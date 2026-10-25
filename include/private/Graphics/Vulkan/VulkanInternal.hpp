@@ -39,7 +39,8 @@ bool InvertMat4(const T M[16], T out[16]) {
         for (int c = 0; c < 4; ++c) m[r][4 + c] = (r == c) ? T(1) : T(0);
     }
     for (int col = 0; col < 4; ++col) {
-        int pivot = -1; T maxv = T(0);
+        int pivot = -1;
+        T maxv = T(0);
         for (int row = col; row < 4; ++row) {
             T v = std::abs(m[row][col]);
             if (v > maxv) { maxv = v; pivot = row; }

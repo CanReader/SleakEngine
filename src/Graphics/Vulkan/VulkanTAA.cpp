@@ -30,9 +30,8 @@ bool VulkanRenderer::CreateTAAResources() {
         ic.format        = fmt;
         ic.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ic.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ic.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                         | VK_IMAGE_USAGE_SAMPLED_BIT
-                         | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        ic.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         ic.samples       = VK_SAMPLE_COUNT_1_BIT;
         ic.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
         if (vkCreateImage(device, &ic, nullptr, &m_taaImages[i]) != VK_SUCCESS) return false;
@@ -149,17 +148,17 @@ bool VulkanRenderer::CreateTAAResources() {
         sub.pColorAttachments    = &ref;
 
         std::array<VkSubpassDependency, 2> deps{};
-        deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
-        deps[0].dstSubpass    = 0;
-        deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
         deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
         // Feeds history and the post passes
-        deps[1].srcSubpass    = 0;
-        deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
-        deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -171,7 +170,7 @@ bool VulkanRenderer::CreateTAAResources() {
         rpi.subpassCount    = 1;
         rpi.pSubpasses      = &sub;
         rpi.dependencyCount = static_cast<uint32_t>(deps.size());
-        rpi.pDependencies   = deps.data();
+        rpi.pDependencies = deps.data();
         if (vkCreateRenderPass(device, &rpi, nullptr, &m_taaRenderPass) != VK_SUCCESS) return false;
     }
 
@@ -402,8 +401,9 @@ void VulkanRenderer::CleanupTAAResources() {
     m_taaResourcesCreated = false;
 }
 
-/// Computes the current-to-previous clip reprojection and blend factor into the TAA UBO.
-/// Uses double: in float, inverse(VP) * VP drifts from identity far from the origin.
+/// Computes the current-to-previous clip reprojection and blend factor into the
+/// TAA UBO. Uses double: in float, inverse(VP) * VP drifts from identity far
+/// from the origin.
 void VulkanRenderer::UpdateTAAUBO() {
     if (!m_taaResourcesCreated || !m_taaUboMapped[currentFrame]) return;
 
@@ -426,7 +426,8 @@ void VulkanRenderer::UpdateTAAUBO() {
     if (InvertMat4(currentVP, invCurrentVP)) {
         MatMul4(invCurrentVP, m_prevViewProj, currentToPrev);
     } else {
-        for (int i = 0; i < 16; ++i) currentToPrev[i] = (i / 4 == i % 4) ? 1.0 : 0.0;
+        for (int i = 0; i < 16; ++i)
+            currentToPrev[i] = (i / 4 == i % 4) ? 1.0 : 0.0;
     }
 
     TAAParams p{};
@@ -451,7 +452,8 @@ void VulkanRenderer::RenderTAAPass() {
         m_taaRanLastFrame = false;
         return;
     }
-    // History and the previous VP are stale after TAA was off: restart accumulation
+    // History and the previous VP are stale after TAA was off: restart
+    // accumulation
     if (!m_taaRanLastFrame) m_taaFrameIdx = 0;
     m_taaRanLastFrame = true;
 

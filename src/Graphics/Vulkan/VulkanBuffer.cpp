@@ -498,7 +498,8 @@ void VulkanBuffer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer,
     if (s_batchActive) {
         VkBufferCopy copyRegion{};
         copyRegion.size = size;
-        vkCmdCopyBuffer(s_batchCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+        vkCmdCopyBuffer(s_batchCommandBuffer, srcBuffer, dstBuffer, 1,
+                        &copyRegion);
         return;
     }
 

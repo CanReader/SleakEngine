@@ -1,8 +1,8 @@
 #ifndef _CONSTANTBUFFER_H_
 #define _CONSTANTBUFFER_H_
 
-#include <Math/Matrix.hpp>
 #include <Math/Color.hpp>
+#include <Math/Matrix.hpp>
 #include <cstddef>
 #include <cstdint>
 

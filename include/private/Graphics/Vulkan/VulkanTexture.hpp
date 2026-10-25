@@ -58,7 +58,7 @@ public:
     /// Destroys every released texture; the caller guarantees the GPU is idle.
     static void DestroyAllReleased();
 
-private:
+   private:
     /// Hands the descriptor sets and GPU objects to the release queue so they
     /// outlive any frame still in flight.
     void Cleanup();

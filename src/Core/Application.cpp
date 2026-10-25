@@ -155,7 +155,7 @@ namespace Sleak {
 
             float lastTime = FrameTimer.Elapsed();
             float accumulator = 0.0f;
-            const float fixedTimestep = 1.0f / 60.0f;  
+            const float fixedTimestep = 1.0f / 60.0f;
 
             // Frame capture
             const std::string capturePath = CommandLine::GetValue("-capture");
@@ -425,8 +425,12 @@ namespace Sleak {
     bool Application::GetVSync() const { return renderer->GetVSync(); }
     void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
 
-    const bool Application::GetIsDeferredEnabled() const { return renderer->GetDeferredEnabled(); }
-    void Application::SetDeferredEnabled(bool enable) { renderer->SetDeferredEnabled(enable); }
+    const bool Application::GetIsDeferredEnabled() const {
+        return renderer->GetDeferredEnabled();
+    }
+    void Application::SetDeferredEnabled(bool enable) {
+        renderer->SetDeferredEnabled(enable);
+    }
 
     bool  Application::IsSSAOEnabled()  const { return renderer->IsSSAOEnabled(); }
     void  Application::SetSSAOEnabled(bool e)  { renderer->SetSSAOEnabled(e); }
@@ -448,8 +452,12 @@ namespace Sleak {
     bool  Application::IsTAAEnabled()  const   { return renderer->IsTAAEnabled(); }
     void  Application::SetTAAEnabled(bool e)   { renderer->SetTAAEnabled(e); }
 
-    float Application::GetSharpenStrength() const   { return renderer->GetSharpenStrength(); }
-    void  Application::SetSharpenStrength(float s)  { renderer->SetSharpenStrength(s); }
+    float Application::GetSharpenStrength() const {
+        return renderer->GetSharpenStrength();
+    }
+    void Application::SetSharpenStrength(float s) {
+        renderer->SetSharpenStrength(s);
+    }
 
     bool  Application::IsBloomEnabled() const  { return renderer->IsBloomEnabled(); }
     void  Application::SetBloomEnabled(bool e) { renderer->SetBloomEnabled(e); }

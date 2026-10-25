@@ -12,25 +12,25 @@
 namespace Sleak {
     namespace RenderEngine {
 
-namespace {
+    namespace {
 
-/// Short name of a present mode for logs.
-const char* PresentModeName(VkPresentModeKHR mode) {
-    switch (mode) {
-        case VK_PRESENT_MODE_IMMEDIATE_KHR:
-            return "IMMEDIATE";
-        case VK_PRESENT_MODE_MAILBOX_KHR:
-            return "MAILBOX";
-        case VK_PRESENT_MODE_FIFO_KHR:
-            return "FIFO";
-        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
-            return "FIFO_RELAXED";
-        default:
-            return "OTHER";
+    /// Short name of a present mode for logs.
+    const char* PresentModeName(VkPresentModeKHR mode) {
+        switch (mode) {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR:
+                return "IMMEDIATE";
+            case VK_PRESENT_MODE_MAILBOX_KHR:
+                return "MAILBOX";
+            case VK_PRESENT_MODE_FIFO_KHR:
+                return "FIFO";
+            case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+                return "FIFO_RELAXED";
+            default:
+                return "OTHER";
+        }
     }
-}
 
-}  // namespace
+    }  // namespace
 
 /// Creates the swapchain from the queried surface capabilities.
 bool VulkanRenderer::CreateSwapChain() {
@@ -472,6 +472,5 @@ bool VulkanRenderer::SurfaceExtentChanged() {
     const VkExtent2D extent = ChooseExtend(caps);
     return extent.width != scExtent.width || extent.height != scExtent.height;
 }
-
 }
 }

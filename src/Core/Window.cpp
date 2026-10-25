@@ -1,14 +1,14 @@
 #include "../../include/private/Core/Window.hpp"
 
-#include "../../include/private/Graphics/Common/RendererFactory.hpp"
-#include <cstdlib>
-#include <cstring>
 #include <Core/CommandLine.hpp>
 #include <Core/Logger.hpp>
 #include <Events/ApplicationEvent.hpp>
 #include <Events/KeyboardEvent.hpp>
 #include <Events/MouseEvent.hpp>
+#include <cstdlib>
+#include <cstring>
 
+#include "../../include/private/Graphics/Common/RendererFactory.hpp"
 
 namespace Sleak {
 
@@ -79,14 +79,15 @@ bool Window::InitializeWindow() {
       SLEAK_FATAL("Failed to initialize SDL: {0}", SDL_GetError());
       return false;
     }
-  if (m_inputLocked) SDL_SetEventFilter(DropUserInput, nullptr);
+    if (m_inputLocked) SDL_SetEventFilter(DropUserInput, nullptr);
 
-  SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height, GraphicsAPI | SDL_WINDOW_RESIZABLE); 
+    SDLWindow = SDL_CreateWindow(WindowName.c_str(), Width, Height,
+                                 GraphicsAPI | SDL_WINDOW_RESIZABLE);
 
-  if (!SDLWindow) {
-    SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError()); 
-    return false;
-  }
+    if (!SDLWindow) {
+        SLEAK_FATAL("Failed to create window! {0} ", SDL_GetError());
+        return false;
+    }
 
   if (SDL_Surface* icon = SDL_LoadBMP("assets/branding/icon.bmp")) {
     SDL_SetWindowIcon(SDLWindow, icon);

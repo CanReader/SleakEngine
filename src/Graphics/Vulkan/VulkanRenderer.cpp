@@ -852,8 +852,8 @@ void VulkanRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
         // Pushes survive pipeline binds
         if (m_shadowPCPushedLayout != activeLayout) {
             vkCmdPushConstants(command, activeLayout,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0, PUSH_CONSTANT_BYTES,
-                               m_shadowPCCache);
+                               VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               PUSH_CONSTANT_BYTES, m_shadowPCCache);
             m_shadowPCPushedLayout = activeLayout;
         }
     } else {
@@ -1897,7 +1897,10 @@ bool VulkanRenderer::CreateGBufferResources() {
         if (pipeline)         { vkDestroyPipeline(device, pipeline, nullptr);         pipeline = VK_NULL_HANDLE; }
         if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
         if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
-        if (skinnedPipeline)  { vkDestroyPipeline(device, skinnedPipeline, nullptr);  skinnedPipeline = VK_NULL_HANDLE; }
+        if (skinnedPipeline) {
+            vkDestroyPipeline(device, skinnedPipeline, nullptr);
+            skinnedPipeline = VK_NULL_HANDLE;
+        }
         DestroyCustomFormatPipelines();
 
         CreateGraphicsPipeline();

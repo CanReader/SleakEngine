@@ -1,10 +1,12 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
+
 #include <backends/imgui_impl_vulkan.h>
-#include <Core/Logger.hpp>
 #include <stb_image.h>
-#include <cstring>
+
+#include <Core/Logger.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <mutex>
 #include <utility>
 #include <vector>

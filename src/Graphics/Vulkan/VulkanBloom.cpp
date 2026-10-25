@@ -46,9 +46,8 @@ bool VulkanRenderer::CreateHDRSceneResources() {
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // TRANSFER_SRC_BIT: MSAA resolve from the forward render pass.
-    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                       | VK_IMAGE_USAGE_SAMPLED_BIT
-                       | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     info.samples       = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     if (vkCreateImage(device, &info, nullptr, &m_hdrSceneImage) != VK_SUCCESS) return false;
@@ -330,7 +329,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     VkPushConstantRange compPushRange{};
     compPushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     compPushRange.offset     = 0;
-    compPushRange.size       = 32;
+    compPushRange.size = 32;
 
     VkPipelineLayoutCreateInfo cliInfo{};
     cliInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -777,7 +776,8 @@ void VulkanRenderer::RenderBloomCompositePass() {
     pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
     pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
     // Sharpening an aliased (non-TAA) frame only amplifies the stair-steps
-    pc.sharpenStrength = (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
+    pc.sharpenStrength =
+        (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);
