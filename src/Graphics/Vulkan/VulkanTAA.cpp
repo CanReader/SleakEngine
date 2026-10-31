@@ -288,6 +288,16 @@ bool VulkanRenderer::CreateTAAResources() {
     }
 
     // ---- 10. Pipeline ----
+    if (!CreateTAAPipeline()) return false;
+
+    m_taaResourcesCreated = true;
+    SLEAK_INFO("TAA resources created ({}x{})", scExtent.width,
+               scExtent.height);
+    return true;
+}
+
+/// Compiles the TAA shaders and creates the TAA resolve pipeline.
+bool VulkanRenderer::CreateTAAPipeline() {
     {
         m_taaShader = new VulkanShader(device);
         if (!m_taaShader->compile("assets/shaders/taa.vert.spv",
@@ -358,9 +368,6 @@ bool VulkanRenderer::CreateTAAResources() {
             return false;
         }
     }
-
-    m_taaResourcesCreated = true;
-    SLEAK_INFO("TAA resources created ({}x{})", scExtent.width, scExtent.height);
     return true;
 }
 

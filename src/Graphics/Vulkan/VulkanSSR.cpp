@@ -280,6 +280,16 @@ bool VulkanRenderer::CreateSSRResources() {
     }
 
     // ---- 8. Pipeline ----
+    if (!CreateSSRPipeline()) return false;
+
+    m_ssrResourcesCreated = true;
+    SLEAK_INFO("SSR resources created ({}x{})", scExtent.width,
+               scExtent.height);
+    return true;
+}
+
+/// Compiles the SSR shaders and creates the SSR pipeline.
+bool VulkanRenderer::CreateSSRPipeline() {
     {
         m_ssrShader = new VulkanShader(device);
         if (!m_ssrShader->compile("assets/shaders/ssr.vert.spv",
@@ -356,9 +366,6 @@ bool VulkanRenderer::CreateSSRResources() {
             return false;
         }
     }
-
-    m_ssrResourcesCreated = true;
-    SLEAK_INFO("SSR resources created ({}x{})", scExtent.width, scExtent.height);
     return true;
 }
 
