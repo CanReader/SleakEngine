@@ -25,6 +25,7 @@
 #include <Math/Matrix.hpp>
 #include <UI/UI.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
+#include <Debug/ShaderHotReload.hpp>
 #include <Runtime/MeshData.hpp>
 #include "ECS/Components/MeshComponent.hpp"
 #include "ECS/Components/TransformComponent.hpp"
@@ -177,6 +178,8 @@ namespace Sleak {
             uint64_t frameIndex = 0;
             bool captureArmed = false;
 
+            Debug::ShaderHotReload::AddSourceDirectory(SLEAK_ENGINE_SHADER_DIR);
+
             // Initialize and begin the game (and scene)
             if (Game) {
                 if (!Game->Initialize()) {
@@ -217,6 +220,8 @@ namespace Sleak {
                 #if defined(_DEBUG) && defined(COUNT_FRAME)
                     ScopedTimer("Frame Timer");
                 #endif
+
+                Debug::ShaderHotReload::Poll();
 
                 CoreWindow->Update();
 

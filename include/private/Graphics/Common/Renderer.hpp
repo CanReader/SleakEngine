@@ -4,6 +4,8 @@
 #include "RenderContext.hpp"
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
+#include <string>
+#include <vector>
 
 namespace Sleak {
 
@@ -49,6 +51,12 @@ public:
     virtual void Cleanup() = 0;
     /// Blocks until the GPU has finished all outstanding work.
     virtual void WaitIdle() {}
+    /// Rebuilds what uses the given shader stems from the files on disk.
+    /// Returns false when the backend has no hot reload support.
+    virtual bool ReloadShaders(const std::vector<std::string>& stems) {
+        (void)stems;
+        return false;
+    }
     /// Flushes any buffered upload/staging transfers still in flight.
     virtual void FlushPendingTransfers() {}
 
