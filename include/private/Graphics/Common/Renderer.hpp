@@ -1,11 +1,11 @@
 #pragma once
 
-
-#include "RenderContext.hpp"
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
 #include <string>
 #include <vector>
+
+#include "RenderContext.hpp"
 
 namespace Sleak {
 

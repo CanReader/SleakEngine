@@ -1,4 +1,5 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
+
 #include <Core/Logger.hpp>
 #include <filesystem>
 #include <fstream>

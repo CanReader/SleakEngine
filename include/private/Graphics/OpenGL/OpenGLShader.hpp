@@ -1,9 +1,11 @@
 #ifndef OPENGLSHADER_HPP_
 #define OPENGLSHADER_HPP_
 
-#include "../Common/Shader.hpp"
 #include <glad/glad.h>
+
 #include <string>
+
+#include "../Common/Shader.hpp"
 #ifdef SLEAK_HOT_RELOAD
 #include <unordered_set>
 #endif
@@ -41,7 +43,7 @@ public:
     static const std::unordered_set<OpenGLShader*>& GetLiveShaders();
 #endif
 
-private:
+   private:
     /// Compiles a single shader stage from source text.
     bool CompileShaderSource(const std::string& source, GLenum type,
                              const std::string& path, GLuint& shader);
