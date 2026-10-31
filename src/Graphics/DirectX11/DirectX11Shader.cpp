@@ -8,53 +8,111 @@
 #include <Core/Logger.hpp>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#ifdef SLEAK_HOT_RELOAD
+#include <filesystem>
+#endif
 
 namespace Sleak {
 namespace RenderEngine {
 
+namespace {
+
+constexpr const char* VERTEX_ENTRY = "VS_Main";
+constexpr const char* PIXEL_ENTRY = "PS_Main";
+constexpr const char* SPLIT_FILE_ENTRY = "Main";
+constexpr const char* VERTEX_PROFILE = "vs_5_0";
+constexpr const char* PIXEL_PROFILE = "ps_5_0";
+
+#ifdef SLEAK_HOT_RELOAD
+/// Returns the file name up to its first '.', e.g. skybox for skybox.hlsl.
+std::string StemFromPath(const std::string& path) {
+    const std::string name = std::filesystem::path(path).filename().string();
+    return name.substr(0, name.find('.'));
+}
+
+/// Returns the live shader registry, leaked to survive static teardown.
+std::unordered_set<DirectX11Shader*>& LiveShaders() {
+    static auto* shaders = new std::unordered_set<DirectX11Shader*>();
+    return *shaders;
+}
+#endif
+
+}  // namespace
+
 DirectX11Shader::DirectX11Shader(ID3D11Device* device) : m_device(device) {
     assert(m_device != nullptr);  // Ensure the device is valid
     m_device->GetImmediateContext(m_deviceContext.GetAddressOf());
+#ifdef SLEAK_HOT_RELOAD
+    LiveShaders().insert(this);
+#endif
 }
 
 DirectX11Shader::~DirectX11Shader() {
-    // Resources are automatically released by ComPtr
+#ifdef SLEAK_HOT_RELOAD
+    LiveShaders().erase(this);
+#endif
 }
 
+#ifdef SLEAK_HOT_RELOAD
+const std::unordered_set<DirectX11Shader*>& DirectX11Shader::GetLiveShaders() {
+    return LiveShaders();
+}
+
+bool DirectX11Shader::Reload() {
+    if (m_sources.vertPath.empty() || m_sources.fragPath.empty()) return false;
+    return BuildStages(m_sources);
+}
+
+void DirectX11Shader::AdoptStages(const DirectX11Shader& source) {
+    m_vertexShader = source.m_vertexShader;
+    m_pixelShader = source.m_pixelShader;
+    m_vertexShaderBlob = source.m_vertexShaderBlob;
+    m_pixelShaderBlob = source.m_pixelShaderBlob;
+    Layout = source.Layout;
+}
+#endif
+
 bool DirectX11Shader::compile(const std::string& shaderPath) {
-    // Compile vertex shader
-    if (!compileShader(shaderPath, "VS_Main", "vs_5_0", m_vertexShader,
-                       m_vertexShaderBlob)) {
-        SLEAK_ERROR("Failed to compile vertex shader!");
-        return false;
-    }
-
-    // Compile pixel shader
-    if (!compileShader(shaderPath, "PS_Main", "ps_5_0", m_pixelShader,
-                       m_pixelShaderBlob)) {
-        SLEAK_ERROR("Failed to compile pixel shader!");
-        return false;
-    }
-
-    return true;
+    return BuildStages({shaderPath, VERTEX_ENTRY, shaderPath, PIXEL_ENTRY});
 }
 
 bool DirectX11Shader::compile(const std::string& vertPath,
                               const std::string& fragPath) {
-    // Compile vertex shader
-    if (!compileShader(vertPath, "Main", "vs_5_0", m_vertexShader,
-                       m_vertexShaderBlob)) {
-        SLEAK_ERROR("Failed to compile vertex shader!");
+    return BuildStages(
+        {vertPath, SPLIT_FILE_ENTRY, fragPath, SPLIT_FILE_ENTRY});
+}
+
+bool DirectX11Shader::BuildStages(StageSources sources) {
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
+    Microsoft::WRL::ComPtr<ID3DBlob> vertexBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> pixelBlob;
+    if (!compileShader(sources.vertPath, sources.vertEntry, VERTEX_PROFILE,
+                       vertexShader, vertexBlob)) {
+        SLEAK_ERROR("Failed to compile vertex shader {}", sources.vertPath);
+        return false;
+    }
+    if (!compileShader(sources.fragPath, sources.fragEntry, PIXEL_PROFILE,
+                       pixelShader, pixelBlob)) {
+        SLEAK_ERROR("Failed to compile pixel shader {}", sources.fragPath);
         return false;
     }
 
-    // Compile pixel shader
-    if (!compileShader(fragPath, "Main", "ps_5_0", m_pixelShader,
-                       m_pixelShaderBlob)) {
-        SLEAK_ERROR("Failed to compile pixel shader!");
-        return false;
-    }
+    // A rebuild needs a layout validated against the new vertex inputs
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> layout;
+    if (Layout && !CreateLayoutFor(vertexBlob.Get(), layout)) return false;
 
+    m_vertexShader = std::move(vertexShader);
+    m_pixelShader = std::move(pixelShader);
+    m_vertexShaderBlob = std::move(vertexBlob);
+    m_pixelShaderBlob = std::move(pixelBlob);
+    if (layout) Layout = std::move(layout);
+#ifdef SLEAK_HOT_RELOAD
+    m_vertStem = StemFromPath(sources.vertPath);
+    m_fragStem = StemFromPath(sources.fragPath);
+    m_sources = std::move(sources);
+#endif
     return true;
 }
 
@@ -74,13 +132,25 @@ ID3DBlob* DirectX11Shader::getVertexShaderBlob() const {
 }
 
 ID3D11InputLayout* DirectX11Shader::createInputLayout() {
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> layout;
+    if (!m_vertexShaderBlob ||
+        !CreateLayoutFor(m_vertexShaderBlob.Get(), layout))
+        return nullptr;
+
+    // Store per-shader so bind() can set it, and keep a ref for the caller
+    Layout = layout;
+    return layout.Detach();
+}
+
+bool DirectX11Shader::CreateLayoutFor(
+    ID3DBlob* vertexBlob, Microsoft::WRL::ComPtr<ID3D11InputLayout>& layout) {
     // Check via reflection if the shader uses BLENDINDICES (skinned shader)
     bool isSkinned = false;
     Microsoft::WRL::ComPtr<ID3D11ShaderReflection> reflector;
-    HRESULT hr = D3DReflect(m_vertexShaderBlob->GetBufferPointer(),
-                             m_vertexShaderBlob->GetBufferSize(),
-                             IID_ID3D11ShaderReflection,
-                             reinterpret_cast<void**>(reflector.GetAddressOf()));
+    HRESULT hr =
+        D3DReflect(vertexBlob->GetBufferPointer(), vertexBlob->GetBufferSize(),
+                   IID_ID3D11ShaderReflection,
+                   reinterpret_cast<void**>(reflector.GetAddressOf()));
     if (SUCCEEDED(hr)) {
         D3D11_SHADER_DESC shaderDesc;
         reflector->GetDesc(&shaderDesc);
@@ -97,22 +167,16 @@ ID3D11InputLayout* DirectX11Shader::createInputLayout() {
     D3D11_INPUT_ELEMENT_DESC* layoutDesc = isSkinned ? SkinnedLayout : DefaultLayout;
     UINT layoutCount = isSkinned ? ARRAYSIZE(SkinnedLayout) : ARRAYSIZE(DefaultLayout);
 
-    ID3D11InputLayout* inputLayout = nullptr;
     hr = m_device->CreateInputLayout(
-        layoutDesc, layoutCount,
-        m_vertexShaderBlob->GetBufferPointer(),
-        m_vertexShaderBlob->GetBufferSize(), &inputLayout);
+        layoutDesc, layoutCount, vertexBlob->GetBufferPointer(),
+        vertexBlob->GetBufferSize(), layout.ReleaseAndGetAddressOf());
 
     if (FAILED(hr)) {
-        SLEAK_ERROR("Failed to create input layout: 0x{:08X}", hr);
-        return nullptr;
+        SLEAK_ERROR("Failed to create input layout: 0x{:08X}",
+                    static_cast<unsigned int>(hr));
+        return false;
     }
-
-    // Store per-shader so bind() can set it
-    Layout.Attach(inputLayout);
-    inputLayout->AddRef(); // Keep a ref for the caller too
-
-    return inputLayout;
+    return true;
 }
 
 /// Compiles a shader stage from an HLSL file and creates the matching D3D11 shader object.
@@ -137,8 +201,11 @@ bool DirectX11Shader::compileShader(const std::string& filePath,
 
     if (FAILED(hr)) {
         if (errorBlob) {
-            SLEAK_ERROR("Shader compilation error: {}",
-                        (char*)errorBlob->GetBufferPointer());
+            SLEAK_ERROR("Shader compilation error in {} ({}): {}", filePath,
+                        entryPoint, (char*)errorBlob->GetBufferPointer());
+        } else {
+            SLEAK_ERROR("Shader compilation error in {} ({}): 0x{:08X}",
+                        filePath, entryPoint, static_cast<unsigned int>(hr));
         }
         return false;
     }
@@ -154,6 +221,10 @@ bool DirectX11Shader::compileShader(const std::string& filePath,
             reinterpret_cast<ID3D11PixelShader**>(shader.GetAddressOf()));
     }
 
+    if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create shader object for {} ({}): 0x{:08X}",
+                    filePath, entryPoint, static_cast<unsigned int>(hr));
+    }
     return SUCCEEDED(hr);
 }
 
