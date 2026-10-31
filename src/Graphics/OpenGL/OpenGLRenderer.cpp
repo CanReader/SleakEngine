@@ -17,6 +17,7 @@
 #include <Runtime/Material.hpp>
 #include <Core/GameBase.hpp>
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <vector>
 #include <cstdint>
 #include <cstring>
@@ -217,6 +218,35 @@ void OpenGLRenderer::Cleanup() {
         m_Initialized = false;
     }
 }
+
+#ifdef SLEAK_HOT_RELOAD
+bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
+    for (OpenGLShader* shader : OpenGLShader::GetLiveShaders()) {
+        const bool changed =
+            std::ranges::any_of(stems, [shader](const std::string& stem) {
+                return shader->UsesStem(stem);
+            });
+        if (!changed) continue;
+        if (shader->Reload()) {
+            SLEAK_INFO("Reloaded OpenGL shader '{}'", shader->GetStem());
+        } else {
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old program",
+                       shader->GetStem());
+        }
+    }
+    for (const std::string& stem : stems) {
+        const bool used = std::ranges::any_of(
+            OpenGLShader::GetLiveShaders(),
+            [&stem](const OpenGLShader* shader) {
+                return shader->UsesStem(stem);
+            });
+        if (!used)
+            SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
+                       stem);
+    }
+    return true;
+}
+#endif
 
 void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     glViewport(0, 0, width, height);
