@@ -53,7 +53,7 @@ namespace Sleak
                 assert(index < N && "Vector index out of range");
                 return data[index];
             }
-    
+
             // Basic operations
             Vector<T, N> operator+(const Vector<T, N>& other) const {
                 Vector<T, N> result;
