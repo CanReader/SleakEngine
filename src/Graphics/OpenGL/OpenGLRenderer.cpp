@@ -1,25 +1,29 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLRenderer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
-#include <Runtime/MeshData.hpp>
-#include <Runtime/VertexLayout.hpp>
-#include "Graphics/Common/ResourceManager.hpp"
-#include "Graphics/Common/ConstantBuffer.hpp"
-#include "Graphics/Common/RenderCommandQueue.hpp"
-#include "Graphics/Common/SSAOKernel.hpp"
+
+#include <SDL3/SDL.h>
+
 #include <Camera/Camera.hpp>
 #include <Core/Application.hpp>
-#include <Core/SceneBase.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Runtime/Material.hpp>
 #include <Core/GameBase.hpp>
-#include <SDL3/SDL.h>
-#include <vector>
+#include <Core/SceneBase.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/Skybox.hpp>
+#include <Runtime/VertexLayout.hpp>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <vector>
+
+#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
+#include "Graphics/Common/ConstantBuffer.hpp"
+#include "Graphics/Common/RenderCommandQueue.hpp"
+#include "Graphics/Common/ResourceManager.hpp"
+#include "Graphics/Common/SSAOKernel.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -217,6 +221,35 @@ void OpenGLRenderer::Cleanup() {
         m_Initialized = false;
     }
 }
+
+#ifdef SLEAK_HOT_RELOAD
+bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
+    for (OpenGLShader* shader : OpenGLShader::GetLiveShaders()) {
+        const bool changed =
+            std::ranges::any_of(stems, [shader](const std::string& stem) {
+                return shader->UsesStem(stem);
+            });
+        if (!changed) continue;
+        if (shader->Reload()) {
+            SLEAK_INFO("Reloaded OpenGL shader '{}'", shader->GetStem());
+        } else {
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old program",
+                       shader->GetStem());
+        }
+    }
+    for (const std::string& stem : stems) {
+        const bool used =
+            std::ranges::any_of(OpenGLShader::GetLiveShaders(),
+                                [&stem](const OpenGLShader* shader) {
+                                    return shader->UsesStem(stem);
+                                });
+        if (!used)
+            SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
+                       stem);
+    }
+    return true;
+}
+#endif
 
 void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
     glViewport(0, 0, width, height);

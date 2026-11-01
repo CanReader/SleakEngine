@@ -25,6 +25,10 @@ public:
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
+#ifdef SLEAK_HOT_RELOAD
+    /// Relinks every live shader built from one of the given stems.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
 
     virtual uint32_t GetFeatureCaps() const override {
         return CapDeferred | CapSSAO | CapIBL | CapShadows;

@@ -1446,5 +1446,147 @@ void VulkanRenderer::EndSkinnedPass() {
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 }
 
+#ifdef SLEAK_HOT_RELOAD
+/// Rebuilds every pipeline from the SPIR-V on disk; this version ignores the
+/// stems and rebuilds them all.
+bool VulkanRenderer::ReloadShaders(const std::vector<std::string>& stems) {
+    (void)stems;
+    vkDeviceWaitIdle(device);
+
+    const PipelineGroup groups[] = {
+        {"default_shader",
+         {&pipeline},
+         {},
+         {&simpleShader},
+         &VulkanRenderer::CreateGraphicsPipeline},
+        {"skybox",
+         {&skyboxPipeline},
+         {},
+         {&skyboxShader},
+         &VulkanRenderer::CreateSkyboxPipeline},
+        {"debug_line",
+         {&debugLinePipeline},
+         {},
+         {&debugLineShader},
+         &VulkanRenderer::CreateDebugLinePipeline},
+        {"skinned_shader",
+         {&skinnedPipeline},
+         {},
+         {&skinnedShader},
+         &VulkanRenderer::CreateSkinnedPipeline},
+        {"shadow_depth",
+         {&m_shadowPipeline},
+         {},
+         {&m_shadowShader},
+         &VulkanRenderer::CreateShadowPipeline},
+        {"gbuffer",
+         {&m_gbufferPipeline},
+         {},
+         {&m_gbufferShader},
+         &VulkanRenderer::CreateGBufferPipeline},
+        {"skinned gbuffer",
+         {&m_skinnedGbufferPipeline},
+         {},
+         {},
+         &VulkanRenderer::CreateSkinnedGbufferPipeline},
+        {"lighting_pass",
+         {&m_lightingPipeline},
+         {&m_lightingPipelineLayout},
+         {&m_lightingShader},
+         &VulkanRenderer::CreateLightingPipeline},
+        {"ssao",
+         {&m_ssaoPipeline, &m_ssaoBlurPipeline},
+         {&m_ssaoPipelineLayout, &m_ssaoBlurPipelineLayout},
+         {&m_ssaoShader, &m_ssaoBlurShader},
+         &VulkanRenderer::CreateSSAOPipelines},
+        {"ssr",
+         {&m_ssrPipeline},
+         {},
+         {&m_ssrShader},
+         &VulkanRenderer::CreateSSRPipeline},
+        {"taa",
+         {&m_taaPipeline},
+         {},
+         {&m_taaShader},
+         &VulkanRenderer::CreateTAAPipeline},
+        {"bloom",
+         {&m_bloomThresholdPipeline, &m_bloomDownsamplePipeline,
+          &m_bloomUpsamplePipeline, &m_bloomCompositePipeline},
+         {&m_bloomFilterPipelineLayout, &m_bloomCompositePipelineLayout},
+         {&m_bloomThresholdShader, &m_bloomDownsampleShader,
+          &m_bloomUpsampleShader, &m_bloomCompositeShader},
+         &VulkanRenderer::CreateBloomPipelines},
+    };
+    for (const PipelineGroup& group : groups) ReloadPipelineGroup(group);
+    ReloadCustomFormatPipelines();
+    return true;
+}
+
+/// Rebuilds a live group through its create function, keeping the old
+/// objects when the rebuild fails.
+void VulkanRenderer::ReloadPipelineGroup(const PipelineGroup& group) {
+    // Pass is off or still builds lazily from disk
+    if (*group.pipelines.front() == VK_NULL_HANDLE) return;
+
+    // Detach the live objects so the create function builds new ones
+    std::vector<VkPipeline> pipelines;
+    std::vector<VkPipelineLayout> layouts;
+    std::vector<VulkanShader*> shaders;
+    for (VkPipeline* pipe : group.pipelines)
+        pipelines.push_back(std::exchange(*pipe, VK_NULL_HANDLE));
+    for (VkPipelineLayout* layout : group.layouts)
+        layouts.push_back(std::exchange(*layout, VK_NULL_HANDLE));
+    for (VulkanShader** shader : group.shaders)
+        shaders.push_back(std::exchange(*shader, nullptr));
+
+    bool built = (this->*group.create)();
+    for (VkPipeline* pipe : group.pipelines)
+        built = built && *pipe != VK_NULL_HANDLE;
+    if (!built)
+        SLEAK_ERROR("Hot reload: {} rebuild failed, keeping the previous one",
+                    group.name);
+
+    // Destroy the losing generation
+    for (size_t i = 0; i < pipelines.size(); ++i) {
+        if (!built) std::swap(*group.pipelines[i], pipelines[i]);
+        if (pipelines[i]) vkDestroyPipeline(device, pipelines[i], nullptr);
+    }
+    for (size_t i = 0; i < layouts.size(); ++i) {
+        if (!built) std::swap(*group.layouts[i], layouts[i]);
+        if (layouts[i]) vkDestroyPipelineLayout(device, layouts[i], nullptr);
+    }
+    for (size_t i = 0; i < shaders.size(); ++i) {
+        if (!built) std::swap(*group.shaders[i], shaders[i]);
+        delete shaders[i];
+    }
+}
+
+/// Rebuilds every cached custom-format variant, keeping the old pipeline of
+/// a variant that fails.
+void VulkanRenderer::ReloadCustomFormatPipelines() {
+    for (size_t i = 0; i < m_customFormatPipelines.size(); ++i) {
+        const auto format = static_cast<VertexFormatHandle>(i + 1);
+        CustomFormatPipelines& pipes = m_customFormatPipelines[i];
+        // Variants that failed before retry on next use
+        pipes.failed.fill(false);
+        const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
+        if (!desc) continue;
+        for (size_t slot = 0; slot < CUSTOM_PASS_COUNT; ++slot) {
+            VkPipeline& live = pipes.pipelines[slot];
+            if (live == VK_NULL_HANDLE) continue;
+            const VkPipeline rebuilt = BuildCustomFormatPipeline(
+                format, *desc, static_cast<CustomPass>(slot));
+            if (rebuilt == VK_NULL_HANDLE) {
+                SLEAK_ERROR(
+                    "Hot reload: vertex format {} keeps its previous pipeline",
+                    format);
+                continue;
+            }
+            vkDestroyPipeline(device, live, nullptr);
+            live = rebuilt;
+        }
+    }
+}
+#endif
 }
 }

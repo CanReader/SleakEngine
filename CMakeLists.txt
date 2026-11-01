@@ -113,6 +113,7 @@ set(CORE_SOURCES
     src/Core/Application.cpp
     src/Core/CommandLine.cpp
     src/Core/File.cpp
+    src/Core/FileWatcher.cpp
     src/Core/Logger.cpp
     src/Core/ScopedTimer.cpp
     src/Core/Serializable.cpp
@@ -128,6 +129,7 @@ set(DEBUG_SOURCES
     src/Debug/Benchmark.cpp
     src/Debug/DebugLineRenderer.cpp
     src/Debug/DebugOverlay.cpp
+    src/Debug/ShaderHotReload.cpp
     src/Debug/SystemMetrics.cpp
 )
 
@@ -373,6 +375,7 @@ endforeach()
 if(GLSLC)
     set(ENGINE_SPIRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     file(MAKE_DIRECTORY "${ENGINE_SPIRV_DIR}")
+    target_compile_definitions(Engine PRIVATE SLEAK_GLSLC_PATH="${GLSLC}")
     foreach(_src ${ENGINE_VULKAN_SHADERS})
         get_filename_component(_name "${_src}" NAME)
         set(_spv "${ENGINE_SPIRV_DIR}/${_name}.spv")
@@ -428,6 +431,10 @@ add_dependencies(Engine CompileShaders)
 
 set_property(GLOBAL PROPERTY ENGINE_SPIRV_FILES ${ENGINE_SPIRV_FILES})
 set_property(GLOBAL PROPERTY ENGINE_COMMITTED_SPIRV ${ENGINE_COMMITTED_SPIRV})
+
+target_compile_definitions(Engine
+    PUBLIC $<$<CONFIG:Debug>:SLEAK_HOT_RELOAD>
+    PRIVATE SLEAK_ENGINE_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
 
 function(_engine_collect_targets dir out)
     get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)

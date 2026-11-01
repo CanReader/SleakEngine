@@ -1,25 +1,52 @@
 #include "../../include/private/Graphics/DirectX11/DirectX11Renderer.hpp"
 #ifdef PLATFORM_WIN
 
-#include <Core/Window.hpp>
 #include <SDL3/SDL.h>
+#include <d3dcompiler.h>
 #include <dxgidebug.h>
+#include <imgui_internal.h>
+#include <psapi.h>
+#include <windows.h>
+#include <wrl/client.h>
+
+#include <Core/Window.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
 #include <Graphics/DirectX11/DirectX11Buffer.hpp>
 #include <Graphics/DirectX11/DirectX11Shader.hpp>
-#include "Graphics/DirectX11/DirectX11Texture.hpp"
-#include "Graphics/DirectX11/DirectX11CubemapTexture.hpp"
 #include <Runtime/MeshData.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <imgui_internal.h>
-#include <windows.h>
-#include <psapi.h>
-#include <d3dcompiler.h>
+#include <algorithm>
 #include <cstring>
+#include <string>
+#include <vector>
+
 #include "Graphics/Common/RenderCommandQueue.hpp"
+#include "Graphics/DirectX11/DirectX11CubemapTexture.hpp"
+#include "Graphics/DirectX11/DirectX11Texture.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
-        
+
+    namespace {
+
+    constexpr const char* TONEMAP_SHADER_PATH = "assets/shaders/tonemap.hlsl";
+#ifdef SLEAK_HOT_RELOAD
+    constexpr const char* TONEMAP_STEM = "tonemap";
+#endif
+
+    /// Logs a failed D3DCompileFromFile call with the compiler output.
+    void LogCompileError(const char* path, const char* entry, HRESULT hr,
+                         ID3DBlob* errors) {
+        if (errors) {
+            SLEAK_ERROR("{} ({}) compile error: {}", path, entry,
+                        static_cast<const char*>(errors->GetBufferPointer()));
+        } else {
+            SLEAK_ERROR("{} ({}) compile error: 0x{:08X}", path, entry,
+                        static_cast<unsigned int>(hr));
+        }
+    }
+
+    }  // namespace
+
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
 DirectX11Renderer::DirectX11Renderer(Window* window) 
     : window(window),
@@ -68,9 +95,9 @@ bool DirectX11Renderer::Initialize() {
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     UINT createDeviceFlags = 0;
-    #ifdef _DEBUG
-        createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
-    #endif
+#ifdef _DEBUG
+    createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
     D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0 };
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
@@ -103,43 +130,41 @@ bool DirectX11Renderer::Initialize() {
 
     SLEAK_INFO("DirectX 11 has successfully created!");
 
-    #ifdef _DEBUG
-        ID3D11InfoQueue* infoQueue;
-        if (SUCCEEDED(device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&infoQueue))) {
-            // Only break on corruption (critical), not on errors — breaking on
-            // errors without a debugger attached silently drops draw calls.
-            infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
+#ifdef _DEBUG
+    ID3D11InfoQueue* infoQueue;
+    if (SUCCEEDED(device->QueryInterface(__uuidof(ID3D11InfoQueue),
+                                         (void**)&infoQueue))) {
+        // Only break on corruption (critical), not on errors — breaking on
+        // errors without a debugger attached silently drops draw calls.
+        infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
 
-            D3D11_MESSAGE_SEVERITY severities[] = {
-                D3D11_MESSAGE_SEVERITY_INFO
-            };
+        D3D11_MESSAGE_SEVERITY severities[] = {D3D11_MESSAGE_SEVERITY_INFO};
 
-            D3D11_INFO_QUEUE_FILTER filter = {};
-            filter.DenyList.NumSeverities = _countof(severities);
-            filter.DenyList.pSeverityList = severities;
+        D3D11_INFO_QUEUE_FILTER filter = {};
+        filter.DenyList.NumSeverities = _countof(severities);
+        filter.DenyList.pSeverityList = severities;
 
-            infoQueue->AddStorageFilterEntries(&filter);
-            infoQueue->Release();
-        }
-    #endif
+        infoQueue->AddStorageFilterEntries(&filter);
+        infoQueue->Release();
+    }
+#endif
 
-        SetPerformanceCounter(true);
-        SetRenderMode(RenderMode::Fill);
-        SetRenderFace(RenderFace::Front);
+    SetPerformanceCounter(true);
+    SetRenderMode(RenderMode::Fill);
+    SetRenderFace(RenderFace::Front);
 
-        ConfigureRenderMode();
+    ConfigureRenderMode();
 
-        SetDepthStencilState(true, true);
+    SetDepthStencilState(true, true);
 
-        msaaSampleCount = 1;
+    msaaSampleCount = 1;
 
-        D3D11_QUERY_DESC queryDesc;
-        queryDesc.Query = D3D11_QUERY::D3D11_QUERY_PIPELINE_STATISTICS;
-        queryDesc.MiscFlags = 0;
-        if(FAILED(device->CreateQuery(&queryDesc,&query)))
-            SLEAK_WARN("Could not create pipeline statics object!");
-        
-            
+    D3D11_QUERY_DESC queryDesc;
+    queryDesc.Query = D3D11_QUERY::D3D11_QUERY_PIPELINE_STATISTICS;
+    queryDesc.MiscFlags = 0;
+    if (FAILED(device->CreateQuery(&queryDesc, &query)))
+        SLEAK_WARN("Could not create pipeline statics object!");
+
     if(bEnabledPerformanceCounter){
         if(query)
         while (deviceContext->GetData(query, nullptr, 0, 0) == S_FALSE);
@@ -286,16 +311,16 @@ void DirectX11Renderer::Cleanup() {
         bImInitialized = false;
     }
 
-    #ifdef _DEBUG
-        if(device) {
-            ID3D11Debug* debugDevice;
-            device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
-            if (debugDevice) {
-                debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
-                debugDevice->Release();
-            }
+#ifdef _DEBUG
+    if (device) {
+        ID3D11Debug* debugDevice;
+        device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
+        if (debugDevice) {
+            debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+            debugDevice->Release();
         }
-    #endif
+    }
+#endif
 
     if (device) {
         device->Release();
@@ -853,11 +878,74 @@ Shader* DirectX11Renderer::CreateShader(const std::string& shaderSource) {
         if (!bIsLayoutCreated && il) {
             layout = il;
             bIsLayoutCreated = true;
+        } else if (il) {
+            il->Release();
         }
         return static_cast<Shader*>(shader);
     }
+    delete shader;
     return nullptr;
 }
+
+#ifdef SLEAK_HOT_RELOAD
+bool DirectX11Renderer::ReloadShaders(const std::vector<std::string>& stems) {
+    const auto usesAnyStem = [&stems](const DirectX11Shader* shader) {
+        return std::ranges::any_of(stems, [shader](const std::string& stem) {
+            return shader->UsesStem(stem);
+        });
+    };
+
+    // Shaders built from the same files compile once and share the result
+    std::vector<const DirectX11Shader*> rebuilt;
+    std::vector<const DirectX11Shader*> failed;
+    for (DirectX11Shader* shader : DirectX11Shader::GetLiveShaders()) {
+        if (!usesAnyStem(shader)) continue;
+        const auto sameSources = [shader](const DirectX11Shader* other) {
+            return shader->HasSameSources(*other);
+        };
+        if (std::ranges::any_of(failed, sameSources)) continue;
+
+        ID3D11InputLayout* oldLayout = shader->getInputLayout();
+        const auto twin = std::ranges::find_if(rebuilt, sameSources);
+        if (twin != rebuilt.end()) {
+            shader->AdoptStages(**twin);
+        } else if (shader->Reload()) {
+            rebuilt.push_back(shader);
+            SLEAK_INFO("Reloaded DirectX 11 shader '{}'", shader->GetStem());
+        } else {
+            failed.push_back(shader);
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old one",
+                       shader->GetStem());
+            continue;
+        }
+
+        // The renderer holds its own reference to the first shader's layout
+        if (bIsLayoutCreated && oldLayout && oldLayout == layout) {
+            ID3D11InputLayout* fresh = shader->getInputLayout();
+            if (fresh) fresh->AddRef();
+            layout->Release();
+            layout = fresh;
+        }
+    }
+
+    if (std::find(stems.begin(), stems.end(), TONEMAP_STEM) != stems.end())
+        ReloadTonemapShaders();
+
+    for (const std::string& stem : stems) {
+        const bool used =
+            stem == TONEMAP_STEM ||
+            std::ranges::any_of(DirectX11Shader::GetLiveShaders(),
+                                [&stem](const DirectX11Shader* shader) {
+                                    return shader->UsesStem(stem);
+                                });
+        if (!used)
+            SLEAK_WARN(
+                "Hot reload: no loaded DirectX 11 shader is built from '{}'",
+                stem);
+    }
+    return true;
+}
+#endif
 
 bool DirectX11Renderer::CreateBlendState() {
     //(+) : Binary Operator
@@ -1308,52 +1396,72 @@ bool DirectX11Renderer::CreateTonemapResources() {
     hr = device->CreateBuffer(&cbDesc, nullptr, &m_postProcessCB);
     if (FAILED(hr)) return false;
 
-    // Compile tonemap shaders
-    ID3DBlob* vsBlob = nullptr;
-    ID3DBlob* psBlob = nullptr;
-    ID3DBlob* errorBlob = nullptr;
-
-    // Build path to shader (relative to working directory = bin/)
-    std::string narrowPath = "assets/shaders/tonemap.hlsl";
-    std::wstring shaderPath(narrowPath.begin(), narrowPath.end());
-
-    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "VS_Main", "vs_5_0", D3DCOMPILE_DEBUG, 0, &vsBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Tonemap VS compile error: {}",
-                (const char*)errorBlob->GetBufferPointer());
-            errorBlob->Release();
-        }
-        return false;
-    }
-
-    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "PS_Main", "ps_5_0", D3DCOMPILE_DEBUG, 0, &psBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Tonemap PS compile error: {}",
-                (const char*)errorBlob->GetBufferPointer());
-            errorBlob->Release();
-        }
-        vsBlob->Release();
-        return false;
-    }
-
-    hr = device->CreateVertexShader(vsBlob->GetBufferPointer(),
-        vsBlob->GetBufferSize(), nullptr, &m_tonemapVS);
-    vsBlob->Release();
-    if (FAILED(hr)) { psBlob->Release(); return false; }
-
-    hr = device->CreatePixelShader(psBlob->GetBufferPointer(),
-        psBlob->GetBufferSize(), nullptr, &m_tonemapPS);
-    psBlob->Release();
-    if (FAILED(hr)) return false;
+    if (!CompileTonemapShaders(&m_tonemapVS, &m_tonemapPS)) return false;
 
     m_tonemapResourcesCreated = true;
     SLEAK_INFO("Tonemapping post-process resources created successfully");
     return true;
 }
+
+bool DirectX11Renderer::CompileTonemapShaders(ID3D11VertexShader** vs,
+                                              ID3D11PixelShader** ps) {
+    // Path is relative to the working directory (bin/)
+    const std::string narrowPath = TONEMAP_SHADER_PATH;
+    const std::wstring shaderPath(narrowPath.begin(), narrowPath.end());
+
+    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3DCompileFromFile(
+        shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "VS_Main", "vs_5_0", D3DCOMPILE_DEBUG, 0, &vsBlob, &errorBlob);
+    if (FAILED(hr)) {
+        LogCompileError(TONEMAP_SHADER_PATH, "VS_Main", hr, errorBlob.Get());
+        return false;
+    }
+    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr,
+                            D3D_COMPILE_STANDARD_FILE_INCLUDE, "PS_Main",
+                            "ps_5_0", D3DCOMPILE_DEBUG, 0, &psBlob, &errorBlob);
+    if (FAILED(hr)) {
+        LogCompileError(TONEMAP_SHADER_PATH, "PS_Main", hr, errorBlob.Get());
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
+    if (FAILED(device->CreateVertexShader(vsBlob->GetBufferPointer(),
+                                          vsBlob->GetBufferSize(), nullptr,
+                                          &vertexShader)) ||
+        FAILED(device->CreatePixelShader(psBlob->GetBufferPointer(),
+                                         psBlob->GetBufferSize(), nullptr,
+                                         &pixelShader))) {
+        SLEAK_ERROR("Failed to create tonemap shader objects");
+        return false;
+    }
+    *vs = vertexShader.Detach();
+    *ps = pixelShader.Detach();
+    return true;
+}
+
+#ifdef SLEAK_HOT_RELOAD
+void DirectX11Renderer::ReloadTonemapShaders() {
+    // Not built yet, the first tonemap pass compiles the new file
+    if (!m_tonemapResourcesCreated) return;
+
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11PixelShader* ps = nullptr;
+    if (!CompileTonemapShaders(&vs, &ps)) {
+        SLEAK_WARN("Shader '{}' failed to reload, keeping the old one",
+                   TONEMAP_STEM);
+        return;
+    }
+    if (m_tonemapVS) m_tonemapVS->Release();
+    if (m_tonemapPS) m_tonemapPS->Release();
+    m_tonemapVS = vs;
+    m_tonemapPS = ps;
+    SLEAK_INFO("Reloaded DirectX 11 shader '{}'", TONEMAP_STEM);
+}
+#endif
 
 void DirectX11Renderer::CleanupTonemapResources() {
     if (m_tonemapVS) { m_tonemapVS->Release(); m_tonemapVS = nullptr; }

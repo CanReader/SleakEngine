@@ -30,6 +30,10 @@ public:
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
+#ifdef SLEAK_HOT_RELOAD
+    /// Recompiles every live shader and fixed pass built from one of the stems.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
 
     /// Allocates the depth/stencil texture and view sized to the swapchain.
     bool CreateDepthStencilBuffer(uint32_t width, uint32_t height);
@@ -200,6 +204,12 @@ public:
     bool m_tonemapResourcesCreated = false;
     /// Allocates the HDR offscreen target and tonemap shaders/sampler.
     bool CreateTonemapResources();
+    /// Compiles tonemap.hlsl, writing the outputs only on success.
+    bool CompileTonemapShaders(ID3D11VertexShader** vs, ID3D11PixelShader** ps);
+#ifdef SLEAK_HOT_RELOAD
+    /// Swaps in recompiled tonemap shaders, keeping the old ones on failure.
+    void ReloadTonemapShaders();
+#endif
     void CleanupTonemapResources();
     /// Runs the ACES tonemap full-screen pass from the HDR target to the back buffer.
     void ExecuteTonemapPass();

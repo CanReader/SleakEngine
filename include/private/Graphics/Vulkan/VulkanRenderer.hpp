@@ -228,6 +228,12 @@ public:
     /// Recreates the extent-dependent shadow map objects at the queued resolution.
     void ApplyShadowResolutionChange() override;
 
+#ifdef SLEAK_HOT_RELOAD
+    /// Rebuilds every pipeline from the SPIR-V on disk; a pipeline that fails
+    /// to rebuild keeps its previous version.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
+
     // Measurement
     /// Adds per-pass GPU millisecond columns when --gpuprofile is on.
     void RegisterBenchmarkMetrics(Benchmark& bench) override;
@@ -542,6 +548,25 @@ private:
  void PrebuildCustomFormatPipelines();
  /// Destroys every cached custom-format pipeline (all variants, all formats).
  void DestroyCustomFormatPipelines();
+
+#ifdef SLEAK_HOT_RELOAD
+ // Shader hot reload
+ /// The pipelines, layouts, and shaders one create function writes, swapped
+ /// as a unit when shaders reload.
+ struct PipelineGroup {
+     const char* name;
+     std::vector<VkPipeline*> pipelines;
+     std::vector<VkPipelineLayout*> layouts;
+     std::vector<VulkanShader**> shaders;
+     bool (VulkanRenderer::*create)();
+ };
+ /// Rebuilds a live group through its create function, keeping the old
+ /// objects when the rebuild fails.
+ void ReloadPipelineGroup(const PipelineGroup& group);
+ /// Rebuilds every cached custom-format variant, keeping the old pipeline of
+ /// a variant that fails.
+ void ReloadCustomFormatPipelines();
+#endif
 
  // Bone palette ring (set 1, binding 0, dynamic offset per bind)
  struct BoneUBOChunk {
@@ -875,6 +900,8 @@ private:
 
     /// Creates the SSR image, render pass, framebuffer, descriptors, UBOs, and pipeline.
     bool CreateSSRResources();
+    /// Compiles the SSR shaders and creates the SSR pipeline.
+    bool CreateSSRPipeline();
     /// Destroys the SSR pipeline, framebuffer, descriptors, image, and sampler.
     void CleanupSSRResources();
     /// Fills the SSR UBO with the cached camera matrices, camera position, and ray march parameters.
@@ -928,6 +955,8 @@ private:
 
     /// Creates the ping-pong TAA history images, render pass, framebuffers, descriptors, and pipeline.
     bool CreateTAAResources();
+    /// Compiles the TAA shaders and creates the TAA resolve pipeline.
+    bool CreateTAAPipeline();
     /// Destroys the TAA pipeline, framebuffers, descriptors, images, and sampler.
     void CleanupTAAResources();
     /// Computes the inverse current view-projection and reprojection blend factor into the TAA UBO.
