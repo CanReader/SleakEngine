@@ -115,7 +115,19 @@ bool DirectX11Renderer::Initialize() {
         &deviceContext                  // Device context
     );
 
+#ifdef _DEBUG
+    if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING) {
+        SLEAK_WARN("D3D11 debug layer is not installed, creating device without it");
+        createDeviceFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
+        hr = D3D11CreateDeviceAndSwapChain(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+            featureLevels, 1, D3D11_SDK_VERSION, &swapChainDesc, &swapChain,
+            &device, nullptr, &deviceContext);
+    }
+#endif
+
     if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create device and swap chain! HRESULT: 0x{:X}", (unsigned)hr);
         return false;
     }
 
