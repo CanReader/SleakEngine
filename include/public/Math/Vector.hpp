@@ -43,17 +43,17 @@ namespace Sleak
             }
     
             // Access elements (read/write)
-            [[nodiscard]] T& operator[](size_t index) {
+            [[nodiscard]] constexpr T& operator[](size_t index) {
                 assert(index < N && "Vector index out of range");
                 return data[index];
             }
 
             // Read-only access
-            [[nodiscard]] const T& operator[](size_t index) const {
+            [[nodiscard]] constexpr const T& operator[](size_t index) const {
                 assert(index < N && "Vector index out of range");
                 return data[index];
             }
-    
+
             // Basic operations
             Vector<T, N> operator+(const Vector<T, N>& other) const {
                 Vector<T, N> result;
