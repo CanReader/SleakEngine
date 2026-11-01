@@ -253,6 +253,11 @@ jobs:
           ref: ${{ github.base_ref }}
           path: SleakCraft
 
+      - name: Point the game at this engine revision
+        run: |
+          rm -rf SleakCraft/Engine
+          ln -s ../SleakEngine SleakCraft/Engine
+
       - name: Install dependencies
         run: |
           sudo apt-get update
