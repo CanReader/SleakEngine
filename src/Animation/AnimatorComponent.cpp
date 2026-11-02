@@ -5,6 +5,7 @@
 #include <Graphics/Common/BufferBase.hpp>
 #include <Runtime/AnimationStateMachine.hpp>
 #include <Core/Logger.hpp>
+#include <algorithm>
 #include <cmath>
 
 namespace Sleak {
@@ -223,11 +224,14 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
 /// Finds the keyframe pair straddling time and the lerp factor between them.
 template<typename T>
 static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, float time) {
-    int idx = 0;
-    for (int i = 0; i < static_cast<int>(keys.size()) - 1; ++i) {
-        if (time < keys[i + 1].time) { idx = i; break; }
-        idx = i;
-    }
+    if (keys.size() < 2)
+        return {0, 0.0f};
+
+    // First key in [1, size - 1) later than time; the last key otherwise
+    auto upper = std::upper_bound(
+        keys.begin() + 1, keys.end() - 1, time,
+        [](float t, const Keyframe<T>& key) { return t < key.time; });
+    int idx = static_cast<int>(upper - keys.begin()) - 1;
     int next = idx + 1;
     if (next >= static_cast<int>(keys.size()))
         return {idx, 0.0f};
