@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "Graphics/Common/RenderCommandQueue.hpp"
@@ -229,9 +230,9 @@ bool DirectX11Renderer::Initialize() {
     if (FAILED(device->CreateQuery(&queryDesc, &query)))
         SLEAK_WARN("Could not create pipeline statics object!");
 
-    if(bEnabledPerformanceCounter){
-        if(query)
-        while (deviceContext->GetData(query, nullptr, 0, 0) == S_FALSE);
+    if (bEnabledPerformanceCounter && query) {
+        while (deviceContext->GetData(query, nullptr, 0, 0) == S_FALSE)
+            std::this_thread::yield();
         deviceContext->Begin(query);
     }
 
