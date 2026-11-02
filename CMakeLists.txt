@@ -305,6 +305,8 @@ check_ipo_supported(RESULT ENGINE_IPO_SUPPORTED LANGUAGES CXX)
 if(ENGINE_IPO_SUPPORTED)
     set_property(TARGET Engine PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
+target_compile_options(Engine PRIVATE
+    $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-fno-math-errno>)
 
 # --- Generated version header ---
 set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
