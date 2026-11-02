@@ -34,6 +34,29 @@ namespace Sleak {
     constexpr const char* TONEMAP_STEM = "tonemap";
 #endif
 
+    // Transform CB layout: [WVP][World]; shadow CB: [LightVP*World][World]
+    constexpr int MATRIX_DIM = 4;
+    constexpr int MATRIX_FLOATS = MATRIX_DIM * MATRIX_DIM;
+    constexpr int TRANSFORM_CB_FLOATS = 2 * MATRIX_FLOATS;
+    constexpr UINT TRANSFORM_CB_BYTES = TRANSFORM_CB_FLOATS * sizeof(float);
+    constexpr size_t TRANSFORM_WORLD_OFFSET = MATRIX_FLOATS * sizeof(float);
+
+    /// Writes World * LightVP (row-major) followed by World into out.
+    void BuildShadowTransform(const float* world, const float* lightVP,
+                              float* out) {
+        for (int r = 0; r < MATRIX_DIM; ++r) {
+            for (int c = 0; c < MATRIX_DIM; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < MATRIX_DIM; ++k) {
+                    sum += world[r * MATRIX_DIM + k] *
+                           lightVP[k * MATRIX_DIM + c];
+                }
+                out[r * MATRIX_DIM + c] = sum;
+            }
+        }
+        std::memcpy(out + MATRIX_FLOATS, world, MATRIX_FLOATS * sizeof(float));
+    }
+
     /// Logs a failed D3DCompileFromFile call with the compiler output.
     void LogCompileError(const char* path, const char* entry, HRESULT hr,
                          ID3DBlob* errors) {
@@ -247,8 +270,10 @@ void DirectX11Renderer::BeginRender() {
         ApplyMSAAChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
-    if (m_hasPendingLightVP) {
+    if (m_hasPendingLightVP &&
+        std::memcmp(m_lightVP, m_pendingLightVP, sizeof(m_lightVP)) != 0) {
         std::memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
+        m_shadowCBCacheValid = false;
     }
 
     // Create tonemap resources on demand
@@ -616,37 +641,42 @@ void DirectX11Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!dx11Buf) return;
 
     // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
-    if (m_inShadowPass && slot == 0 && dx11Buf->GetCPUShadowCopySize() >= 128) {
+    if (m_inShadowPass && slot == 0 &&
+        dx11Buf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
         const float* srcWorld = reinterpret_cast<const float*>(
-            static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) + 64);
-
-        float shadowPC[32];
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                }
-                shadowPC[r * 4 + c] = sum;
-            }
-        }
-        std::memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+            static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) +
+            TRANSFORM_WORLD_OFFSET);
 
         // Create dedicated shadow transform CB on first use
         if (!m_shadowTransformCB) {
             D3D11_BUFFER_DESC desc{};
-            desc.ByteWidth = 128;
+            desc.ByteWidth = TRANSFORM_CB_BYTES;
             desc.Usage = D3D11_USAGE_DYNAMIC;
             desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-            device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB);
+            if (FAILED(device->CreateBuffer(&desc, nullptr,
+                                            &m_shadowTransformCB)))
+                return;
+            m_shadowCBCacheValid = false;
         }
 
-        // Update and bind the shadow CB instead of the original
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-            std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
-            deviceContext->Unmap(m_shadowTransformCB, 0);
+        // The CB keeps its contents, so only a new World needs an upload
+        if (!m_shadowCBCacheValid ||
+            std::memcmp(srcWorld, m_shadowWorldCache,
+                        sizeof(m_shadowWorldCache)) != 0) {
+            float shadowPC[TRANSFORM_CB_FLOATS];
+            BuildShadowTransform(srcWorld, m_lightVP, shadowPC);
+
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0,
+                                             D3D11_MAP_WRITE_DISCARD, 0,
+                                             &mapped))) {
+                std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
+                deviceContext->Unmap(m_shadowTransformCB, 0);
+                std::memcpy(m_shadowWorldCache, srcWorld,
+                            sizeof(m_shadowWorldCache));
+                m_shadowCBCacheValid = true;
+            }
         }
         deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
         deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
@@ -1194,6 +1224,7 @@ void DirectX11Renderer::CleanupShadowResources() {
     if (m_shadowCB) { m_shadowCB->Release(); m_shadowCB = nullptr; }
     m_shadowCBCreated = false;
     if (m_shadowTransformCB) { m_shadowTransformCB->Release(); m_shadowTransformCB = nullptr; }
+    m_shadowCBCacheValid = false;
     if (m_shadowRasterState) { m_shadowRasterState->Release(); m_shadowRasterState = nullptr; }
     if (m_shadowSampler) { m_shadowSampler->Release(); m_shadowSampler = nullptr; }
     if (m_shadowSRV) { m_shadowSRV->Release(); m_shadowSRV = nullptr; }
