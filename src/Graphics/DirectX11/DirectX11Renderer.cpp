@@ -591,95 +591,70 @@ void DirectX11Renderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
 
 // Buffer binding
 void DirectX11Renderer::BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot) {
-    if (!buffer) 
-        return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
+    ID3D11Buffer* d3d11Buffer = dx11Buf->GetD3DBuffer();
     UINT stride = sizeof(Sleak::Vertex);
     UINT offset = 0;
-
-    try
-    {
-        auto d3d11Buffer = dynamic_cast<DirectX11Buffer*>
-        (buffer.get())
-        ->GetD3DBuffer();
-
-        deviceContext->IASetVertexBuffers(slot, 1, &d3d11Buffer, &stride, &offset);
-
-    }
-    catch (std::exception& e)
-    {
-        SLEAK_ERROR("Failed to cast Vertex Buffer! {}", e.what());
-    }
+    deviceContext->IASetVertexBuffers(slot, 1, &d3d11Buffer, &stride, &offset);
 }
 
 void DirectX11Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                              uint32_t slot) {
-    if (!buffer) return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
-    UINT offset = 0;
-
-    try {
-        auto d3d11Buffer =
-            dynamic_cast<DirectX11Buffer*>(buffer.get())->GetD3DBuffer();
-
-        deviceContext->IASetIndexBuffer(d3d11Buffer, DXGI_FORMAT_R32_UINT, 0);
-
-    } catch (std::exception& e) {
-        SLEAK_ERROR("Failed to cast Index Buffer! {}", e.what());
-    }
+    deviceContext->IASetIndexBuffer(dx11Buf->GetD3DBuffer(),
+                                    DXGI_FORMAT_R32_UINT, 0);
 }
 
 void DirectX11Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                 uint32_t slot) {
-    try {
-        auto* dx11Buf = dynamic_cast<DirectX11Buffer*>(buffer.get());
-        if (!dx11Buf) return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
-        // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
-        if (m_inShadowPass && slot == 0 && dx11Buf->GetCPUShadowCopySize() >= 128) {
-            const float* srcWorld = reinterpret_cast<const float*>(
-                static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) + 64);
+    // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
+    if (m_inShadowPass && slot == 0 && dx11Buf->GetCPUShadowCopySize() >= 128) {
+        const float* srcWorld = reinterpret_cast<const float*>(
+            static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) + 64);
 
-            float shadowPC[32];
-            for (int r = 0; r < 4; ++r) {
-                for (int c = 0; c < 4; ++c) {
-                    float sum = 0.0f;
-                    for (int k = 0; k < 4; ++k) {
-                        sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                    }
-                    shadowPC[r * 4 + c] = sum;
+        float shadowPC[32];
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
                 }
+                shadowPC[r * 4 + c] = sum;
             }
-            std::memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+        }
+        std::memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
 
-            // Create dedicated shadow transform CB on first use
-            if (!m_shadowTransformCB) {
-                D3D11_BUFFER_DESC desc{};
-                desc.ByteWidth = 128;
-                desc.Usage = D3D11_USAGE_DYNAMIC;
-                desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB);
-            }
-
-            // Update and bind the shadow CB instead of the original
-            D3D11_MAPPED_SUBRESOURCE mapped{};
-            if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-                std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
-                deviceContext->Unmap(m_shadowTransformCB, 0);
-            }
-            deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
-            deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
-            return;
+        // Create dedicated shadow transform CB on first use
+        if (!m_shadowTransformCB) {
+            D3D11_BUFFER_DESC desc{};
+            desc.ByteWidth = 128;
+            desc.Usage = D3D11_USAGE_DYNAMIC;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB);
         }
 
-        auto d3d11Buffer = dx11Buf->GetD3DBuffer();
-        deviceContext->VSSetConstantBuffers(slot, 1, &d3d11Buffer);
-        deviceContext->PSSetConstantBuffers(slot, 1, &d3d11Buffer);
-
-    } catch (std::exception& e) {
-        SLEAK_ERROR("Failed to cast Constant Buffer! {}", e.what());
+        // Update and bind the shadow CB instead of the original
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+            std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
+            deviceContext->Unmap(m_shadowTransformCB, 0);
+        }
+        deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+        deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+        return;
     }
+
+    auto d3d11Buffer = dx11Buf->GetD3DBuffer();
+    deviceContext->VSSetConstantBuffers(slot, 1, &d3d11Buffer);
+    deviceContext->PSSetConstantBuffers(slot, 1, &d3d11Buffer);
 }
 
 void DirectX11Renderer::ConfigureRenderMode() {
