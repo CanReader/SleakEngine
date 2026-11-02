@@ -12,6 +12,9 @@
 namespace Sleak {
     namespace Math {class Vector3D;};
     class SceneBase;
+    class TransformComponent;
+    class MaterialComponent;
+    class MeshComponent;
     /// Scene entity holding components and an optional parent/child transform
     /// hierarchy. Scene owns the instance; destroy via Scene::DestroyObject().
     ///
@@ -80,6 +83,7 @@ namespace Sleak {
             RefPtr<Component> newComponent = RefPtr<T>(new T(this, std::forward<Args>(args)...));
             if (bIsInitialized) InitializeComponent(newComponent.get());
             Components.add(std::move(newComponent));
+            RefreshComponentCache();
         }
 
         /// Destroys and detaches the first component of type T, if present.
@@ -91,6 +95,7 @@ namespace Sleak {
                 if (dynamic_cast<T*>(Components[i].get()) != nullptr) {
                     Components[i]->OnDestroy();
                     Components.erase(i);
+                    RefreshComponentCache();
                     break;
                 }
             }
@@ -102,15 +107,23 @@ namespace Sleak {
             static_assert(std::is_base_of_v<Component, T>,
                           "T must derive from Component!");
 
-            for (size_t i = 0; i < Components.GetSize(); ++i) {
-                Component* rawPtr = Components[i].get();
-                if (!rawPtr) continue;
+            if constexpr (std::is_same_v<T, TransformComponent>) {
+                return m_cachedTransform;
+            } else if constexpr (std::is_same_v<T, MaterialComponent>) {
+                return m_cachedMaterial;
+            } else if constexpr (std::is_same_v<T, MeshComponent>) {
+                return m_cachedMesh;
+            } else {
+                for (size_t i = 0; i < Components.GetSize(); ++i) {
+                    Component* rawPtr = Components[i].get();
+                    if (!rawPtr) continue;
 
-                T* component = dynamic_cast<T*>(rawPtr);
-                if (component) return component;
+                    T* component = dynamic_cast<T*>(rawPtr);
+                    if (component) return component;
+                }
+
+                return nullptr;
             }
-
-            return nullptr;
         }
 
         /// True if a component of type T is attached.
@@ -171,12 +184,19 @@ namespace Sleak {
 
         List<RefPtr<Component>> Components;
 
+        // First matches in Components, kept in sync by RefreshComponentCache
+        TransformComponent* m_cachedTransform = nullptr;
+        MaterialComponent* m_cachedMaterial = nullptr;
+        MeshComponent* m_cachedMesh = nullptr;
+
         // Hierarchy
         GameObject* m_parent;
         List<GameObject*> m_children;
 
         /// Calls OnDestroy() on and drops every attached component.
         void DestroyComponents();
+        /// Re-resolves the cached transform, material and mesh pointers.
+        void RefreshComponentCache();
         /// Initializes a component once, then enables it if active.
         void InitializeComponent(Component* component);
 
