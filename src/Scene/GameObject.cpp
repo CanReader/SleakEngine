@@ -165,7 +165,8 @@ namespace Sleak {
             if (!component) continue;
 
             if (!m_cachedTransform)
-                m_cachedTransform = dynamic_cast<TransformComponent*>(component);
+                m_cachedTransform =
+                    dynamic_cast<TransformComponent*>(component);
             if (!m_cachedMaterial)
                 m_cachedMaterial = dynamic_cast<MaterialComponent*>(component);
             if (!m_cachedMesh)

@@ -289,10 +289,10 @@ namespace Sleak {
                 if (queue && context)
                     queue->ExecuteCommands(context);
 
-                m_cpuFrameMs = std::chrono::duration<float, std::milli>(
-                                   std::chrono::steady_clock::now() -
-                                   cpuFrameStart)
-                                   .count();
+                m_cpuFrameMs =
+                    std::chrono::duration<float, std::milli>(
+                        std::chrono::steady_clock::now() - cpuFrameStart)
+                        .count();
                 renderer->EndRender();
 
                 if (captureArmed && !renderer->IsFrameCapturePending())

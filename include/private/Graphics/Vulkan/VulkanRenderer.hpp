@@ -737,7 +737,8 @@ private:
     VkDeviceSize m_pbrMaterialUBOStride = 0;
     uint32_t m_pbrMaterialSlot[MAX_FRAMES_IN_FLIGHT] = {};
     static constexpr uint32_t PBR_TEXTURE_COUNT = 6;
-    /// A material's written set contents, reused when it is bound again this frame.
+    /// A material's written set contents, reused when it is bound again this
+    /// frame.
     struct PBRMaterialBinding {
         PBRMaterialParams params{};
         std::array<VkDescriptorImageInfo, PBR_TEXTURE_COUNT> images{};

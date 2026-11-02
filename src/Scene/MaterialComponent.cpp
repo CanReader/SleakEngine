@@ -1,6 +1,6 @@
+#include <Core/GameObject.hpp>
 #include <ECS/Components/MaterialComponent.hpp>
 #include <ECS/Components/MeshComponent.hpp>
-#include <Core/GameObject.hpp>
 #include <Graphics/Common/RenderCommandQueue.hpp>
 
 namespace Sleak {

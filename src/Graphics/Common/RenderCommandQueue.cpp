@@ -1,11 +1,13 @@
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
-#include "../../include/private/Graphics/Common/BufferBase.hpp"
-#include "../../include/private/Graphics/Common/RenderContext.hpp"
-#include "../../include/private/Graphics/Common/RenderCommands.hpp"
-#include <Runtime/Material.hpp>
-#include <Memory/ObjectPtr.hpp>
+
 #include <Core/Logger.hpp>
+#include <Memory/ObjectPtr.hpp>
+#include <Runtime/Material.hpp>
 #include <algorithm>
+
+#include "../../include/private/Graphics/Common/BufferBase.hpp"
+#include "../../include/private/Graphics/Common/RenderCommands.hpp"
+#include "../../include/private/Graphics/Common/RenderContext.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
@@ -34,11 +36,13 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::SubmitBindConstantBuffer(RefPtr<BufferBase> buffer, uint8_t slot) {
-            CurrentArena().Create<BindConstantBufferCommand>(std::move(buffer), slot);
+            CurrentArena().Create<BindConstantBufferCommand>(std::move(buffer),
+                                                             slot);
         }
 
         void RenderCommandQueue::SubmitUpdateConstantBuffer(RefPtr<BufferBase> buffer, void* Data, uint16_t Size) {
-            CurrentArena().Create<UpdateConstantBufferCommand>(std::move(buffer), Data, Size);
+            CurrentArena().Create<UpdateConstantBufferCommand>(
+                std::move(buffer), Data, Size);
         }
 
         void RenderCommandQueue::SubmitBindMaterial(::Sleak::Material* material) {
@@ -73,15 +77,18 @@ namespace Sleak {
                 for (RenderCommandBase* cmd : commands) {
                     auto type = cmd->GetType();
                     if (type == CommandType::BindConstantBuffer) {
-                        auto* bindCmd = static_cast<BindConstantBufferCommand*>(cmd);
+                        auto* bindCmd =
+                            static_cast<BindConstantBufferCommand*>(cmd);
                         if (bindCmd->GetSlot() == 0) {
                             lastSlot0Buffer = &bindCmd->GetBuffer();
                         } else if (bindCmd->GetSlot() == 3) {
                             lastSlot3Buffer = &bindCmd->GetBuffer();
                         }
                     }
-                    if ((type == CommandType::Draw || type == CommandType::DrawIndexed)
-                        && lastSlot0Buffer && *lastSlot0Buffer && cmd->CastsShadow()) {
+                    if ((type == CommandType::Draw ||
+                         type == CommandType::DrawIndexed) &&
+                        lastSlot0Buffer && *lastSlot0Buffer &&
+                        cmd->CastsShadow()) {
                         ShadowDrawEntry entry;
                         entry.command = cmd;
                         entry.transformBuffer = lastSlot0Buffer;
@@ -135,7 +142,9 @@ namespace Sleak {
                     if (type == CommandType::CustomCommand) {
                         // Skybox, debug lines — always rendered after the lighting pass.
                         // Flush any pending state to forward group first so state is correct.
-                        forwardCmds.insert(forwardCmds.end(), pendingState.begin(), pendingState.end());
+                        forwardCmds.insert(forwardCmds.end(),
+                                           pendingState.begin(),
+                                           pendingState.end());
                         pendingState.clear();
                         forwardCmds.push_back(cmd);
                         lastMaterial = nullptr;
@@ -155,7 +164,9 @@ namespace Sleak {
                         const bool isSkinned = cmd->IsSkinned();
                         if (lastMaterialForward || isSkinned) {
                             // Transparent/forward/skinned draw — defer to forward pass
-                            forwardCmds.insert(forwardCmds.end(), pendingState.begin(), pendingState.end());
+                            forwardCmds.insert(forwardCmds.end(),
+                                               pendingState.begin(),
+                                               pendingState.end());
                             forwardCmds.push_back(cmd);
                         } else {
                             // Opaque draw — execute now in geometry pass
@@ -174,17 +185,16 @@ namespace Sleak {
                 context->ExecuteDeferredLightingPass();
 
                     context->BeginForwardTransparentPass();
-                for (RenderCommandBase* cmd : forwardCmds)
-                    cmd->Execute(context);
-                context->EndForwardTransparentPass();
+                    for (RenderCommandBase* cmd : forwardCmds)
+                        cmd->Execute(context);
+                    context->EndForwardTransparentPass();
 
-                AdvanceArena();
-                return;
+                    AdvanceArena();
+                    return;
             }
 
             // ---- Forward rendering path (unchanged behavior) ----
-            for (RenderCommandBase* cmd : commands)
-                cmd->Execute(context);
+            for (RenderCommandBase* cmd : commands) cmd->Execute(context);
             AdvanceArena();
         }
 
@@ -217,16 +227,13 @@ namespace Sleak {
             // TODO: Implement this method
         }
 
-        void RenderCommandQueue::Clear() {
-            CurrentArena().Reset();
-        }
+        void RenderCommandQueue::Clear() { CurrentArena().Reset(); }
 
         void RenderCommandQueue::ClearAll() {
             cachedShadowDraws.clear();
             m_pendingState.clear();
             m_forwardCmds.clear();
-            for (CommandArena& arena : m_arenas)
-                arena.Reset();
+            for (CommandArena& arena : m_arenas) arena.Reset();
             m_currentArena = 0;
         }
 

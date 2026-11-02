@@ -384,12 +384,12 @@ CollisionManifold TestCollision(const ColliderShape& shapeA, const Vector3D& pos
             return TestCapsuleVsCapsule(TransformCapsule(a, posA, scaleA), TransformCapsule(b, posB, scaleB));
         }
         else if constexpr (std::is_same_v<A, BoundingSphere> && std::is_same_v<B, TriangleMesh>) {
-            return TestSphereVsPlacedMesh(TransformSphere(a, posA, scaleA),
-                                          b, posB, scaleB);
+            return TestSphereVsPlacedMesh(TransformSphere(a, posA, scaleA), b,
+                                          posB, scaleB);
         }
         else if constexpr (std::is_same_v<A, TriangleMesh> && std::is_same_v<B, BoundingSphere>) {
-            auto m = TestSphereVsPlacedMesh(TransformSphere(b, posB, scaleB),
-                                            a, posA, scaleA);
+            auto m = TestSphereVsPlacedMesh(TransformSphere(b, posB, scaleB), a,
+                                            posA, scaleA);
             m.contact.normal = m.contact.normal * -1.0f;
             return m;
         }

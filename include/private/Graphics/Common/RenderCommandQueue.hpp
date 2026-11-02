@@ -2,13 +2,14 @@
 #define _RENDERCOMMANDQUEUE_H
 
 #include <Graphics/Common/Renderer.hpp>
-#include "RenderCommands.hpp"
 #include <Memory/ObjectPtr.hpp>
 #include <cstddef>
 #include <memory>
 #include <new>
 #include <utility>
 #include <vector>
+
+#include "RenderCommands.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
@@ -87,63 +88,72 @@ namespace Sleak {
         /// A draw command paired with the transform/bone buffers it needs to replay in the shadow pass.
         struct ShadowDrawEntry {
             RenderCommandBase* command = nullptr;
-            const RefPtr<BufferBase>* transformBuffer = nullptr;  // last-bound slot-0 buffer
-            const RefPtr<BufferBase>* boneBuffer = nullptr;       // slot-3 bone UBO for skinned draws
+            const RefPtr<BufferBase>* transformBuffer =
+                nullptr;  // last-bound slot-0 buffer
+            const RefPtr<BufferBase>* boneBuffer =
+                nullptr;  // slot-3 bone UBO for skinned draws
         };
 
         private:
-            /// Bump allocator owning one frame's commands until the slot is recycled.
-            class CommandArena {
+         /// Bump allocator owning one frame's commands until the slot is
+         /// recycled.
+         class CommandArena {
             public:
-                CommandArena() = default;
-                CommandArena(const CommandArena&) = delete;
-                CommandArena& operator=(const CommandArena&) = delete;
-                ~CommandArena() { Reset(); }
+             CommandArena() = default;
+             CommandArena(const CommandArena&) = delete;
+             CommandArena& operator=(const CommandArena&) = delete;
+             ~CommandArena() { Reset(); }
 
-                /// Constructs a command in arena memory and appends it to the frame's list.
-                template <typename T, typename... Args>
-                T* Create(Args&&... args) {
-                    void* memory = Allocate(sizeof(T), alignof(T));
-                    T* command = new (memory) T(std::forward<Args>(args)...);
-                    m_commands.push_back(command);
-                    return command;
-                }
+             /// Constructs a command in arena memory and appends it to the
+             /// frame's list.
+             template <typename T, typename... Args>
+             T* Create(Args&&... args) {
+                 void* memory = Allocate(sizeof(T), alignof(T));
+                 T* command = new (memory) T(std::forward<Args>(args)...);
+                 m_commands.push_back(command);
+                 return command;
+             }
 
-                /// Destroys every command and rewinds the blocks for reuse.
-                void Reset();
+             /// Destroys every command and rewinds the blocks for reuse.
+             void Reset();
 
-                const std::vector<RenderCommandBase*>& Commands() const { return m_commands; }
+             const std::vector<RenderCommandBase*>& Commands() const {
+                 return m_commands;
+             }
 
             private:
-                struct Block {
-                    std::unique_ptr<std::byte[]> data;
-                    size_t size = 0;
-                };
+             struct Block {
+                 std::unique_ptr<std::byte[]> data;
+                 size_t size = 0;
+             };
 
-                /// Returns aligned storage from the current block, adding blocks as needed.
-                void* Allocate(size_t size, size_t alignment);
+             /// Returns aligned storage from the current block, adding blocks
+             /// as needed.
+             void* Allocate(size_t size, size_t alignment);
 
-                static constexpr size_t BLOCK_SIZE = 64 * 1024;
-                std::vector<Block> m_blocks;
-                size_t m_blockIndex = 0;
-                size_t m_offset = 0;
-                std::vector<RenderCommandBase*> m_commands;
-            };
+             static constexpr size_t BLOCK_SIZE = 64 * 1024;
+             std::vector<Block> m_blocks;
+             size_t m_blockIndex = 0;
+             size_t m_offset = 0;
+             std::vector<RenderCommandBase*> m_commands;
+         };
 
-            /// Moves submission to the next arena, destroying the commands it last held.
-            void AdvanceArena();
+         /// Moves submission to the next arena, destroying the commands it last
+         /// held.
+         void AdvanceArena();
 
-            CommandArena& CurrentArena() { return m_arenas[m_currentArena]; }
+         CommandArena& CurrentArena() { return m_arenas[m_currentArena]; }
 
-            // A frame's commands stay alive while its shadow replay and GPU frames in flight may use them
-            static constexpr int RETIRE_FRAMES = 3;
-            static constexpr int ARENA_COUNT = RETIRE_FRAMES + 2;
-            static RenderCommandQueue* Instance;
-            CommandArena m_arenas[ARENA_COUNT];
-            int m_currentArena = 0;
-            std::vector<ShadowDrawEntry> cachedShadowDraws;
-            std::vector<RenderCommandBase*> m_pendingState;
-            std::vector<RenderCommandBase*> m_forwardCmds;
+         // A frame's commands stay alive while its shadow replay and GPU frames
+         // in flight may use them
+         static constexpr int RETIRE_FRAMES = 3;
+         static constexpr int ARENA_COUNT = RETIRE_FRAMES + 2;
+         static RenderCommandQueue* Instance;
+         CommandArena m_arenas[ARENA_COUNT];
+         int m_currentArena = 0;
+         std::vector<ShadowDrawEntry> cachedShadowDraws;
+         std::vector<RenderCommandBase*> m_pendingState;
+         std::vector<RenderCommandBase*> m_forwardCmds;
         };
     }
 }
