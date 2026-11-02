@@ -299,6 +299,13 @@ set_target_properties(Engine PROPERTIES
 )
 target_compile_features(Engine PUBLIC cxx_std_23)
 
+# --- Release link-time optimization ---
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ENGINE_IPO_SUPPORTED LANGUAGES CXX)
+if(ENGINE_IPO_SUPPORTED)
+    set_property(TARGET Engine PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+
 # --- Generated version header ---
 set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
 configure_file(
