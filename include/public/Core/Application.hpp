@@ -221,6 +221,7 @@ class ENGINE_API Application {
     Benchmark* m_benchmark = nullptr;
     GraphicsConfig m_graphicsConfig;
     float DeltaTime;
+    float m_cpuFrameMs = 0.0f;
 
     Timer FrameTimer;
 
