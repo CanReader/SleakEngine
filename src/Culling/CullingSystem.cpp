@@ -198,10 +198,8 @@ void RasterTriSse2(const TriSetup& t, float* depth, int W) {
                 __m128 z = _mm_add_ps(
                     _mm_add_ps(_mm_mul_ps(s0, zv0), _mm_mul_ps(s1, zv1)),
                     _mm_mul_ps(s2, zv2));
-                z = _mm_mul_ps(z, inv);
-                z = _mm_min_ps(one, _mm_max_ps(zero, z));
-                zc[k] = _mm_or_ps(_mm_and_ps(m[k], z),
-                                  _mm_andnot_ps(m[k], untouched));
+                z = _mm_min_ps(one, _mm_mul_ps(z, inv));
+                zc[k] = _mm_max_ps(_mm_andnot_ps(m[k], untouched), z);
                 s0 = _mm_add_ps(s0, a0);
                 s1 = _mm_add_ps(s1, a1);
                 s2 = _mm_add_ps(s2, a2);
