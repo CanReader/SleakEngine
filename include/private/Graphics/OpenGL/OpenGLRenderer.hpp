@@ -113,6 +113,11 @@ private:
     const VertexLayoutDesc* m_configuredLayoutDesc = nullptr;
     uint32_t m_enabledAttribMask = 0;
 
+    // Last viewport set outside the shadow pass (x, y, width, height)
+    std::array<GLint, 4> m_viewport = {};
+    /// Sets the GL viewport and records it so passes can restore it later.
+    void ApplyViewport(GLint x, GLint y, GLsizei width, GLsizei height);
+
     // MSAA FBO resources
     GLuint m_msaaFBO = 0;
     GLuint m_msaaColorRBO = 0;

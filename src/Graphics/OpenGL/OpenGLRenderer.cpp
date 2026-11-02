@@ -111,7 +111,7 @@ bool OpenGLRenderer::Initialize() {
 
     int width, height;
     SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
-    glViewport(0, 0, width, height);
+    ApplyViewport(0, 0, width, height);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -358,7 +358,8 @@ bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
 #endif
 
 void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
-    glViewport(0, 0, width, height);
+    ApplyViewport(0, 0, static_cast<GLsizei>(width),
+                  static_cast<GLsizei>(height));
     // Recreate MSAA FBO at new size
     if (m_msaaFBO != 0) {
         CleanupMSAAFramebuffer();
@@ -442,10 +443,16 @@ void OpenGLRenderer::SetRenderMode(RenderMode mode) {
 void OpenGLRenderer::SetViewport(float x, float y, float width,
                                   float height, float minDepth,
                                   float maxDepth) {
-    glViewport(static_cast<GLint>(x), static_cast<GLint>(y),
-               static_cast<GLsizei>(width),
-               static_cast<GLsizei>(height));
+    ApplyViewport(static_cast<GLint>(x), static_cast<GLint>(y),
+                  static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     glDepthRangef(minDepth, maxDepth);
+}
+
+void OpenGLRenderer::ApplyViewport(GLint x, GLint y, GLsizei width,
+                                   GLsizei height) {
+    glViewport(x, y, width, height);
+    // GL rejects negative sizes and keeps the previous viewport
+    if (width >= 0 && height >= 0) m_viewport = {x, y, width, height};
 }
 
 void OpenGLRenderer::ClearRenderTarget(float r, float g, float b,
@@ -833,9 +840,7 @@ void OpenGLRenderer::RenderShadowPass() {
         if (!CreateShadowMapResources()) return;
     }
 
-    // Save current viewport
-    GLint savedViewport[4];
-    glGetIntegerv(GL_VIEWPORT, savedViewport);
+    const std::array<GLint, 4> savedViewport = m_viewport;
 
     // Bind shadow FBO
     glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
@@ -875,7 +880,8 @@ void OpenGLRenderer::RenderShadowPass() {
     else
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    ApplyViewport(savedViewport[0], savedViewport[1], savedViewport[2],
+                  savedViewport[3]);
 
     // Bind shadow map texture at unit 3
     glActiveTexture(GL_TEXTURE3);
@@ -1441,7 +1447,7 @@ void OpenGLRenderer::ExecuteSSAOPass() {
 
     // ---- Pass 1: SSAO ----
     glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoFBO);
-    glViewport(0, 0, m_gbufferWidth, m_gbufferHeight);
+    ApplyViewport(0, 0, m_gbufferWidth, m_gbufferHeight);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_BLEND);
