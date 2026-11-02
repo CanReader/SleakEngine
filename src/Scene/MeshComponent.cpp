@@ -8,20 +8,32 @@
 #include <Core/GameObject.hpp>
 #include <Culling/CullingSystem.hpp>
 #include <Runtime/MeshData.hpp>
+#include <cmath>
 
 namespace Sleak {
 
 namespace {
-    // World point (row-vector convention: world = local * M) as a
-    // degenerate AABB for accumulation.
-    Math::AABB TransformedPoint(const Math::Vector3D& p,
-                                const Math::Matrix4& m) {
-        float x = p.GetX(), y = p.GetY(), z = p.GetZ();
-        Math::Vector3D w(
-            x * m(0, 0) + y * m(1, 0) + z * m(2, 0) + m(3, 0),
-            x * m(0, 1) + y * m(1, 1) + z * m(2, 1) + m(3, 1),
-            x * m(0, 2) + y * m(1, 2) + z * m(2, 2) + m(3, 2));
-        return Math::AABB(w, w);
+    /// World AABB of a local box under m (world = local * m), via Arvo's method.
+    Math::AABB TransformBounds(const Math::AABB& box, const Math::Matrix4& m) {
+        const Math::Vector3D c = box.Center();
+        const Math::Vector3D e = box.Extents();
+        const float cx = c.GetX(), cy = c.GetY(), cz = c.GetZ();
+        const float ex = std::fabs(e.GetX());
+        const float ey = std::fabs(e.GetY());
+        const float ez = std::fabs(e.GetZ());
+
+        const Math::Vector3D center(
+            cx * m(0, 0) + cy * m(1, 0) + cz * m(2, 0) + m(3, 0),
+            cx * m(0, 1) + cy * m(1, 1) + cz * m(2, 1) + m(3, 1),
+            cx * m(0, 2) + cy * m(1, 2) + cz * m(2, 2) + m(3, 2));
+        const Math::Vector3D extents(
+            ex * std::fabs(m(0, 0)) + ey * std::fabs(m(1, 0)) +
+                ez * std::fabs(m(2, 0)),
+            ex * std::fabs(m(0, 1)) + ey * std::fabs(m(1, 1)) +
+                ez * std::fabs(m(2, 1)),
+            ex * std::fabs(m(0, 2)) + ey * std::fabs(m(1, 2)) +
+                ez * std::fabs(m(2, 2)));
+        return Math::AABB(center - extents, center + extents);
     }
 }  // namespace
 
@@ -64,11 +76,8 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
             bool cullReady = m_hasCullBounds;
 
             if (m_hasLocalBounds && tc) {
-                Math::Matrix4 m = tc->GetTransformMatrix();
-                Math::AABB acc = TransformedPoint(m_localBounds.Corner(0), m);
-                for (int i = 1; i < 8; ++i)
-                    acc.Merge(TransformedPoint(m_localBounds.Corner(i), m));
-                worldBounds = acc;
+                worldBounds =
+                    TransformBounds(m_localBounds, tc->GetTransformMatrix());
                 cullReady = true;
             }
 
