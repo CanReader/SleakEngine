@@ -38,7 +38,7 @@ namespace Sleak {
         /// Refreshes and rebinds the transform constant buffer for this frame.
         void Update(float DeltaTime) override;
 
-        // Transformation matrix calculation
+        /// World matrix (S*R*T), recomputed only after a transform change.
         Matrix4 GetTransformMatrix();
 
         // Transformations
@@ -91,18 +91,22 @@ namespace Sleak {
         };
 
     protected:
+        /// Flags the cached world matrix stale; call after writing fields directly.
+        void MarkWorldDirty() { m_worldDirty = true; }
+
         Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
         Quaternion rotation = Quaternion();
         Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
-        TransformMatrix* Transform = nullptr;
 
        private:
         RefPtr<RenderEngine::BufferBase> ConstantBuffer;
+        Math::Matrix4 m_world = Math::Matrix4::Identity();
+        bool m_worldDirty = true;
 
-        /// Rebuilds the transform matrix and pushes it to the GPU constant buffer.
+        /// Pushes the world matrix and main camera matrices to the GPU constant buffer.
         void UpdateConstantBuffer();
-        /// Recomputes the cached Translation/Rotation/Scaling matrices from position/rotation/scale.
-        void UpdateTransform();
+        /// Returns the cached world matrix, rebuilding it first if dirty.
+        const Math::Matrix4& WorldMatrix();
         /// Combines the transform with the main camera's view and projection matrices.
         Math::Matrix4 GetMVP();
     };
