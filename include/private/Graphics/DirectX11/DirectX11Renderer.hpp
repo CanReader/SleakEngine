@@ -204,6 +204,9 @@ public:
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
     ID3D11Buffer* m_shadowTransformCB = nullptr;  // Dedicated CB for shadow pass transforms
+    // World last uploaded to m_shadowTransformCB, valid until lightVP changes
+    float m_shadowWorldCache[16] = {};
+    bool m_shadowCBCacheValid = false;
     bool m_inShadowPass = false;
     void SetLightVP(const float* mat) override;
     /// Allocates the shadow-pass depth texture, DSV/SRV, and comparison sampler.
