@@ -21,6 +21,7 @@
 #include <UI/UI.hpp>
 #include <Utility/Container/List.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
@@ -145,6 +146,8 @@ namespace Sleak {
             m_benchmark = new Benchmark();
             m_benchmark->Initialize(renderer);
             renderer->RegisterBenchmarkMetrics(*m_benchmark);
+            m_benchmark->RegisterMetric("CPU_frame_ms",
+                                        [this]() { return m_cpuFrameMs; });
             {
                 auto& cfg = m_DebugOverlay->GetConfig();
                 cfg.ShowCameraPanel = false;
@@ -252,6 +255,7 @@ namespace Sleak {
                 Debug::ShaderHotReload::Poll();
 
                 renderer->BeginRender();
+                const auto cpuFrameStart = std::chrono::steady_clock::now();
 
                 // Update active scene if present
                 if (Game && Game->GetActiveScene()) {
@@ -285,6 +289,10 @@ namespace Sleak {
                 if (queue && context)
                     queue->ExecuteCommands(context);
 
+                m_cpuFrameMs = std::chrono::duration<float, std::milli>(
+                                   std::chrono::steady_clock::now() -
+                                   cpuFrameStart)
+                                   .count();
                 renderer->EndRender();
 
                 if (captureArmed && !renderer->IsFrameCapturePending())
