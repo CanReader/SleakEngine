@@ -267,6 +267,9 @@ public:
     float                                          m_lightVP[16] = {};
     float                                          m_pendingLightVP[16] = {};
     bool                                           m_hasPendingLightVP = false;
+    // Last shadow transform uploaded this pass and the World it was built from
+    float m_shadowWorldCache[16] = {};
+    D3D12_GPU_VIRTUAL_ADDRESS m_shadowCBAddress = 0;
     bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
     ID3D12PipelineState* m_shadowPassPSO = nullptr;
