@@ -3,6 +3,7 @@
 
 #include <Core/OSDef.hpp>
 #include "Math.hpp"
+#include <cassert>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
@@ -57,18 +58,15 @@ class Matrix {
         }
     }
 
-    // Bounds-checked element access
+    /// Element access; indices are bounds-checked by assert in debug builds.
     T& operator()(size_t row, size_t col) {
-        if (row >= Rows || col >= Cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
+        assert(row < Rows && col < Cols && "Matrix indices out of range");
         return data[row][col];
     }
 
+    /// Read-only element access; bounds-checked by assert in debug builds.
     const T& operator()(size_t row, size_t col) const {
-        if (row >= Rows || col >= Cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
+        assert(row < Rows && col < Cols && "Matrix indices out of range");
         return data[row][col];
     }
 
@@ -94,14 +92,12 @@ class Matrix {
         return result;
     }
 
-    // Optimized matrix multiplication with early exit for zero-like cases
+    /// Row-by-column matrix product.
     template <size_t OtherCols>
     Matrix<T, Rows, OtherCols> operator*(
         const Matrix<T, Cols, OtherCols>& other) const {
         Matrix<T, Rows, OtherCols> result;
 
-        // Quick zero check
-        bool isZero = true;
         for (size_t i = 0; i < Rows; ++i) {
             for (size_t j = 0; j < OtherCols; ++j) {
                 T sum = static_cast<T>(0);
@@ -109,11 +105,6 @@ class Matrix {
                     sum += data[i][k] * other(k, j);
                 }
                 result(i, j) = sum;
-
-                // Track if result is non-zero
-                if (std::abs(sum) > std::numeric_limits<T>::epsilon()) {
-                    isZero = false;
-                }
             }
         }
 
