@@ -43,6 +43,12 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
+// View-space Z for a depth value, solved from the projection's z and w rows.
+float ViewZFromDepth(float depth) {
+    return (Projection[3][2] - depth * Projection[3][3]) /
+           (depth * Projection[2][3] - Projection[2][2]);
+}
+
 void main() {
     // Skip sky pixels — sky should read 1.0 (no occlusion).
     float depth = texture(gDepth, fragUV).r;
@@ -92,24 +98,22 @@ void main() {
         if (sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
             sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
 
-        // Reconstruct the world-space position at this screen location and
-        // transform into view space for depth comparison.
+        // View-space depth at this screen location for the comparison.
         float sampleDepth   = texture(gDepth, sampleUV).r;
         if (sampleDepth >= 0.9999) continue;  // sky — no occluder
 
-        vec3 sampleWorld    = ReconstructWorldPos(sampleUV, sampleDepth);
-        vec3 sampleViewPos  = (View * vec4(sampleWorld, 1.0)).xyz;
+        float sampleViewZ   = ViewZFromDepth(sampleDepth);
 
         // Range check — sample contributes less when the depth difference
         // between the frag and the occluder is much larger than the radius.
         // (avoids haloing around silhouettes)
         float rangeCheck = smoothstep(0.0, 1.0,
-            Radius / max(abs(viewPos.z - sampleViewPos.z), 0.0001));
+            Radius / max(abs(viewPos.z - sampleViewZ), 0.0001));
 
         // In view space the camera looks down -Z — "closer to the camera"
         // means a LESS negative Z (i.e. larger value). The occluder blocks
-        // the sample when sampleViewPos.z >= samplePos.z + bias.
-        occlusion += (sampleViewPos.z >= samplePos.z + Bias ? 1.0 : 0.0) * rangeCheck;
+        // the sample when sampleViewZ >= samplePos.z + bias.
+        occlusion += (sampleViewZ >= samplePos.z + Bias ? 1.0 : 0.0) * rangeCheck;
     }
 
     float ao = 1.0 - (occlusion / float(kSize)) * Intensity;
