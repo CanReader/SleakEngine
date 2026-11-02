@@ -35,7 +35,7 @@ namespace Sleak {
 
         /// Allocates the transform's GPU constant buffer.
         bool Initialize() override;
-        /// Refreshes and rebinds the transform constant buffer for this frame.
+        /// Submits this frame's constant buffer unless a sibling mesh does it.
         void Update(float DeltaTime) override;
 
         /// World matrix (S*R*T), recomputed only after a transform change.
@@ -99,10 +99,14 @@ namespace Sleak {
         Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
 
        private:
+        friend class MeshComponent;
+
         RefPtr<RenderEngine::BufferBase> ConstantBuffer;
         Math::Matrix4 m_world = Math::Matrix4::Identity();
         bool m_worldDirty = true;
 
+        /// Queues the constant buffer upload followed by its slot 0 bind.
+        void SubmitRenderState();
         /// Pushes the world matrix and main camera matrices to the GPU constant buffer.
         void UpdateConstantBuffer();
         /// Returns the cached world matrix, rebuilding it first if dirty.

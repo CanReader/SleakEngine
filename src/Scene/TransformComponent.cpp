@@ -43,6 +43,14 @@ namespace Sleak {
     }
 
     void TransformComponent::Update(float DeltaTime) {
+        MeshComponent* mesh =
+            owner ? owner->GetComponent<MeshComponent>() : nullptr;
+        if (mesh && mesh->IsInitialized()) return;
+
+        SubmitRenderState();
+    }
+
+    void TransformComponent::SubmitRenderState() {
         UpdateConstantBuffer();
 
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitBindConstantBuffer(ConstantBuffer, 0);
