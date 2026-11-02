@@ -13,8 +13,8 @@ namespace RenderEngine {
 DrawCommand::DrawCommand(RefPtr<BufferBase> buffer,
                          List<RefPtr<BufferBase>> constantBuffers,
                          uint32_t vertexCount, uint32_t vertexLocation)
-    : m_vertexBuffer(buffer),
-      m_constantBuffers(constantBuffers),
+    : m_vertexBuffer(std::move(buffer)),
+      m_constantBuffers(std::move(constantBuffers)),
       m_vertexCount(vertexCount),
       m_startVertexLocation(vertexLocation) {}
 
@@ -51,9 +51,9 @@ DrawIndexedCommand::DrawIndexedCommand(RefPtr<BufferBase> vertexBuffer,
                                        uint32_t indexCount,
                                        uint32_t startIndexLocation,
                                        int32_t baseVertexLocation)
-    : m_vertexBuffer(vertexBuffer),
-      m_indexBuffer(indexBuffer),
-      m_constantBuffers(constantBuffers),
+    : m_vertexBuffer(std::move(vertexBuffer)),
+      m_indexBuffer(std::move(indexBuffer)),
+      m_constantBuffers(std::move(constantBuffers)),
       m_indexCount(indexCount),
       m_startIndexLocation(startIndexLocation),
       m_baseVertexLocation(baseVertexLocation) {}
@@ -113,7 +113,7 @@ bool DrawIndexedCommand::IsSkinned() const {
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
     void* Data,
     uint16_t Size) :
-      constantBuffer(buffer),
+      constantBuffer(std::move(buffer)),
       Size(Size) {
     if (Size <= INLINE_CAPACITY) {
         // Fast path: no heap allocation for small buffers
