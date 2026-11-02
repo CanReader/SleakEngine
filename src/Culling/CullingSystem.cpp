@@ -359,6 +359,32 @@ void RasterBox(const Math::AABB& box, const Math::Matrix4& vp,
     if (cam.GetZ() > mxz) quad(c001, c101, c111, c011);
 }
 
+/// True when any depth in the inclusive pixel rect is >= thresh.
+bool AnyDepthAtOrBehind(const float* depth, int W, int minX, int maxX, int minY,
+                        int maxY, float thresh) {
+#if SLEAK_CULL_SSE2
+    if (maxX - minX + 1 >= kLanes) {
+        const __m128 t = _mm_set1_ps(thresh);
+        const int lastX = maxX - kLanes + 1;
+        for (int y = minY; y <= maxY; ++y) {
+            const float* row = depth + y * W;
+            __m128 hit = _mm_cmpge_ps(_mm_loadu_ps(row + lastX), t);
+            for (int x = minX; x < lastX; x += kLanes)
+                hit = _mm_or_ps(hit, _mm_cmpge_ps(_mm_loadu_ps(row + x), t));
+            if (_mm_movemask_ps(hit) != 0) return true;
+        }
+        return false;
+    }
+#endif
+    for (int y = minY; y <= maxY; ++y) {
+        const float* row = depth + y * W;
+        for (int x = minX; x <= maxX; ++x) {
+            if (row[x] >= thresh) return true;
+        }
+    }
+    return false;
+}
+
 /// Conservative depth test: true when the box could be in front of the
 /// rasterized occluders anywhere in its projected rect.
 bool DepthRectVisible(const Math::AABB& box) {
@@ -391,14 +417,8 @@ bool DepthRectVisible(const Math::AABB& box) {
     if (maxY > H - 1) maxY = H - 1;
     if (minX > maxX || minY > maxY) return true;
 
-    float thresh = boxMinZ - kZBias;
-    for (int y = minY; y <= maxY; ++y) {
-        int row = y * W;
-        for (int x = minX; x <= maxX; ++x) {
-            if (s.depth[row + x] >= thresh) return true;
-        }
-    }
-    return false;
+    return AnyDepthAtOrBehind(s.depth.data(), W, minX, maxX, minY, maxY,
+                              boxMinZ - kZBias);
 }
 
 /// True when the box projects entirely in front but spans < 2x2 px.
