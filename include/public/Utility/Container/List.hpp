@@ -4,6 +4,7 @@
 #include <Utility/Exception.hpp>
 #include <algorithm>  // For std::swap
 #include <functional>
+#include <memory>
 
 namespace Sleak {
 /**
@@ -23,45 +24,20 @@ class List {
     size_t size = 0;
     size_t capacity = 0;
 
-    /// Recursive quicksort driving sort().
-    void quickSort(int low, int high,
-                   std::function<bool(const T&, const T&)> compare) {
-        if (low < high) {
-            int pivotIndex = partition(low, high, compare);
-            quickSort(low, pivotIndex - 1, compare);
-            quickSort(pivotIndex + 1, high, compare);
-        }
-    }
-
-    /// Lomuto partition step for quickSort; returns the pivot's final index.
-    int partition(int low, int high,
-                  std::function<bool(const T&, const T&)> compare) {
-        T pivot = data[high];
-        int i = low - 1;
-
-        for (int j = low; j < high; j++) {
-            if (compare(data[j], pivot)) {
-                i++;
-                std::swap(data[i], data[j]);
-            }
-        }
-
-        std::swap(data[i + 1], data[high]);
-        return i + 1;
-    }
-
    public:
     List() noexcept = default;
 
     /// Adopts an existing buffer directly; List takes ownership.
     List(T* Data, size_t Size) : data(Data), size(Size), capacity(Size) {}
 
-    // Copy constructor
-    List(const List& other) : size(other.size), capacity(other.capacity) {
-        data = new T[capacity];
-        for (size_t i = 0; i < size; ++i) {
-            data[i] = other.data[i];
-        }
+    /// Copies other's elements into an exact-size buffer; empty allocates none.
+    List(const List& other) {
+        if (other.size == 0) return;
+        std::unique_ptr<T[]> copy(new T[other.size]);
+        std::copy(other.data, other.data + other.size, copy.get());
+        data = copy.release();
+        size = other.size;
+        capacity = other.size;
     }
 
     // Move constructor
@@ -72,16 +48,11 @@ class List {
         other.capacity = 0;
     }
 
-    // Copy assignment
+    /// Replaces contents with a copy of other; strong exception guarantee.
     List& operator=(const List& other) {
         if (this != &other) {
-            delete[] data;
-            size = other.size;
-            capacity = other.capacity;
-            data = new T[capacity];
-            for (size_t i = 0; i < size; ++i) {
-                data[i] = other.data[i];
-            }
+            List copy(other);
+            swap(copy);
         }
         return *this;
     }
@@ -225,8 +196,10 @@ class List {
     }
 
     // Operations
-    void sort(std::function<bool(const T&, const T&)> compare) {
-        quickSort(0, size - 1, compare);
+    /// Sorts in place; compare must be a strict weak ordering.
+    template <typename Compare>
+    void sort(Compare compare) {
+        std::sort(data, data + size, compare);
     }
 
     void reverse() {
