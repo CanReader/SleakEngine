@@ -45,7 +45,6 @@ GameObject* ModelLoader::Load(const std::string& filePath,
                               const ModelLoadOptions& options) {
     Assimp::Importer importer;
 
-    // First pass: read without PreTransformVertices to check for animations
     unsigned int baseFlags = aiProcess_Triangulate
                            | aiProcess_GenSmoothNormals
                            | aiProcess_CalcTangentSpace
@@ -55,7 +54,9 @@ GameObject* ModelLoader::Load(const std::string& filePath,
     if (options.flipUVs)
         baseFlags |= aiProcess_FlipUVs;
 
-    const aiScene* scene = importer.ReadFile(filePath, baseFlags);
+    // Parse once without post-processing to learn whether it is animated
+    constexpr unsigned int rawImportFlags = 0;
+    const aiScene* scene = importer.ReadFile(filePath, rawImportFlags);
 
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
         SLEAK_ERROR("Assimp: Failed to load model '{}': {}", filePath,
@@ -64,6 +65,18 @@ GameObject* ModelLoader::Load(const std::string& filePath,
     }
 
     bool hasAnimations = scene->HasAnimations();
+
+    // Static models also get PreTransformVertices, in the same pipeline order
+    unsigned int postFlags = baseFlags;
+    if (!hasAnimations)
+        postFlags |= aiProcess_PreTransformVertices;
+    scene = importer.ApplyPostProcessing(postFlags);
+
+    if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
+        SLEAK_ERROR("Assimp: Failed to post-process model '{}': {}", filePath,
+                    importer.GetErrorString());
+        return nullptr;
+    }
 
     SLEAK_INFO("Model loaded: {} ({} meshes, {} materials, {} textures, {} animations)",
                filePath, scene->mNumMeshes, scene->mNumMaterials,
@@ -75,18 +88,6 @@ GameObject* ModelLoader::Load(const std::string& filePath,
     MaterialCache materialCache;
 
     if (!hasAnimations) {
-        // Static model: reimport with PreTransformVertices for optimization
-        importer.FreeScene();
-        unsigned int staticFlags = baseFlags | aiProcess_PreTransformVertices;
-        scene = importer.ReadFile(filePath, staticFlags);
-
-        if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
-            SLEAK_ERROR("Assimp: Failed to reimport model '{}': {}", filePath,
-                        importer.GetErrorString());
-            delete root;
-            return nullptr;
-        }
-
         ProcessNode(scene->mRootNode, scene, root, directory, options,
                     textureCache, materialCache);
     } else {
