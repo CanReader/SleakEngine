@@ -2,6 +2,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 
 #include <Core/Window.hpp>
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <vector>
@@ -660,17 +661,6 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
     m_activeCustomFormat = 0;
 
-    // Claim this material's own ring slot (own set + own UBO region) so the
-    // set is never rewritten while already bound by a prior draw this frame.
-    const uint32_t slot = m_pbrMaterialSlot[currentFrame];
-    auto& chunks = m_pbrMaterialChunks[currentFrame];
-    const uint32_t chunkIdx = slot / PBR_SETS_PER_FRAME;
-    if (chunkIdx >= chunks.size() && !AddPBRMaterialChunk(currentFrame)) return;
-    PBRMaterialChunk& chunk = chunks[chunkIdx];
-    const uint32_t local = slot % PBR_SETS_PER_FRAME;
-    const VkDescriptorSet set = chunk.sets[local];
-    const VkDeviceSize uboOffset = local * m_pbrMaterialUBOStride;
-
     // Build PBRMaterialParams from Material properties
     PBRMaterialParams params{};
     auto dc = material->GetDiffuseColor();
@@ -699,10 +689,6 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     params.hasAOMap          = material->HasAOTexture()        ? 1u : 0u;
     params.hasEmissiveMap    = material->HasEmissiveTexture()  ? 1u : 0u;
 
-    if (chunk.mapped)
-        memcpy(static_cast<char*>(chunk.mapped) + uboOffset, &params,
-               sizeof(params));
-
     // Resolve textures — fall back to the default white 1×1 texture if absent
     auto resolveView = [&](Texture* tex) -> VkImageView {
         auto* vt = tex ? static_cast<VulkanTexture*>(tex) : nullptr;
@@ -715,7 +701,7 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         return vt ? vt->GetSampler() : VK_NULL_HANDLE;
     };
 
-    Texture* textures[6] = {
+    Texture* textures[PBR_TEXTURE_COUNT] = {
         material->GetDiffuseTexture(),
         material->HasNormalTexture()    ? material->GetNormalTexture()    : nullptr,
         material->HasMetallicTexture()  ? material->GetMetallicTexture()  : nullptr,
@@ -724,20 +710,54 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         material->HasEmissiveTexture()  ? material->GetEmissiveTexture()  : nullptr,
     };
 
-    std::array<VkDescriptorImageInfo, 6> imageInfos{};
-    for (uint32_t i = 0; i < 6; ++i) {
+    std::array<VkDescriptorImageInfo, PBR_TEXTURE_COUNT> imageInfos{};
+    for (uint32_t i = 0; i < PBR_TEXTURE_COUNT; ++i) {
         imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfos[i].imageView   = resolveView(textures[i]);
         imageInfos[i].sampler     = resolveSampler(textures[i]);
     }
+
+    // Same material with unchanged contents this frame: rebind its set
+    auto& bindings = m_pbrMaterialBindings[currentFrame];
+    auto cached = bindings.find(material);
+    if (cached != bindings.end() &&
+        memcmp(&cached->second.params, &params, sizeof(params)) == 0 &&
+        std::equal(imageInfos.begin(), imageInfos.end(),
+                   cached->second.images.begin(),
+                   [](const VkDescriptorImageInfo& a,
+                      const VkDescriptorImageInfo& b) {
+                       return a.sampler == b.sampler &&
+                              a.imageView == b.imageView &&
+                              a.imageLayout == b.imageLayout;
+                   })) {
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_gbufferGeomLayout, 0, 1,
+                                &cached->second.set, 0, nullptr);
+        return;
+    }
+
+    // Claim this material's own ring slot (own set + own UBO region) so the
+    // set is never rewritten while already bound by a prior draw this frame.
+    const uint32_t slot = m_pbrMaterialSlot[currentFrame];
+    auto& chunks = m_pbrMaterialChunks[currentFrame];
+    const uint32_t chunkIdx = slot / PBR_SETS_PER_FRAME;
+    if (chunkIdx >= chunks.size() && !AddPBRMaterialChunk(currentFrame)) return;
+    PBRMaterialChunk& chunk = chunks[chunkIdx];
+    const uint32_t local = slot % PBR_SETS_PER_FRAME;
+    const VkDescriptorSet set = chunk.sets[local];
+    const VkDeviceSize uboOffset = local * m_pbrMaterialUBOStride;
+
+    if (chunk.mapped)
+        memcpy(static_cast<char*>(chunk.mapped) + uboOffset, &params,
+               sizeof(params));
 
     VkDescriptorBufferInfo bufInfo{};
     bufInfo.buffer = chunk.ubo;
     bufInfo.offset = uboOffset;
     bufInfo.range  = sizeof(PBRMaterialParams);
 
-    std::array<VkWriteDescriptorSet, 7> writes{};
-    for (uint32_t i = 0; i < 6; ++i) {
+    std::array<VkWriteDescriptorSet, PBR_TEXTURE_COUNT + 1> writes{};
+    for (uint32_t i = 0; i < PBR_TEXTURE_COUNT; ++i) {
         writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[i].dstSet = set;
         writes[i].dstBinding      = i;
@@ -746,18 +766,21 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         writes[i].descriptorCount = 1;
         writes[i].pImageInfo      = &imageInfos[i];
     }
-    writes[6].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[6].dstSet = set;
-    writes[6].dstBinding      = 6;
-    writes[6].dstArrayElement = 0;
-    writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[6].descriptorCount = 1;
-    writes[6].pBufferInfo     = &bufInfo;
+    writes[PBR_TEXTURE_COUNT].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[PBR_TEXTURE_COUNT].dstSet = set;
+    writes[PBR_TEXTURE_COUNT].dstBinding      = PBR_TEXTURE_COUNT;
+    writes[PBR_TEXTURE_COUNT].dstArrayElement = 0;
+    writes[PBR_TEXTURE_COUNT].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[PBR_TEXTURE_COUNT].descriptorCount = 1;
+    writes[PBR_TEXTURE_COUNT].pBufferInfo     = &bufInfo;
 
-    vkUpdateDescriptorSets(device, 7, writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
 
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_gbufferGeomLayout, 0, 1, &set, 0, nullptr);
+
+    bindings[material] = {params, imageInfos, set};
 
     // Advance the ring for the next material this frame.
     m_pbrMaterialSlot[currentFrame] = slot + 1;
