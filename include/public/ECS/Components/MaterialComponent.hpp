@@ -32,7 +32,7 @@ namespace Sleak {
 
         /// Initializes the owned material's GPU resources.
         bool Initialize() override;
-        /// Submits the material to the render command queue for this frame.
+        /// Submits the material bind unless a sibling mesh does it.
         void Update(float DeltaTime) override;
         void OnEnable() override;
         void OnDisable() override;
@@ -54,6 +54,11 @@ namespace Sleak {
         void SetRoughness(float roughness);
 
     private:
+        friend class MeshComponent;
+
+        /// Queues the material bind while enabled and a material is set.
+        void SubmitRenderState();
+
         RefPtr<Material> m_material;
         bool m_enabled = true;
     };

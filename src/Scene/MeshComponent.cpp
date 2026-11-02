@@ -3,6 +3,7 @@
 #include "../../include/private/Graphics/Common/ConstantBuffer.hpp"
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
 #include <ECS/Components/MeshComponent.hpp>
+#include <ECS/Components/MaterialComponent.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Core/GameObject.hpp>
 #include <Culling/CullingSystem.hpp>
@@ -55,25 +56,31 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
         if (!bIsInitialized)
             return;
 
+        TransformComponent* tc =
+            owner ? owner->GetComponent<TransformComponent>() : nullptr;
+
         if (m_hasLocalBounds || m_hasCullBounds) {
             Math::AABB worldBounds = m_cullBounds;
             bool cullReady = m_hasCullBounds;
 
-            if (m_hasLocalBounds && owner) {
-                if (auto* tc = owner->GetComponent<TransformComponent>()) {
-                    Math::Matrix4 m = tc->GetTransformMatrix();
-                    Math::AABB acc = TransformedPoint(m_localBounds.Corner(0), m);
-                    for (int i = 1; i < 8; ++i)
-                        acc.Merge(TransformedPoint(m_localBounds.Corner(i), m));
-                    worldBounds = acc;
-                    cullReady = true;
-                }
+            if (m_hasLocalBounds && tc) {
+                Math::Matrix4 m = tc->GetTransformMatrix();
+                Math::AABB acc = TransformedPoint(m_localBounds.Corner(0), m);
+                for (int i = 1; i < 8; ++i)
+                    acc.Merge(TransformedPoint(m_localBounds.Corner(i), m));
+                worldBounds = acc;
+                cullReady = true;
             }
 
             if (cullReady &&
                 !CullingSystem::IsVisibleFrustumOnly(worldBounds))
                 return;
         }
+
+        if (tc) tc->SubmitRenderState();
+        if (MaterialComponent* mc =
+                owner ? owner->GetComponent<MaterialComponent>() : nullptr)
+            mc->SubmitRenderState();
 
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitDrawIndexed(VertexBuffer,IndexBuffer,ConstantBuffers,IndexCount);
     }
