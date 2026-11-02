@@ -43,6 +43,12 @@ constexpr GLuint ATTRIB_UV = 4;
 constexpr GLuint ATTRIB_BONE_IDS = 5;
 constexpr GLuint ATTRIB_BONE_WEIGHTS = 6;
 
+// Transform CB layout read by the shadow pass: [WVP][World]
+constexpr int MAT4_DIM = 4;
+constexpr size_t MAT4_FLOATS = MAT4_DIM * MAT4_DIM;
+constexpr size_t MAT4_BYTES = MAT4_FLOATS * sizeof(float);
+constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
+
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
                      bool integer, size_t offset) {
@@ -542,33 +548,42 @@ void OpenGLRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!glBuf) return;
 
     // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
-    if (m_inShadowPass && slot == 0 && glBuf->GetCPUShadowCopySize() >= 128) {
+    if (m_inShadowPass && slot == 0 &&
+        glBuf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
         const float* srcWorld = reinterpret_cast<const float*>(
-            static_cast<const char*>(glBuf->GetCPUShadowCopy()) + 64);
-
-        float shadowPC[32];
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                }
-                shadowPC[r * 4 + c] = sum;
-            }
-        }
-        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+            static_cast<const char*>(glBuf->GetCPUShadowCopy()) + MAT4_BYTES);
 
         // Create dedicated shadow transform UBO on first use
         if (m_shadowTransformUBO == 0) {
-            glGenBuffers(1, &m_shadowTransformUBO);
-            glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
-            glBufferData(GL_UNIFORM_BUFFER, 128, nullptr, GL_DYNAMIC_DRAW);
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            glCreateBuffers(1, &m_shadowTransformUBO);
+            glNamedBufferData(m_shadowTransformUBO, TRANSFORM_CB_BYTES, nullptr,
+                              GL_DYNAMIC_DRAW);
+            m_shadowTransformCacheValid = false;
         }
 
-        glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(shadowPC), shadowPC);
-        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        // LightVP is fixed for the pass, so only a new World needs an upload
+        static_assert(sizeof(m_shadowTransformCache) == TRANSFORM_CB_BYTES);
+        static_assert(sizeof(m_shadowWorldCache) == MAT4_BYTES);
+        if (!m_shadowTransformCacheValid ||
+            memcmp(srcWorld, m_shadowWorldCache, MAT4_BYTES) != 0) {
+            for (int r = 0; r < MAT4_DIM; ++r) {
+                for (int c = 0; c < MAT4_DIM; ++c) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < MAT4_DIM; ++k) {
+                        sum += srcWorld[r * MAT4_DIM + k] *
+                               m_lightVP[k * MAT4_DIM + c];
+                    }
+                    m_shadowTransformCache[r * MAT4_DIM + c] = sum;
+                }
+            }
+            memcpy(&m_shadowTransformCache[MAT4_FLOATS], srcWorld, MAT4_BYTES);
+            memcpy(m_shadowWorldCache, srcWorld, MAT4_BYTES);
+            m_shadowTransformCacheValid = true;
+            glNamedBufferSubData(m_shadowTransformUBO, 0,
+                                 sizeof(m_shadowTransformCache),
+                                 m_shadowTransformCache);
+        }
+
         glBindBufferBase(GL_UNIFORM_BUFFER, slot, m_shadowTransformUBO);
         return;
     }
@@ -862,6 +877,7 @@ void OpenGLRenderer::RenderShadowPass() {
 
     // Execute shadow draw commands
     m_inShadowPass = true;
+    m_shadowTransformCacheValid = false;
     if (queue) {
         queue->ExecuteShadowPass(this);
     }

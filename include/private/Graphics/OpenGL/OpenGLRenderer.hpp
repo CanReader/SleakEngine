@@ -149,6 +149,10 @@ private:
     bool m_shadowMapRendered = false;
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
+    // Last shadow transform uploaded: [LightVP*World][World], keyed on World
+    float m_shadowTransformCache[32] = {};
+    float m_shadowWorldCache[16] = {};
+    bool m_shadowTransformCacheValid = false;
     void SetLightVP(const float* mat) override;
     /// Uploads light and shadow data, sampling with the matrix the shadow
     /// map was rendered with.
