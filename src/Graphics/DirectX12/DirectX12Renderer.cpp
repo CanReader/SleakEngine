@@ -70,6 +70,28 @@ constexpr const char* SKYBOX_STEM = "skybox";
 constexpr const char* DEBUG_LINE_STEM = "debug_line";
 #endif
 
+// Transform CB layout: [WVP][World]; shadow CB: [LightVP*World][World]
+constexpr int MATRIX_DIM = 4;
+constexpr int MATRIX_FLOATS = MATRIX_DIM * MATRIX_DIM;
+constexpr int TRANSFORM_CB_FLOATS = 2 * MATRIX_FLOATS;
+constexpr size_t TRANSFORM_CB_BYTES = TRANSFORM_CB_FLOATS * sizeof(float);
+constexpr size_t TRANSFORM_WORLD_OFFSET = MATRIX_FLOATS * sizeof(float);
+
+/// Writes World * LightVP (row-major) followed by World into out.
+void BuildShadowTransform(const float* world, const float* lightVP,
+                          float* out) {
+    for (int r = 0; r < MATRIX_DIM; ++r) {
+        for (int c = 0; c < MATRIX_DIM; ++c) {
+            float sum = 0.0f;
+            for (int k = 0; k < MATRIX_DIM; ++k) {
+                sum += world[r * MATRIX_DIM + k] * lightVP[k * MATRIX_DIM + c];
+            }
+            out[r * MATRIX_DIM + c] = sum;
+        }
+    }
+    memcpy(out + MATRIX_FLOATS, world, MATRIX_FLOATS * sizeof(float));
+}
+
 /// Compiles one fixed-pass stage, logging the compiler output on failure.
 Microsoft::WRL::ComPtr<ID3DBlob> CompileStage(const char* path,
                                               const char* entry,
@@ -1215,26 +1237,25 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!dx12Buf) return;
 
     // Shadow pass: use a dedicated shadow CB with LightVP*World for slot 0
-    if (m_inShadowPass && slot == 0 && dx12Buf->GetCPUShadowCopySize() >= 128) {
+    if (m_inShadowPass && slot == 0 &&
+        dx12Buf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
         const float* srcWorld = reinterpret_cast<const float*>(
-            static_cast<const char*>(dx12Buf->GetCPUShadowCopy()) + 64);
+            static_cast<const char*>(dx12Buf->GetCPUShadowCopy()) +
+            TRANSFORM_WORLD_OFFSET);
 
-        float shadowPC[32];
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                }
-                shadowPC[r * 4 + c] = sum;
-            }
+        // Casters sharing a World reuse this pass's ring copy
+        if (!m_shadowCBAddress ||
+            memcmp(srcWorld, m_shadowWorldCache,
+                   sizeof(m_shadowWorldCache)) != 0) {
+            DirectX12UploadRing::Allocation alloc;
+            if (!m_uploadRing.Allocate(TRANSFORM_CB_BYTES, alloc)) return;
+            BuildShadowTransform(srcWorld, m_lightVP,
+                                 static_cast<float*>(alloc.cpu));
+            memcpy(m_shadowWorldCache, srcWorld, sizeof(m_shadowWorldCache));
+            m_shadowCBAddress = alloc.gpu;
         }
-        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
-
-        DirectX12UploadRing::Allocation alloc;
-        if (!m_uploadRing.Allocate(sizeof(shadowPC), alloc)) return;
-        memcpy(alloc.cpu, shadowPC, sizeof(shadowPC));
-        commandList->SetGraphicsRootConstantBufferView(slot, alloc.gpu);
+        commandList->SetGraphicsRootConstantBufferView(slot,
+                                                       m_shadowCBAddress);
         return;
     }
 
@@ -1525,6 +1546,9 @@ void DirectX12Renderer::RenderShadowPass() {
         m_defaultTexture->Bind(0);
     }
     BindLightConstants();
+
+    // Ring memory is per frame and lightVP may have changed since last pass
+    m_shadowCBAddress = 0;
 
     // Execute shadow draw commands
     m_inShadowPass = true;
