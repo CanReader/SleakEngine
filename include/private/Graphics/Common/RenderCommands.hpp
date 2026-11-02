@@ -148,7 +148,7 @@ namespace Sleak {
 
                 RENDER_COMMAND(BindConstantBuffer)
 
-                RefPtr<BufferBase> GetBuffer() const { return constantBuffer; }
+                const RefPtr<BufferBase>& GetBuffer() const { return constantBuffer; }
                 int GetSlot() const { return slot; }
 
             private:

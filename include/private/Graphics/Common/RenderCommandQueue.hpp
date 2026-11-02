@@ -3,8 +3,12 @@
 
 #include <Graphics/Common/Renderer.hpp>
 #include "RenderCommands.hpp"
-#include <Utility/Container/Queue.hpp>
 #include <Memory/ObjectPtr.hpp>
+#include <cstddef>
+#include <memory>
+#include <new>
+#include <utility>
+#include <vector>
 
 namespace Sleak {
     namespace RenderEngine {
@@ -61,7 +65,7 @@ namespace Sleak {
 
         void ExecuteShadowPass(RenderContext* context);
 
-        bool HasCachedShadowDraws() const { return cachedShadowDraws.GetSize() > 0; }
+        bool HasCachedShadowDraws() const { return !cachedShadowDraws.empty(); }
 
         /// Drops queued commands for the current frame, keeping the cached shadow draw list.
         void Clear();
@@ -82,18 +86,64 @@ namespace Sleak {
 
         /// A draw command paired with the transform/bone buffers it needs to replay in the shadow pass.
         struct ShadowDrawEntry {
-            RefPtr<RenderCommandBase> command;
-            RefPtr<BufferBase> transformBuffer;  // last-bound slot-0 buffer
-            RefPtr<BufferBase> boneBuffer;       // slot-3 bone UBO for skinned draws
+            RenderCommandBase* command = nullptr;
+            const RefPtr<BufferBase>* transformBuffer = nullptr;  // last-bound slot-0 buffer
+            const RefPtr<BufferBase>* boneBuffer = nullptr;       // slot-3 bone UBO for skinned draws
         };
 
         private:
+            /// Bump allocator owning one frame's commands until the slot is recycled.
+            class CommandArena {
+            public:
+                CommandArena() = default;
+                CommandArena(const CommandArena&) = delete;
+                CommandArena& operator=(const CommandArena&) = delete;
+                ~CommandArena() { Reset(); }
+
+                /// Constructs a command in arena memory and appends it to the frame's list.
+                template <typename T, typename... Args>
+                T* Create(Args&&... args) {
+                    void* memory = Allocate(sizeof(T), alignof(T));
+                    T* command = new (memory) T(std::forward<Args>(args)...);
+                    m_commands.push_back(command);
+                    return command;
+                }
+
+                /// Destroys every command and rewinds the blocks for reuse.
+                void Reset();
+
+                const std::vector<RenderCommandBase*>& Commands() const { return m_commands; }
+
+            private:
+                struct Block {
+                    std::unique_ptr<std::byte[]> data;
+                    size_t size = 0;
+                };
+
+                /// Returns aligned storage from the current block, adding blocks as needed.
+                void* Allocate(size_t size, size_t alignment);
+
+                static constexpr size_t BLOCK_SIZE = 64 * 1024;
+                std::vector<Block> m_blocks;
+                size_t m_blockIndex = 0;
+                size_t m_offset = 0;
+                std::vector<RenderCommandBase*> m_commands;
+            };
+
+            /// Moves submission to the next arena, destroying the commands it last held.
+            void AdvanceArena();
+
+            CommandArena& CurrentArena() { return m_arenas[m_currentArena]; }
+
+            // A frame's commands stay alive while its shadow replay and GPU frames in flight may use them
             static constexpr int RETIRE_FRAMES = 3;
+            static constexpr int ARENA_COUNT = RETIRE_FRAMES + 2;
             static RenderCommandQueue* Instance;
-            Queue<RefPtr<RenderCommandBase>> commands;
-            List<ShadowDrawEntry> cachedShadowDraws;
-            List<ShadowDrawEntry> m_retiredShadowDraws[RETIRE_FRAMES];
-            int m_retireIndex = 0;
+            CommandArena m_arenas[ARENA_COUNT];
+            int m_currentArena = 0;
+            std::vector<ShadowDrawEntry> cachedShadowDraws;
+            std::vector<RenderCommandBase*> m_pendingState;
+            std::vector<RenderCommandBase*> m_forwardCmds;
         };
     }
 }
