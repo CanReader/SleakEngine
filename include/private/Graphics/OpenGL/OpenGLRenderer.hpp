@@ -8,10 +8,13 @@
 #include <SDL3/SDL.h>
 #include <glad/glad.h>
 #include <array>
+#include <cstdint>
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
 
 namespace Sleak {
+
+struct VertexLayoutDesc;
 
 namespace RenderEngine {
 
@@ -104,6 +107,12 @@ private:
     GLuint m_VAO = 0;
     bool m_debugLineMode = false;
 
+    // Vertex layout currently applied to m_VAO
+    static constexpr uint32_t NO_CONFIGURED_LAYOUT = UINT32_MAX;
+    uint32_t m_configuredLayout = NO_CONFIGURED_LAYOUT;
+    const VertexLayoutDesc* m_configuredLayoutDesc = nullptr;
+    uint32_t m_enabledAttribMask = 0;
+
     // MSAA FBO resources
     GLuint m_msaaFBO = 0;
     GLuint m_msaaColorRBO = 0;
@@ -115,8 +124,11 @@ private:
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
 
-    /// Configures the shared VAO's vertex attribute layout for the standard mesh format.
+    /// Creates the shared mesh VAO and resets its cached attribute layout.
     void SetupVertexLayout();
+    /// Applies a vertex layout's attribute formats to m_VAO unless it is
+    /// already the active one; a null desc selects the default Vertex.
+    void ConfigureVertexLayout(uint32_t layout, const VertexLayoutDesc* desc);
 
     // Shadow mapping
     GLuint m_shadowFBO = 0;

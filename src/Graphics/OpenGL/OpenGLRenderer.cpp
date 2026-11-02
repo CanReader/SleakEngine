@@ -28,6 +28,36 @@
 namespace Sleak {
 namespace RenderEngine {
 
+namespace {
+
+constexpr GLuint VERTEX_BUFFER_BINDING = 0;
+constexpr uint32_t DEFAULT_VERTEX_LAYOUT = 0;
+constexpr uint32_t ATTRIB_MASK_BITS = 32;
+
+// Default Vertex attribute locations
+constexpr GLuint ATTRIB_POSITION = 0;
+constexpr GLuint ATTRIB_NORMAL = 1;
+constexpr GLuint ATTRIB_TANGENT = 2;
+constexpr GLuint ATTRIB_COLOR = 3;
+constexpr GLuint ATTRIB_UV = 4;
+constexpr GLuint ATTRIB_BONE_IDS = 5;
+constexpr GLuint ATTRIB_BONE_WEIGHTS = 6;
+
+/// Sets one attribute's format on vao and routes it to the shared binding.
+void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
+                     bool integer, size_t offset) {
+    const GLuint relativeOffset = static_cast<GLuint>(offset);
+    if (integer)
+        glVertexArrayAttribIFormat(vao, location, components, type,
+                                   relativeOffset);
+    else
+        glVertexArrayAttribFormat(vao, location, components, type, GL_FALSE,
+                                  relativeOffset);
+    glVertexArrayAttribBinding(vao, location, VERTEX_BUFFER_BINDING);
+}
+
+}  // namespace
+
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
 OpenGLRenderer::OpenGLRenderer(Window* window)
     : m_Window(window) {
@@ -117,7 +147,83 @@ bool OpenGLRenderer::Initialize() {
 }
 
 void OpenGLRenderer::SetupVertexLayout() {
-    glGenVertexArrays(1, &m_VAO);
+    glCreateVertexArrays(1, &m_VAO);
+    m_configuredLayout = NO_CONFIGURED_LAYOUT;
+    m_configuredLayoutDesc = nullptr;
+    m_enabledAttribMask = 0;
+}
+
+void OpenGLRenderer::ConfigureVertexLayout(uint32_t layout,
+                                           const VertexLayoutDesc* desc) {
+    if (layout == m_configuredLayout) return;
+    m_configuredLayout = layout;
+    m_configuredLayoutDesc = desc;
+
+    uint32_t enabledMask = 0;
+    if (desc) {
+        for (const auto& attr : desc->attributes) {
+            switch (attr.format) {
+                case VertexAttribFormat::Float1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float2:
+                    SetAttribFormat(m_VAO, attr.location, 2, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float3:
+                    SetAttribFormat(m_VAO, attr.location, 3, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float4:
+                    SetAttribFormat(m_VAO, attr.location, 4, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::UInt1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_UNSIGNED_INT,
+                                    true, attr.offset);
+                    break;
+                case VertexAttribFormat::Int1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_INT, true,
+                                    attr.offset);
+                    break;
+            }
+            if (attr.location < ATTRIB_MASK_BITS)
+                enabledMask |= (1u << attr.location);
+            else
+                glEnableVertexArrayAttrib(m_VAO, attr.location);
+        }
+    } else {
+        // Standard 96-byte Vertex layout: 7 attributes
+        SetAttribFormat(m_VAO, ATTRIB_POSITION, 3, GL_FLOAT, false,
+                        offsetof(Vertex, px));
+        SetAttribFormat(m_VAO, ATTRIB_NORMAL, 3, GL_FLOAT, false,
+                        offsetof(Vertex, nx));
+        SetAttribFormat(m_VAO, ATTRIB_TANGENT, 4, GL_FLOAT, false,
+                        offsetof(Vertex, tx));
+        SetAttribFormat(m_VAO, ATTRIB_COLOR, 4, GL_FLOAT, false,
+                        offsetof(Vertex, r));
+        SetAttribFormat(m_VAO, ATTRIB_UV, 2, GL_FLOAT, false,
+                        offsetof(Vertex, u));
+        SetAttribFormat(m_VAO, ATTRIB_BONE_IDS, 4, GL_INT, true,
+                        offsetof(Vertex, boneIDs));
+        SetAttribFormat(m_VAO, ATTRIB_BONE_WEIGHTS, 4, GL_FLOAT, false,
+                        offsetof(Vertex, boneWeights));
+        for (GLuint loc = ATTRIB_POSITION; loc <= ATTRIB_BONE_WEIGHTS; ++loc)
+            enabledMask |= (1u << loc);
+    }
+
+    // Toggle only the slots whose enable state differs from the last layout
+    const uint32_t changed = enabledMask ^ m_enabledAttribMask;
+    for (uint32_t loc = 0; loc < ATTRIB_MASK_BITS; ++loc) {
+        const uint32_t bit = 1u << loc;
+        if (!(changed & bit)) continue;
+        if (enabledMask & bit)
+            glEnableVertexArrayAttrib(m_VAO, loc);
+        else
+            glDisableVertexArrayAttrib(m_VAO, loc);
+    }
+    m_enabledAttribMask = enabledMask;
 }
 
 void OpenGLRenderer::BeginRender() {
@@ -398,89 +504,21 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     auto* glBuf = dynamic_cast<OpenGLBuffer*>(buffer.get());
     if (!glBuf) return;
 
-    glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLBuffer());
+    // A registered layout drives the attribute formats; 0 means default Vertex
+    const uint32_t format = buffer->GetVertexFormat();
+    const VertexLayoutDesc* desc = m_configuredLayoutDesc;
+    if (format != m_configuredLayout) {
+        desc = format != 0 ? VertexFormatRegistry::Get(format) : nullptr;
+        ConfigureVertexLayout(desc ? format : DEFAULT_VERTEX_LAYOUT, desc);
+    }
 
-    // A registered layout drives the attribute pointers; 0 means default Vertex
-    const uint32_t customFormat = buffer->GetVertexFormat();
-    const VertexLayoutDesc* customDesc =
-        customFormat != 0 ? VertexFormatRegistry::Get(customFormat) : nullptr;
-
-    if (customDesc && customDesc->transparentReadsScene &&
-        m_inForwardTransparentPass)
+    if (desc && desc->transparentReadsScene && m_inForwardTransparentPass)
         PrepareSceneRead();
 
-    if (customDesc) {
-        // One attribute pointer per registry entry, tracking which slots stay live
-        const GLsizei stride = static_cast<GLsizei>(customDesc->stride);
-        uint32_t enabledMask = 0;
-        for (const auto& attr : customDesc->attributes) {
-            const void* off = reinterpret_cast<const void*>(
-                static_cast<uintptr_t>(attr.offset));
-            glEnableVertexAttribArray(attr.location);
-            switch (attr.format) {
-                case VertexAttribFormat::Float1:
-                    glVertexAttribPointer(attr.location, 1, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float2:
-                    glVertexAttribPointer(attr.location, 2, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float3:
-                    glVertexAttribPointer(attr.location, 3, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float4:
-                    glVertexAttribPointer(attr.location, 4, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::UInt1:
-                    glVertexAttribIPointer(attr.location, 1, GL_UNSIGNED_INT, stride, off);
-                    break;
-                case VertexAttribFormat::Int1:
-                    glVertexAttribIPointer(attr.location, 1, GL_INT, stride, off);
-                    break;
-            }
-            if (attr.location < 32) enabledMask |= (1u << attr.location);
-        }
-        // Disable attribute slots left enabled by a previous bind
-        constexpr uint32_t TRACKED_ATTRIB_SLOTS = 8;
-        for (uint32_t loc = 0; loc < TRACKED_ATTRIB_SLOTS; ++loc) {
-            if (!(enabledMask & (1u << loc))) glDisableVertexAttribArray(loc);
-        }
-    } else {
-        // Standard 96-byte Vertex layout: 7 attributes
-        // Position: 3 floats at offset 0
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, px));
-
-        // Normal: 3 floats at offset 12
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, nx));
-
-        // Tangent: 4 floats at offset 24
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, tx));
-
-        // Color: 4 floats at offset 40
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, r));
-
-        // UV: 2 floats at offset 56
-        glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, u));
-
-        // BoneIDs: 4 ints (must use IPointer for integer attributes)
-        glEnableVertexAttribArray(5);
-        glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
-                               (void*)offsetof(Vertex, boneIDs));
-
-        // BoneWeights: 4 floats
-        glEnableVertexAttribArray(6);
-        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, boneWeights));
-    }
+    const GLsizei stride = desc ? static_cast<GLsizei>(desc->stride)
+                                : static_cast<GLsizei>(sizeof(Vertex));
+    glVertexArrayVertexBuffer(m_VAO, VERTEX_BUFFER_BINDING,
+                              glBuf->GetGLBuffer(), 0, stride);
 }
 
 void OpenGLRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
