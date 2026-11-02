@@ -6,6 +6,7 @@
 #include <ECS/Components/TransformComponent.hpp>
 #include <Core/Logger.hpp>
 #include <algorithm>
+#include <cmath>
 
 namespace Sleak {
 namespace Physics {
@@ -31,6 +32,20 @@ void GetColliderPose(ColliderComponent* collider, Vector3D& pos,
     } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
         pos = cam->GetPosition() + collider->GetOffset();
     }
+}
+
+/// Distance a dynamic body travels next step, zero for anything else.
+Vector3D PredictDisplacement(ColliderComponent* collider, float dt) {
+    Vector3D none(0, 0, 0);
+    RigidbodyComponent* rb = GetMovableBody(collider);
+    if (!rb || rb->GetBodyType() != BodyType::Dynamic) return none;
+
+    Vector3D d = rb->GetVelocity() * dt;
+    if (!std::isfinite(d.GetX()) || !std::isfinite(d.GetY()) ||
+        !std::isfinite(d.GetZ())) {
+        return none;
+    }
+    return d;
 }
 
 }  // namespace
@@ -115,17 +130,17 @@ void PhysicsWorld::Step(float dt) {
         }
     }
 
-    UpdateBroadphase();
+    UpdateBroadphase(dt);
     FindPairsAndResolve();
 }
 
-void PhysicsWorld::UpdateBroadphase() {
+void PhysicsWorld::UpdateBroadphase(float dt) {
     for (auto* collider : m_colliders) {
         int proxyId = collider->GetProxyId();
         if (proxyId < 0) continue;
 
         AABB newAABB = collider->GetWorldAABB();
-        m_tree.MoveProxy(proxyId, newAABB, Vector3D(0, 0, 0));
+        m_tree.MoveProxy(proxyId, newAABB, PredictDisplacement(collider, dt));
     }
 }
 
