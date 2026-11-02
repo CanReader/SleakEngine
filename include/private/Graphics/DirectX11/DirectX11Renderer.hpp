@@ -162,7 +162,7 @@ public:
     ID3D11Texture2D* msaaDepthStencilBuffer = nullptr;
     ID3D11DepthStencilView* msaaDepthStencilView = nullptr;
     
-    ID3D11Query* query;
+    ID3D11Query* query = nullptr;
 
     D3D11_PRIMITIVE_TOPOLOGY topology;
     D3D11_FILL_MODE fillMode;
