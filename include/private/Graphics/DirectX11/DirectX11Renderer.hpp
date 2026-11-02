@@ -141,7 +141,7 @@ public:
     ID3D11RenderTargetView* renderTargetView; // Render target view
     ID3D11InputLayout* layout;
 
-    ID3D11DepthStencilState* depthStencilState;
+    ID3D11DepthStencilState* depthStencilState = nullptr;
     ID3D11DepthStencilView* depthStencilView;
     ID3D11Texture2D* depthStencilBuffer;
 

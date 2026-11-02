@@ -395,12 +395,15 @@ void DirectX11Renderer::SetDepthStencilState(bool enableDepth,
     depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
     depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
-    HRESULT hr = device->CreateDepthStencilState(&depthStencilDesc, &depthStencilState);
+    ID3D11DepthStencilState* state = nullptr;
+    HRESULT hr = device->CreateDepthStencilState(&depthStencilDesc, &state);
     if (FAILED(hr)) {
         SLEAK_ERROR("Failed to create depth stencil state!");
         return;
     }
 
+    if (depthStencilState) depthStencilState->Release();
+    depthStencilState = state;
     deviceContext->OMSetDepthStencilState(depthStencilState, 1);
 }
 
