@@ -10,12 +10,15 @@
 #include "Graphics/Common/ResourceManager.hpp"
 #include <Utility/Container/List.hpp>
 #include <d3d11.h>
+#include <wrl/client.h>
 #include <Core/Window.hpp>
 #include <imgui.h>
 #include <backends/imgui_impl_dx11.h>
 #include <chrono>
 #include <Core/Timer.hpp>
 #include <Utility/Container/Queue.hpp>
+#include <utility>
+#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -112,6 +115,13 @@ public:
     bool CreateRenderTargetView();
     /// Creates and binds the rasterizer state matching current fill/cull settings.
     bool SetRasterState();
+    /// Binds the depth state matching the tracked depth write and compare.
+    void ApplyDepthState();
+    /// Returns the cached rasterizer state for desc, creating it on a miss.
+    ID3D11RasterizerState* GetRasterState(const D3D11_RASTERIZER_DESC& desc);
+    /// Returns the cached depth-stencil state for desc, creating it on a miss.
+    ID3D11DepthStencilState* GetDepthState(
+        const D3D11_DEPTH_STENCIL_DESC& desc);
 
     /// Creates the alpha-blend state used for transparent draws.
     bool CreateBlendState();
@@ -165,6 +175,14 @@ public:
     D3D11_CULL_MODE m_savedCullMode = D3D11_CULL_FRONT;
     bool m_depthWriteEnabled = true;
     D3D11_COMPARISON_FUNC m_depthFunc = D3D11_COMPARISON_LESS;
+
+    // Immutable state objects keyed by description, owned until Cleanup
+    std::vector<std::pair<D3D11_RASTERIZER_DESC,
+                          Microsoft::WRL::ComPtr<ID3D11RasterizerState>>>
+        m_rasterStates;
+    std::vector<std::pair<D3D11_DEPTH_STENCIL_DESC,
+                          Microsoft::WRL::ComPtr<ID3D11DepthStencilState>>>
+        m_depthStates;
 
     ImGuiContext* ImCon;
 

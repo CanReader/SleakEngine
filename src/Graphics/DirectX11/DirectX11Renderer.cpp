@@ -45,6 +45,56 @@ namespace Sleak {
         }
     }
 
+    /// Compares two rasterizer descriptions field by field.
+    bool SameDesc(const D3D11_RASTERIZER_DESC& a,
+                  const D3D11_RASTERIZER_DESC& b) {
+        return a.FillMode == b.FillMode && a.CullMode == b.CullMode &&
+               a.FrontCounterClockwise == b.FrontCounterClockwise &&
+               a.DepthBias == b.DepthBias &&
+               a.DepthBiasClamp == b.DepthBiasClamp &&
+               a.SlopeScaledDepthBias == b.SlopeScaledDepthBias &&
+               a.DepthClipEnable == b.DepthClipEnable &&
+               a.ScissorEnable == b.ScissorEnable &&
+               a.MultisampleEnable == b.MultisampleEnable &&
+               a.AntialiasedLineEnable == b.AntialiasedLineEnable;
+    }
+
+    /// Compares two stencil face descriptions field by field.
+    bool SameDesc(const D3D11_DEPTH_STENCILOP_DESC& a,
+                  const D3D11_DEPTH_STENCILOP_DESC& b) {
+        return a.StencilFailOp == b.StencilFailOp &&
+               a.StencilDepthFailOp == b.StencilDepthFailOp &&
+               a.StencilPassOp == b.StencilPassOp &&
+               a.StencilFunc == b.StencilFunc;
+    }
+
+    /// Compares two depth-stencil descriptions field by field.
+    bool SameDesc(const D3D11_DEPTH_STENCIL_DESC& a,
+                  const D3D11_DEPTH_STENCIL_DESC& b) {
+        return a.DepthEnable == b.DepthEnable &&
+               a.DepthWriteMask == b.DepthWriteMask &&
+               a.DepthFunc == b.DepthFunc &&
+               a.StencilEnable == b.StencilEnable &&
+               a.StencilReadMask == b.StencilReadMask &&
+               a.StencilWriteMask == b.StencilWriteMask &&
+               SameDesc(a.FrontFace, b.FrontFace) &&
+               SameDesc(a.BackFace, b.BackFace);
+    }
+
+    /// Finds the state cached for desc, or creates and caches it on a miss.
+    template <typename Desc, typename State, typename Create>
+    State* FindOrCreateState(
+        std::vector<std::pair<Desc, Microsoft::WRL::ComPtr<State>>>& cache,
+        const Desc& desc, Create create) {
+        for (const auto& [key, state] : cache) {
+            if (SameDesc(key, desc)) return state.Get();
+        }
+        Microsoft::WRL::ComPtr<State> state;
+        if (FAILED(create(&desc, state.GetAddressOf()))) return nullptr;
+        cache.emplace_back(desc, state);
+        return state.Get();
+    }
+
     }  // namespace
 
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
@@ -311,6 +361,9 @@ void DirectX11Renderer::Cleanup() {
         blendState->Release();
         blendState = nullptr;
     }
+
+    m_rasterStates.clear();
+    m_depthStates.clear();
 
     if(query)
     {
@@ -665,7 +718,6 @@ void DirectX11Renderer::ConfigureRenderFace() {
 }
 
 bool DirectX11Renderer::SetRasterState() {
-    ID3D11RasterizerState* rasterState;
     D3D11_RASTERIZER_DESC RasterDesc = {};
     RasterDesc.AntialiasedLineEnable = true;
     RasterDesc.MultisampleEnable = true;
@@ -678,14 +730,30 @@ bool DirectX11Renderer::SetRasterState() {
     RasterDesc.FillMode = fillMode;
     RasterDesc.FrontCounterClockwise = false;
 
-    if (FAILED(device->CreateRasterizerState(&RasterDesc, &rasterState))) {
-        return false;
-    } else {
-        deviceContext->RSSetState(rasterState);
-        rasterState->Release();
-    }
+    ID3D11RasterizerState* rasterState = GetRasterState(RasterDesc);
+    if (!rasterState) return false;
 
+    deviceContext->RSSetState(rasterState);
     return true;
+}
+
+ID3D11RasterizerState* DirectX11Renderer::GetRasterState(
+    const D3D11_RASTERIZER_DESC& desc) {
+    return FindOrCreateState(
+        m_rasterStates, desc,
+        [this](const D3D11_RASTERIZER_DESC* d, ID3D11RasterizerState** out) {
+            return device->CreateRasterizerState(d, out);
+        });
+}
+
+ID3D11DepthStencilState* DirectX11Renderer::GetDepthState(
+    const D3D11_DEPTH_STENCIL_DESC& desc) {
+    return FindOrCreateState(
+        m_depthStates, desc,
+        [this](const D3D11_DEPTH_STENCIL_DESC* d,
+               ID3D11DepthStencilState** out) {
+            return device->CreateDepthStencilState(d, out);
+        });
 }
 
 void DirectX11Renderer::SetRenderMode(RenderMode mode) {
@@ -781,19 +849,19 @@ Texture* DirectX11Renderer::CreateCubemapTextureFromPanorama(
 
 void DirectX11Renderer::SetDepthWrite(bool enabled) {
     m_depthWriteEnabled = enabled;
+    ApplyDepthState();
+}
 
+void DirectX11Renderer::ApplyDepthState() {
     D3D11_DEPTH_STENCIL_DESC desc = {};
     desc.DepthEnable = TRUE;
-    desc.DepthWriteMask = enabled ? D3D11_DEPTH_WRITE_MASK_ALL
-                                  : D3D11_DEPTH_WRITE_MASK_ZERO;
+    desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
+                                               : D3D11_DEPTH_WRITE_MASK_ZERO;
     desc.DepthFunc = m_depthFunc;
     desc.StencilEnable = FALSE;
 
-    ID3D11DepthStencilState* state = nullptr;
-    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
+    if (ID3D11DepthStencilState* state = GetDepthState(desc))
         deviceContext->OMSetDepthStencilState(state, 1);
-        state->Release();
-    }
 }
 
 void DirectX11Renderer::SetDepthCompare(DepthCompare compare) {
@@ -808,18 +876,7 @@ void DirectX11Renderer::SetDepthCompare(DepthCompare compare) {
         case DepthCompare::Never:        m_depthFunc = D3D11_COMPARISON_NEVER; break;
     }
 
-    D3D11_DEPTH_STENCIL_DESC desc = {};
-    desc.DepthEnable = TRUE;
-    desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
-                                               : D3D11_DEPTH_WRITE_MASK_ZERO;
-    desc.DepthFunc = m_depthFunc;
-    desc.StencilEnable = FALSE;
-
-    ID3D11DepthStencilState* state = nullptr;
-    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
-        deviceContext->OMSetDepthStencilState(state, 1);
-        state->Release();
-    }
+    ApplyDepthState();
 }
 
 void DirectX11Renderer::SetCullEnabled(bool enabled) {
