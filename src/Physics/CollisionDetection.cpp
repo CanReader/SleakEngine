@@ -300,15 +300,48 @@ static BoundingCapsule TransformCapsule(const BoundingCapsule& c, const Vector3D
     return BoundingCapsule(c.center * scale + pos, c.radius * maxScale, c.halfHeight * axisScale, c.axis);
 }
 
-static TriangleMesh TransformMesh(const TriangleMesh& m, const Vector3D& pos, const Vector3D& scale) {
-    TriangleMesh result;
-    result.indices = m.indices;
-    result.vertices.resize(m.vertices.size());
-    for (size_t i = 0; i < m.vertices.size(); ++i) {
-        result.vertices[i] = m.vertices[i] * scale + pos;
+/// Relative padding that keeps the mesh bounds early-out exact under rounding.
+static constexpr float MESH_BOUNDS_SLACK = 1e-4f;
+
+/// Largest absolute component of v.
+static float MaxAbsComponent(const Vector3D& v) {
+    return std::max(
+        {std::abs(v.GetX()), std::abs(v.GetY()), std::abs(v.GetZ())});
+}
+
+/// False only when the sphere cannot touch anything inside bounds.
+static bool SphereMayTouchBounds(const BoundingSphere& s, const AABB& bounds) {
+    float magnitude = 1.0f + std::abs(s.radius) + MaxAbsComponent(s.center) +
+                      MaxAbsComponent(bounds.min) + MaxAbsComponent(bounds.max);
+    float reach = s.radius + MESH_BOUNDS_SLACK * magnitude;
+    Vector3D diff = s.center - ClosestPointOnAABB(bounds, s.center);
+    return diff.Dot(diff) <= reach * reach;
+}
+
+/// Sphere vs a mesh placed at pos with per-axis scale, without copying it.
+static CollisionManifold TestSphereVsPlacedMesh(const BoundingSphere& sphere,
+                                                const TriangleMesh& mesh,
+                                                const Vector3D& pos,
+                                                const Vector3D& scale) {
+    CollisionManifold deepest;
+    AABB worldBounds = TransformAABB(mesh.bounds, pos, scale);
+    if (!SphereMayTouchBounds(sphere, worldBounds)) return deepest;
+
+    const std::vector<Vector3D>& verts = mesh.vertices;
+    const std::vector<uint32_t>& idx = mesh.indices;
+    for (size_t i = 0; i + 2 < idx.size(); i += 3) {
+        Vector3D v0 = verts[idx[i]] * scale + pos;
+        Vector3D v1 = verts[idx[i + 1]] * scale + pos;
+        Vector3D v2 = verts[idx[i + 2]] * scale + pos;
+
+        CollisionManifold m = TestSphereVsTriangle(sphere, v0, v1, v2);
+        if (m.hasCollision &&
+            m.contact.penetration > deepest.contact.penetration) {
+            deepest = m;
+        }
     }
-    result.bounds = TransformAABB(m.bounds, pos, scale);
-    return result;
+
+    return deepest;
 }
 
 CollisionManifold TestCollision(const ColliderShape& shapeA, const Vector3D& posA, const Vector3D& scaleA,
@@ -351,18 +384,24 @@ CollisionManifold TestCollision(const ColliderShape& shapeA, const Vector3D& pos
             return TestCapsuleVsCapsule(TransformCapsule(a, posA, scaleA), TransformCapsule(b, posB, scaleB));
         }
         else if constexpr (std::is_same_v<A, BoundingSphere> && std::is_same_v<B, TriangleMesh>) {
-            return TestSphereVsMesh(TransformSphere(a, posA, scaleA), TransformMesh(b, posB, scaleB));
+            return TestSphereVsPlacedMesh(TransformSphere(a, posA, scaleA),
+                                          b, posB, scaleB);
         }
         else if constexpr (std::is_same_v<A, TriangleMesh> && std::is_same_v<B, BoundingSphere>) {
-            auto m = TestSphereVsMesh(TransformSphere(b, posB, scaleB), TransformMesh(a, posA, scaleA));
+            auto m = TestSphereVsPlacedMesh(TransformSphere(b, posB, scaleB),
+                                            a, posA, scaleA);
             m.contact.normal = m.contact.normal * -1.0f;
             return m;
         }
         else if constexpr (std::is_same_v<A, AABB> && std::is_same_v<B, TriangleMesh>) {
-            return TestAABBvsMesh(TransformAABB(a, posA, scaleA), TransformMesh(b, posB, scaleB));
+            return TestSphereVsPlacedMesh(
+                BoundingSphere::FromAABB(TransformAABB(a, posA, scaleA)), b,
+                posB, scaleB);
         }
         else if constexpr (std::is_same_v<A, TriangleMesh> && std::is_same_v<B, AABB>) {
-            auto m = TestAABBvsMesh(TransformAABB(b, posB, scaleB), TransformMesh(a, posA, scaleA));
+            auto m = TestSphereVsPlacedMesh(
+                BoundingSphere::FromAABB(TransformAABB(b, posB, scaleB)), a,
+                posA, scaleA);
             m.contact.normal = m.contact.normal * -1.0f;
             return m;
         }
