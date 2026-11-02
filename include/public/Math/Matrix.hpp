@@ -2,15 +2,15 @@
 #define _MATRIX_H_
 
 #include <Core/OSDef.hpp>
-#include "Math.hpp"
 #include <cassert>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
 
-#include "Vector.hpp"
+#include "Math.hpp"
 #include "Quaternion.hpp"
+#include "Vector.hpp"
 
 namespace Sleak {
 namespace Math {

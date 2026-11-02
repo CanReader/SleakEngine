@@ -56,9 +56,7 @@ namespace Sleak {
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitBindConstantBuffer(ConstantBuffer, 0);
     }
 
-    Matrix4 TransformComponent::GetTransformMatrix() {
-        return WorldMatrix();
-    }
+    Matrix4 TransformComponent::GetTransformMatrix() { return WorldMatrix(); }
 
     const Matrix4& TransformComponent::WorldMatrix() {
         if (m_worldDirty) {
@@ -167,8 +165,7 @@ namespace Sleak {
 
 
     Math::Matrix4 TransformComponent::GetMVP() {
-        auto mat = WorldMatrix() *
-                   Camera::GetMainViewMatrix() *
+        auto mat = WorldMatrix() * Camera::GetMainViewMatrix() *
                    Camera::GetMainProjectionMatrix();
 
         return mat;

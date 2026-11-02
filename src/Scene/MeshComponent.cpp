@@ -1,40 +1,41 @@
-#include "../../include/private/Graphics/Common/ResourceManager.hpp"
+#include <Core/GameObject.hpp>
+#include <Culling/CullingSystem.hpp>
+#include <ECS/Components/MaterialComponent.hpp>
+#include <ECS/Components/MeshComponent.hpp>
+#include <ECS/Components/TransformComponent.hpp>
+#include <Runtime/MeshData.hpp>
+#include <cmath>
+
 #include "../../include/private/Graphics/Common/BufferBase.hpp"
 #include "../../include/private/Graphics/Common/ConstantBuffer.hpp"
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
-#include <ECS/Components/MeshComponent.hpp>
-#include <ECS/Components/MaterialComponent.hpp>
-#include <ECS/Components/TransformComponent.hpp>
-#include <Core/GameObject.hpp>
-#include <Culling/CullingSystem.hpp>
-#include <Runtime/MeshData.hpp>
-#include <cmath>
+#include "../../include/private/Graphics/Common/ResourceManager.hpp"
 
 namespace Sleak {
 
 namespace {
-    /// World AABB of a local box under m (world = local * m), via Arvo's method.
-    Math::AABB TransformBounds(const Math::AABB& box, const Math::Matrix4& m) {
-        const Math::Vector3D c = box.Center();
-        const Math::Vector3D e = box.Extents();
-        const float cx = c.GetX(), cy = c.GetY(), cz = c.GetZ();
-        const float ex = std::fabs(e.GetX());
-        const float ey = std::fabs(e.GetY());
-        const float ez = std::fabs(e.GetZ());
+/// World AABB of a local box under m (world = local * m), via Arvo's method.
+Math::AABB TransformBounds(const Math::AABB& box, const Math::Matrix4& m) {
+    const Math::Vector3D c = box.Center();
+    const Math::Vector3D e = box.Extents();
+    const float cx = c.GetX(), cy = c.GetY(), cz = c.GetZ();
+    const float ex = std::fabs(e.GetX());
+    const float ey = std::fabs(e.GetY());
+    const float ez = std::fabs(e.GetZ());
 
-        const Math::Vector3D center(
-            cx * m(0, 0) + cy * m(1, 0) + cz * m(2, 0) + m(3, 0),
-            cx * m(0, 1) + cy * m(1, 1) + cz * m(2, 1) + m(3, 1),
-            cx * m(0, 2) + cy * m(1, 2) + cz * m(2, 2) + m(3, 2));
-        const Math::Vector3D extents(
-            ex * std::fabs(m(0, 0)) + ey * std::fabs(m(1, 0)) +
-                ez * std::fabs(m(2, 0)),
-            ex * std::fabs(m(0, 1)) + ey * std::fabs(m(1, 1)) +
-                ez * std::fabs(m(2, 1)),
-            ex * std::fabs(m(0, 2)) + ey * std::fabs(m(1, 2)) +
-                ez * std::fabs(m(2, 2)));
-        return Math::AABB(center - extents, center + extents);
-    }
+    const Math::Vector3D center(
+        cx * m(0, 0) + cy * m(1, 0) + cz * m(2, 0) + m(3, 0),
+        cx * m(0, 1) + cy * m(1, 1) + cz * m(2, 1) + m(3, 1),
+        cx * m(0, 2) + cy * m(1, 2) + cz * m(2, 2) + m(3, 2));
+    const Math::Vector3D extents(
+        ex * std::fabs(m(0, 0)) + ey * std::fabs(m(1, 0)) +
+            ez * std::fabs(m(2, 0)),
+        ex * std::fabs(m(0, 1)) + ey * std::fabs(m(1, 1)) +
+            ez * std::fabs(m(2, 1)),
+        ex * std::fabs(m(0, 2)) + ey * std::fabs(m(1, 2)) +
+            ez * std::fabs(m(2, 2)));
+    return Math::AABB(center - extents, center + extents);
+}
 }  // namespace
 
 MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(object) {

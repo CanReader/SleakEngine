@@ -1,11 +1,11 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
-
 #include <Core/Window.hpp>
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 #include "Core/Logger.hpp"
 
 namespace Sleak {
@@ -703,11 +703,14 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
 
     Texture* textures[PBR_TEXTURE_COUNT] = {
         material->GetDiffuseTexture(),
-        material->HasNormalTexture()    ? material->GetNormalTexture()    : nullptr,
-        material->HasMetallicTexture()  ? material->GetMetallicTexture()  : nullptr,
-        material->HasRoughnessTexture() ? material->GetRoughnessTexture() : nullptr,
-        material->HasAOTexture()        ? material->GetAOTexture()        : nullptr,
-        material->HasEmissiveTexture()  ? material->GetEmissiveTexture()  : nullptr,
+        material->HasNormalTexture() ? material->GetNormalTexture() : nullptr,
+        material->HasMetallicTexture() ? material->GetMetallicTexture()
+                                       : nullptr,
+        material->HasRoughnessTexture() ? material->GetRoughnessTexture()
+                                        : nullptr,
+        material->HasAOTexture() ? material->GetAOTexture() : nullptr,
+        material->HasEmissiveTexture() ? material->GetEmissiveTexture()
+                                       : nullptr,
     };
 
     std::array<VkDescriptorImageInfo, PBR_TEXTURE_COUNT> imageInfos{};
@@ -722,17 +725,15 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
     auto cached = bindings.find(material);
     if (cached != bindings.end() &&
         memcmp(&cached->second.params, &params, sizeof(params)) == 0 &&
-        std::equal(imageInfos.begin(), imageInfos.end(),
-                   cached->second.images.begin(),
-                   [](const VkDescriptorImageInfo& a,
-                      const VkDescriptorImageInfo& b) {
-                       return a.sampler == b.sampler &&
-                              a.imageView == b.imageView &&
-                              a.imageLayout == b.imageLayout;
-                   })) {
+        std::equal(
+            imageInfos.begin(), imageInfos.end(), cached->second.images.begin(),
+            [](const VkDescriptorImageInfo& a, const VkDescriptorImageInfo& b) {
+                return a.sampler == b.sampler && a.imageView == b.imageView &&
+                       a.imageLayout == b.imageLayout;
+            })) {
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_gbufferGeomLayout, 0, 1,
-                                &cached->second.set, 0, nullptr);
+                                m_gbufferGeomLayout, 0, 1, &cached->second.set,
+                                0, nullptr);
         return;
     }
 
@@ -766,13 +767,14 @@ void VulkanRenderer::BindPBRMaterial(Sleak::Material* material) {
         writes[i].descriptorCount = 1;
         writes[i].pImageInfo      = &imageInfos[i];
     }
-    writes[PBR_TEXTURE_COUNT].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[PBR_TEXTURE_COUNT].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[PBR_TEXTURE_COUNT].dstSet = set;
-    writes[PBR_TEXTURE_COUNT].dstBinding      = PBR_TEXTURE_COUNT;
+    writes[PBR_TEXTURE_COUNT].dstBinding = PBR_TEXTURE_COUNT;
     writes[PBR_TEXTURE_COUNT].dstArrayElement = 0;
-    writes[PBR_TEXTURE_COUNT].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[PBR_TEXTURE_COUNT].descriptorType =
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writes[PBR_TEXTURE_COUNT].descriptorCount = 1;
-    writes[PBR_TEXTURE_COUNT].pBufferInfo     = &bufInfo;
+    writes[PBR_TEXTURE_COUNT].pBufferInfo = &bufInfo;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
                            writes.data(), 0, nullptr);

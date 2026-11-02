@@ -5,20 +5,22 @@
 #ifndef _DIRECTX11RENDERER_H
 #define _DIRECTX11RENDERER_H
 
+#include <backends/imgui_impl_dx11.h>
+#include <d3d11.h>
+#include <imgui.h>
+#include <wrl/client.h>
+
+#include <Core/Timer.hpp>
+#include <Core/Window.hpp>
+#include <Utility/Container/List.hpp>
+#include <Utility/Container/Queue.hpp>
+#include <chrono>
+#include <utility>
+#include <vector>
+
 #include "Graphics/Common/RenderContext.hpp"
 #include "Graphics/Common/Renderer.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
-#include <Utility/Container/List.hpp>
-#include <d3d11.h>
-#include <wrl/client.h>
-#include <Core/Window.hpp>
-#include <imgui.h>
-#include <backends/imgui_impl_dx11.h>
-#include <chrono>
-#include <Core/Timer.hpp>
-#include <Utility/Container/Queue.hpp>
-#include <utility>
-#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -161,7 +163,7 @@ public:
     ID3D11RenderTargetView* msaaRenderTargetView = nullptr;
     ID3D11Texture2D* msaaDepthStencilBuffer = nullptr;
     ID3D11DepthStencilView* msaaDepthStencilView = nullptr;
-    
+
     ID3D11Query* query = nullptr;
 
     D3D11_PRIMITIVE_TOPOLOGY topology;

@@ -1,10 +1,10 @@
-#include <Physics/PhysicsWorld.hpp>
-#include <Physics/ColliderComponent.hpp>
-#include <Physics/RigidbodyComponent.hpp>
-#include <Core/GameObject.hpp>
 #include <Camera/Camera.hpp>
-#include <ECS/Components/TransformComponent.hpp>
+#include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
+#include <ECS/Components/TransformComponent.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/PhysicsWorld.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -156,8 +156,8 @@ void PhysicsWorld::FindPairsAndResolve() {
         AABB worldA = colliderA->GetWorldAABB();
 
         m_tree.Query(worldA, [&](int proxyId) -> bool {
-            auto* colliderB = static_cast<ColliderComponent*>(
-                m_tree.GetUserData(proxyId));
+            auto* colliderB =
+                static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
             if (colliderB == colliderA) return true;
 
             // Movable pairs are visited from both sides: keep pointer order
@@ -165,8 +165,10 @@ void PhysicsWorld::FindPairsAndResolve() {
             if (rbB && colliderA > colliderB) return true;
 
             // Layer filtering
-            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0) return true;
-            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0) return true;
+            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0)
+                return true;
+            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0)
+                return true;
 
             // Skip if both are triggers
             if (colliderA->IsTrigger() && colliderB->IsTrigger()) return true;
@@ -185,9 +187,9 @@ void PhysicsWorld::FindPairsAndResolve() {
             GetColliderPose(first, posFirst, scaleFirst);
             GetColliderPose(second, posSecond, scaleSecond);
 
-            CollisionManifold manifold = TestCollision(
-                first->GetShape(), posFirst, scaleFirst,
-                second->GetShape(), posSecond, scaleSecond);
+            CollisionManifold manifold =
+                TestCollision(first->GetShape(), posFirst, scaleFirst,
+                              second->GetShape(), posSecond, scaleSecond);
 
             if (!manifold.hasCollision) return true;
 

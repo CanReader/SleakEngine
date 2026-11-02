@@ -48,8 +48,8 @@ namespace Sleak {
             for (int c = 0; c < MATRIX_DIM; ++c) {
                 float sum = 0.0f;
                 for (int k = 0; k < MATRIX_DIM; ++k) {
-                    sum += world[r * MATRIX_DIM + k] *
-                           lightVP[k * MATRIX_DIM + c];
+                    sum +=
+                        world[r * MATRIX_DIM + k] * lightVP[k * MATRIX_DIM + c];
                 }
                 out[r * MATRIX_DIM + c] = sum;
             }
@@ -654,8 +654,8 @@ void DirectX11Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
             desc.Usage = D3D11_USAGE_DYNAMIC;
             desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-            if (FAILED(device->CreateBuffer(&desc, nullptr,
-                                            &m_shadowTransformCB)))
+            if (FAILED(
+                    device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB)))
                 return;
             m_shadowCBCacheValid = false;
         }
@@ -754,12 +754,11 @@ ID3D11RasterizerState* DirectX11Renderer::GetRasterState(
 
 ID3D11DepthStencilState* DirectX11Renderer::GetDepthState(
     const D3D11_DEPTH_STENCIL_DESC& desc) {
-    return FindOrCreateState(
-        m_depthStates, desc,
-        [this](const D3D11_DEPTH_STENCIL_DESC* d,
-               ID3D11DepthStencilState** out) {
-            return device->CreateDepthStencilState(d, out);
-        });
+    return FindOrCreateState(m_depthStates, desc,
+                             [this](const D3D11_DEPTH_STENCIL_DESC* d,
+                                    ID3D11DepthStencilState** out) {
+                                 return device->CreateDepthStencilState(d, out);
+                             });
 }
 
 void DirectX11Renderer::SetRenderMode(RenderMode mode) {
@@ -862,7 +861,7 @@ void DirectX11Renderer::ApplyDepthState() {
     D3D11_DEPTH_STENCIL_DESC desc = {};
     desc.DepthEnable = TRUE;
     desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
-                                               : D3D11_DEPTH_WRITE_MASK_ZERO;
+                                              : D3D11_DEPTH_WRITE_MASK_ZERO;
     desc.DepthFunc = m_depthFunc;
     desc.StencilEnable = FALSE;
 

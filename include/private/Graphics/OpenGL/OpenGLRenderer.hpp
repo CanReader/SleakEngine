@@ -1,16 +1,18 @@
 #ifndef _OPENGLRENDERER_H
 #define _OPENGLRENDERER_H
 
-#include <Core/OSDef.hpp>
-#include "../Common/Renderer.hpp"
-#include "../Common/RenderContext.hpp"
-#include "../../Core/Window.hpp"
 #include <SDL3/SDL.h>
+#include <backends/imgui_impl_opengl3.h>
 #include <glad/glad.h>
+#include <imgui.h>
+
+#include <Core/OSDef.hpp>
 #include <array>
 #include <cstdint>
-#include <imgui.h>
-#include <backends/imgui_impl_opengl3.h>
+
+#include "../../Core/Window.hpp"
+#include "../Common/RenderContext.hpp"
+#include "../Common/Renderer.hpp"
 
 namespace Sleak {
 

@@ -1,5 +1,4 @@
 #include <Culling/CullingSystem.hpp>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>

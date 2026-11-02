@@ -1244,9 +1244,8 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
             TRANSFORM_WORLD_OFFSET);
 
         // Casters sharing a World reuse this pass's ring copy
-        if (!m_shadowCBAddress ||
-            memcmp(srcWorld, m_shadowWorldCache,
-                   sizeof(m_shadowWorldCache)) != 0) {
+        if (!m_shadowCBAddress || memcmp(srcWorld, m_shadowWorldCache,
+                                         sizeof(m_shadowWorldCache)) != 0) {
             DirectX12UploadRing::Allocation alloc;
             if (!m_uploadRing.Allocate(TRANSFORM_CB_BYTES, alloc)) return;
             BuildShadowTransform(srcWorld, m_lightVP,
@@ -1254,8 +1253,7 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
             memcpy(m_shadowWorldCache, srcWorld, sizeof(m_shadowWorldCache));
             m_shadowCBAddress = alloc.gpu;
         }
-        commandList->SetGraphicsRootConstantBufferView(slot,
-                                                       m_shadowCBAddress);
+        commandList->SetGraphicsRootConstantBufferView(slot, m_shadowCBAddress);
         return;
     }
 

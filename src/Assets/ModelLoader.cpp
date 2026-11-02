@@ -68,11 +68,11 @@ GameObject* ModelLoader::Load(const std::string& filePath,
 
     // Static models also get PreTransformVertices, in the same pipeline order
     unsigned int postFlags = baseFlags;
-    if (!hasAnimations)
-        postFlags |= aiProcess_PreTransformVertices;
+    if (!hasAnimations) postFlags |= aiProcess_PreTransformVertices;
     scene = importer.ApplyPostProcessing(postFlags);
 
-    if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
+    if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) ||
+        !scene->mRootNode) {
         SLEAK_ERROR("Assimp: Failed to post-process model '{}': {}", filePath,
                     importer.GetErrorString());
         return nullptr;

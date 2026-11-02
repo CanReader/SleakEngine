@@ -91,28 +91,31 @@ namespace Sleak {
         };
 
     protected:
-        /// Flags the cached world matrix stale; call after writing fields directly.
-        void MarkWorldDirty() { m_worldDirty = true; }
+     /// Flags the cached world matrix stale; call after writing fields
+     /// directly.
+     void MarkWorldDirty() { m_worldDirty = true; }
 
-        Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
-        Quaternion rotation = Quaternion();
-        Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
+     Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
+     Quaternion rotation = Quaternion();
+     Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
 
-       private:
-        friend class MeshComponent;
+    private:
+     friend class MeshComponent;
 
-        RefPtr<RenderEngine::BufferBase> ConstantBuffer;
-        Math::Matrix4 m_world = Math::Matrix4::Identity();
-        bool m_worldDirty = true;
+     RefPtr<RenderEngine::BufferBase> ConstantBuffer;
+     Math::Matrix4 m_world = Math::Matrix4::Identity();
+     bool m_worldDirty = true;
 
-        /// Queues the constant buffer upload followed by its slot 0 bind.
-        void SubmitRenderState();
-        /// Pushes the world matrix and main camera matrices to the GPU constant buffer.
-        void UpdateConstantBuffer();
-        /// Returns the cached world matrix, rebuilding it first if dirty.
-        const Math::Matrix4& WorldMatrix();
-        /// Combines the transform with the main camera's view and projection matrices.
-        Math::Matrix4 GetMVP();
+     /// Queues the constant buffer upload followed by its slot 0 bind.
+     void SubmitRenderState();
+     /// Pushes the world matrix and main camera matrices to the GPU constant
+     /// buffer.
+     void UpdateConstantBuffer();
+     /// Returns the cached world matrix, rebuilding it first if dirty.
+     const Math::Matrix4& WorldMatrix();
+     /// Combines the transform with the main camera's view and projection
+     /// matrices.
+     Math::Matrix4 GetMVP();
     };
 
 } // namespace Sleak

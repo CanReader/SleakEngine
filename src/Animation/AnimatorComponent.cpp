@@ -1,10 +1,10 @@
+#include <Core/GameObject.hpp>
+#include <Core/Logger.hpp>
 #include <ECS/Components/AnimatorComponent.hpp>
 #include <ECS/Components/MeshComponent.hpp>
-#include <Core/GameObject.hpp>
-#include <Graphics/Common/ResourceManager.hpp>
 #include <Graphics/Common/BufferBase.hpp>
+#include <Graphics/Common/ResourceManager.hpp>
 #include <Runtime/AnimationStateMachine.hpp>
-#include <Core/Logger.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -224,8 +224,7 @@ void AnimatorComponent::ProcessNodeHierarchy(int nodeIndex,
 /// Finds the keyframe pair straddling time and the lerp factor between them.
 template<typename T>
 static std::pair<int, float> FindKeyframe(const std::vector<Keyframe<T>>& keys, float time) {
-    if (keys.size() < 2)
-        return {0, 0.0f};
+    if (keys.size() < 2) return {0, 0.0f};
 
     // First key in [1, size - 1) later than time; the last key otherwise
     auto upper = std::upper_bound(

@@ -32,7 +32,8 @@ namespace Sleak {
         /// Validates that vertex and index buffers were created successfully.
         virtual bool Initialize() override;
 
-        /// Culls, then submits sibling transform and material state and the draw.
+        /// Culls, then submits sibling transform and material state and the
+        /// draw.
         virtual void Update(float deltaTime) override;
 
         void SetVertexBuffer(RefPtr<RenderEngine::BufferBase>& buffer);

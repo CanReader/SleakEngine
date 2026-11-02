@@ -110,11 +110,9 @@ bool DrawIndexedCommand::IsSkinned() const {
 }
 
 /// Copies the payload into inline storage, falling back to a heap allocation past INLINE_CAPACITY.
-UpdateConstantBufferCommand::UpdateConstantBufferCommand(RefPtr<BufferBase> buffer,
-    void* Data,
-    uint16_t Size) :
-      constantBuffer(std::move(buffer)),
-      Size(Size) {
+UpdateConstantBufferCommand::UpdateConstantBufferCommand(
+    RefPtr<BufferBase> buffer, void* Data, uint16_t Size)
+    : constantBuffer(std::move(buffer)), Size(Size) {
     if (Size <= INLINE_CAPACITY) {
         // Fast path: no heap allocation for small buffers
         memcpy(m_inlineData, Data, Size);

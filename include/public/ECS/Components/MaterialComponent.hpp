@@ -54,13 +54,13 @@ namespace Sleak {
         void SetRoughness(float roughness);
 
     private:
-        friend class MeshComponent;
+     friend class MeshComponent;
 
-        /// Queues the material bind while enabled and a material is set.
-        void SubmitRenderState();
+     /// Queues the material bind while enabled and a material is set.
+     void SubmitRenderState();
 
-        RefPtr<Material> m_material;
-        bool m_enabled = true;
+     RefPtr<Material> m_material;
+     bool m_enabled = true;
     };
 }
 
