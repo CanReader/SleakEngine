@@ -1,4 +1,6 @@
+#include <Core/GameObject.hpp>
 #include <ECS/Components/MaterialComponent.hpp>
+#include <ECS/Components/MeshComponent.hpp>
 #include <Graphics/Common/RenderCommandQueue.hpp>
 
 namespace Sleak {
@@ -41,6 +43,14 @@ namespace Sleak {
     }
 
     void MaterialComponent::Update(float DeltaTime) {
+        MeshComponent* mesh =
+            owner ? owner->GetComponent<MeshComponent>() : nullptr;
+        if (mesh && mesh->IsInitialized()) return;
+
+        SubmitRenderState();
+    }
+
+    void MaterialComponent::SubmitRenderState() {
         if (!m_enabled || !m_material)
             return;
 

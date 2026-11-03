@@ -5,17 +5,22 @@
 #ifndef _DIRECTX11RENDERER_H
 #define _DIRECTX11RENDERER_H
 
+#include <backends/imgui_impl_dx11.h>
+#include <d3d11.h>
+#include <imgui.h>
+#include <wrl/client.h>
+
+#include <Core/Timer.hpp>
+#include <Core/Window.hpp>
+#include <Utility/Container/List.hpp>
+#include <Utility/Container/Queue.hpp>
+#include <chrono>
+#include <utility>
+#include <vector>
+
 #include "Graphics/Common/RenderContext.hpp"
 #include "Graphics/Common/Renderer.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
-#include <Utility/Container/List.hpp>
-#include <d3d11.h>
-#include <Core/Window.hpp>
-#include <imgui.h>
-#include <backends/imgui_impl_dx11.h>
-#include <chrono>
-#include <Core/Timer.hpp>
-#include <Utility/Container/Queue.hpp>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -30,6 +35,10 @@ public:
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
+#ifdef SLEAK_HOT_RELOAD
+    /// Recompiles every live shader and fixed pass built from one of the stems.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
 
     /// Allocates the depth/stencil texture and view sized to the swapchain.
     bool CreateDepthStencilBuffer(uint32_t width, uint32_t height);
@@ -108,6 +117,13 @@ public:
     bool CreateRenderTargetView();
     /// Creates and binds the rasterizer state matching current fill/cull settings.
     bool SetRasterState();
+    /// Binds the depth state matching the tracked depth write and compare.
+    void ApplyDepthState();
+    /// Returns the cached rasterizer state for desc, creating it on a miss.
+    ID3D11RasterizerState* GetRasterState(const D3D11_RASTERIZER_DESC& desc);
+    /// Returns the cached depth-stencil state for desc, creating it on a miss.
+    ID3D11DepthStencilState* GetDepthState(
+        const D3D11_DEPTH_STENCIL_DESC& desc);
 
     /// Creates the alpha-blend state used for transparent draws.
     bool CreateBlendState();
@@ -137,7 +153,7 @@ public:
     ID3D11RenderTargetView* renderTargetView; // Render target view
     ID3D11InputLayout* layout;
 
-    ID3D11DepthStencilState* depthStencilState;
+    ID3D11DepthStencilState* depthStencilState = nullptr;
     ID3D11DepthStencilView* depthStencilView;
     ID3D11Texture2D* depthStencilBuffer;
 
@@ -147,8 +163,8 @@ public:
     ID3D11RenderTargetView* msaaRenderTargetView = nullptr;
     ID3D11Texture2D* msaaDepthStencilBuffer = nullptr;
     ID3D11DepthStencilView* msaaDepthStencilView = nullptr;
-    
-    ID3D11Query* query;
+
+    ID3D11Query* query = nullptr;
 
     D3D11_PRIMITIVE_TOPOLOGY topology;
     D3D11_FILL_MODE fillMode;
@@ -161,6 +177,14 @@ public:
     D3D11_CULL_MODE m_savedCullMode = D3D11_CULL_FRONT;
     bool m_depthWriteEnabled = true;
     D3D11_COMPARISON_FUNC m_depthFunc = D3D11_COMPARISON_LESS;
+
+    // Immutable state objects keyed by description, owned until Cleanup
+    std::vector<std::pair<D3D11_RASTERIZER_DESC,
+                          Microsoft::WRL::ComPtr<ID3D11RasterizerState>>>
+        m_rasterStates;
+    std::vector<std::pair<D3D11_DEPTH_STENCIL_DESC,
+                          Microsoft::WRL::ComPtr<ID3D11DepthStencilState>>>
+        m_depthStates;
 
     ImGuiContext* ImCon;
 
@@ -182,6 +206,9 @@ public:
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
     ID3D11Buffer* m_shadowTransformCB = nullptr;  // Dedicated CB for shadow pass transforms
+    // World last uploaded to m_shadowTransformCB, valid until lightVP changes
+    float m_shadowWorldCache[16] = {};
+    bool m_shadowCBCacheValid = false;
     bool m_inShadowPass = false;
     void SetLightVP(const float* mat) override;
     /// Allocates the shadow-pass depth texture, DSV/SRV, and comparison sampler.
@@ -200,6 +227,12 @@ public:
     bool m_tonemapResourcesCreated = false;
     /// Allocates the HDR offscreen target and tonemap shaders/sampler.
     bool CreateTonemapResources();
+    /// Compiles tonemap.hlsl, writing the outputs only on success.
+    bool CompileTonemapShaders(ID3D11VertexShader** vs, ID3D11PixelShader** ps);
+#ifdef SLEAK_HOT_RELOAD
+    /// Swaps in recompiled tonemap shaders, keeping the old ones on failure.
+    void ReloadTonemapShaders();
+#endif
     void CleanupTonemapResources();
     /// Runs the ACES tonemap full-screen pass from the HDR target to the back buffer.
     void ExecuteTonemapPass();

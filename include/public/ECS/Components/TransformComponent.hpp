@@ -35,10 +35,10 @@ namespace Sleak {
 
         /// Allocates the transform's GPU constant buffer.
         bool Initialize() override;
-        /// Refreshes and rebinds the transform constant buffer for this frame.
+        /// Submits this frame's constant buffer unless a sibling mesh does it.
         void Update(float DeltaTime) override;
 
-        // Transformation matrix calculation
+        /// World matrix (S*R*T), recomputed only after a transform change.
         Matrix4 GetTransformMatrix();
 
         // Transformations
@@ -91,20 +91,31 @@ namespace Sleak {
         };
 
     protected:
-        Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
-        Quaternion rotation = Quaternion();
-        Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
-        TransformMatrix* Transform = nullptr;
+     /// Flags the cached world matrix stale; call after writing fields
+     /// directly.
+     void MarkWorldDirty() { m_worldDirty = true; }
 
-       private:
-        RefPtr<RenderEngine::BufferBase> ConstantBuffer;
+     Vector3D position = Vector3D(0.0f, 0.0f, 0.0f);
+     Quaternion rotation = Quaternion();
+     Vector3D scale = Vector3D(1.0f, 1.0f, 1.0f);
 
-        /// Rebuilds the transform matrix and pushes it to the GPU constant buffer.
-        void UpdateConstantBuffer();
-        /// Recomputes the cached Translation/Rotation/Scaling matrices from position/rotation/scale.
-        void UpdateTransform();
-        /// Combines the transform with the main camera's view and projection matrices.
-        Math::Matrix4 GetMVP();
+    private:
+     friend class MeshComponent;
+
+     RefPtr<RenderEngine::BufferBase> ConstantBuffer;
+     Math::Matrix4 m_world = Math::Matrix4::Identity();
+     bool m_worldDirty = true;
+
+     /// Queues the constant buffer upload followed by its slot 0 bind.
+     void SubmitRenderState();
+     /// Pushes the world matrix and main camera matrices to the GPU constant
+     /// buffer.
+     void UpdateConstantBuffer();
+     /// Returns the cached world matrix, rebuilding it first if dirty.
+     const Math::Matrix4& WorldMatrix();
+     /// Combines the transform with the main camera's view and projection
+     /// matrices.
+     Math::Matrix4 GetMVP();
     };
 
 } // namespace Sleak

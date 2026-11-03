@@ -1,38 +1,42 @@
 #include "../../include/public/Core/Application.hpp"
-#include "../../include/public/Core/CommandLine.hpp"
-#include "../../include/private/Graphics/Common/RendererFactory.hpp" 
-#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp" 
-#include <Core/WindowHelper.hpp>
-#include <Graphics/Common/Renderer.hpp>
+
+#include <Assets/InternalGeometry.hpp>
+#include <Camera/Camera.hpp>
+#include <Core/GameObject.hpp>
+#include <Core/ScopedTimer.hpp>
 #include <Core/Window.hpp>
+#include <Core/WindowHelper.hpp>
+#include <Debug/DebugOverlay.hpp>
+#include <Debug/ShaderHotReload.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/Common/Renderer.hpp>
+#include <Math/Matrix.hpp>
+#include <Math/Quaternion.hpp>
+#include <Math/Random.hpp>
+#include <Memory/ObjectPtr.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshBatch.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/Skybox.hpp>
+#include <UI/UI.hpp>
+#include <Utility/Container/List.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
-#include "Graphics/Vulkan/VulkanRenderer.hpp"
+
+#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include "../../include/private/Graphics/Common/RendererFactory.hpp"
+#include "../../include/public/Core/CommandLine.hpp"
 #include "Core/Logger.hpp"
-#include <Memory/ObjectPtr.hpp>
-
-#include <Assets/InternalGeometry.hpp>
-#include <Runtime/MeshBatch.hpp>
-#include <Camera/Camera.hpp>
-
-#include <Core/GameObject.hpp>
-#include <Math/Quaternion.hpp>
-#include <Math/Random.hpp>
-#include <Utility/Container/List.hpp>
-#include <Core/ScopedTimer.hpp>
-#include <Math/Matrix.hpp>
-#include <UI/UI.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <Runtime/MeshData.hpp>
+#include "ECS/Components/FirstPersonController.hpp"
+#include "ECS/Components/FreeLookCameraController.hpp"
 #include "ECS/Components/MeshComponent.hpp"
 #include "ECS/Components/TransformComponent.hpp"
-#include "ECS/Components/FreeLookCameraController.hpp"
-#include "ECS/Components/FirstPersonController.hpp"
-#include <Runtime/Skybox.hpp>
-#include <Runtime/Material.hpp>
-#include <Debug/DebugOverlay.hpp>
+#include "Graphics/Vulkan/VulkanRenderer.hpp"
+
+#define DEFAULT_CAPTURE_FRAME 600
 
 using namespace Sleak;
 using namespace Sleak::Math;
@@ -141,6 +145,9 @@ namespace Sleak {
 
             m_benchmark = new Benchmark();
             m_benchmark->Initialize(renderer);
+            renderer->RegisterBenchmarkMetrics(*m_benchmark);
+            m_benchmark->RegisterMetric("CPU_frame_ms",
+                                        [this]() { return m_cpuFrameMs; });
             {
                 auto& cfg = m_DebugOverlay->GetConfig();
                 cfg.ShowCameraPanel = false;
@@ -152,7 +159,29 @@ namespace Sleak {
 
             float lastTime = FrameTimer.Elapsed();
             float accumulator = 0.0f;
-            const float fixedTimestep = 1.0f / 60.0f;  
+            const float fixedTimestep = 1.0f / 60.0f;
+
+            // Frame capture
+            const std::string capturePath = CommandLine::GetValue("-capture");
+            const bool captureMode = !capturePath.empty();
+            uint64_t captureFrame = DEFAULT_CAPTURE_FRAME;
+            const std::string frameArg =
+                CommandLine::GetValue("-capture-frame");
+            if (!frameArg.empty()) {
+                try {
+                    captureFrame = std::stoull(frameArg);
+                } catch (...) {
+                }
+            }
+            if (captureMode)
+                SLEAK_INFO(
+                    "Frame capture: frame {} -> {} (fixed 1/60 s step, "
+                    "resizes ignored)",
+                    captureFrame, capturePath);
+            uint64_t frameIndex = 0;
+            bool captureArmed = false;
+
+            Debug::ShaderHotReload::AddSourceDirectory(SLEAK_ENGINE_SHADER_DIR);
 
             // Initialize and begin the game (and scene)
             if (Game) {
@@ -187,7 +216,8 @@ namespace Sleak {
             while(!CoreWindow->ShouldClose()) {
                 
                 float currentTime = FrameTimer.Elapsed();
-                DeltaTime = currentTime - lastTime;
+                DeltaTime =
+                    captureMode ? fixedTimestep : currentTime - lastTime;
                 lastTime = currentTime;
                 
                 #if defined(_DEBUG) && defined(COUNT_FRAME)
@@ -197,7 +227,7 @@ namespace Sleak {
                 CoreWindow->Update();
 
                 // Apply any pending resize (deferred from event handler to avoid GPU hang)
-                if (m_pendingResize) {
+                if (m_pendingResize && !captureMode) {
                     renderer->Resize(m_pendingResizeW, m_pendingResizeH);
                     width  = static_cast<int>(m_pendingResizeW);
                     height = static_cast<int>(m_pendingResizeH);
@@ -212,7 +242,20 @@ namespace Sleak {
                     }
                 }
 
+                if (captureMode && !captureArmed &&
+                    frameIndex >= captureFrame) {
+                    captureArmed = true;
+                    if (!renderer->RequestFrameCapture(capturePath)) {
+                        SLEAK_ERROR("Frame capture unavailable on {}",
+                                    renderer->GetTypeStr());
+                        CoreWindow->Close();
+                    }
+                }
+
+                Debug::ShaderHotReload::Poll();
+
                 renderer->BeginRender();
+                const auto cpuFrameStart = std::chrono::steady_clock::now();
 
                 // Update active scene if present
                 if (Game && Game->GetActiveScene()) {
@@ -246,7 +289,15 @@ namespace Sleak {
                 if (queue && context)
                     queue->ExecuteCommands(context);
 
+                m_cpuFrameMs =
+                    std::chrono::duration<float, std::milli>(
+                        std::chrono::steady_clock::now() - cpuFrameStart)
+                        .count();
                 renderer->EndRender();
+
+                if (captureArmed && !renderer->IsFrameCapturePending())
+                    CoreWindow->Close();
+                ++frameIndex;
             }
         } 
         else{
@@ -387,6 +438,13 @@ namespace Sleak {
     bool Application::GetVSync() const { return renderer->GetVSync(); }
     void Application::SetVSync(bool enabled) { renderer->SetVSync(enabled); }
 
+    const bool Application::GetIsDeferredEnabled() const {
+        return renderer->GetDeferredEnabled();
+    }
+    void Application::SetDeferredEnabled(bool enable) {
+        renderer->SetDeferredEnabled(enable);
+    }
+
     bool  Application::IsSSAOEnabled()  const { return renderer->IsSSAOEnabled(); }
     void  Application::SetSSAOEnabled(bool e)  { renderer->SetSSAOEnabled(e); }
     float Application::GetSSAORadius() const   { return renderer->GetSSAORadius(); }
@@ -407,6 +465,13 @@ namespace Sleak {
     bool  Application::IsTAAEnabled()  const   { return renderer->IsTAAEnabled(); }
     void  Application::SetTAAEnabled(bool e)   { renderer->SetTAAEnabled(e); }
 
+    float Application::GetSharpenStrength() const {
+        return renderer->GetSharpenStrength();
+    }
+    void Application::SetSharpenStrength(float s) {
+        renderer->SetSharpenStrength(s);
+    }
+
     bool  Application::IsBloomEnabled() const  { return renderer->IsBloomEnabled(); }
     void  Application::SetBloomEnabled(bool e) { renderer->SetBloomEnabled(e); }
 
@@ -421,6 +486,7 @@ namespace Sleak {
         renderer->SetIBLEnabled(cfg.iblEnabled);
         renderer->SetIBLIntensity(cfg.iblIntensity);
         renderer->SetTAAEnabled(cfg.taaEnabled);
+        renderer->SetSharpenStrength(cfg.sharpenStrength);
         renderer->SetShadowMapResolution(cfg.shadowMapResolution);
         renderer->SetMSAASampleCount(cfg.msaaSamples);
         renderer->SetTonemappingEnabled(cfg.tonemapEnabled);

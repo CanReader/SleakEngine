@@ -2,6 +2,9 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    # Updates are tested in staging like every other change; main only takes
+    # pull requests from staging.
+    target-branch: staging
     schedule:
       interval: monthly
     commit-message:

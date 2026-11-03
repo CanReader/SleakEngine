@@ -1,7 +1,5 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
-
 #include <SDL3/SDL_vulkan.h>
+
 #include <Core/Window.hpp>
 #include <algorithm>
 #include <cstdint>
@@ -11,6 +9,10 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "../../include/private/Graphics/Vulkan/VulkanBuffer.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
+#include "Core/CommandLine.hpp"
 #include "Core/Logger.hpp"
 #include "SDL3/SDL_error.h"
 #ifdef PLATFORM_LINUX
@@ -22,124 +24,168 @@
 namespace Sleak {
     namespace RenderEngine {
 
-/// Creates the Vulkan instance with validation layers when available.
-bool VulkanRenderer::InitVulkan() {
-    try {
-        instance = VK_NULL_HANDLE;
+    /// Creates the Vulkan instance. The validation layer is on in Debug builds
+    /// or with --validate, and --syncval adds synchronization validation.
+    bool VulkanRenderer::InitVulkan() {
+        try {
+            instance = VK_NULL_HANDLE;
 
-        std::vector<const char*> requiredExtensions = {
-            VK_KHR_SURFACE_EXTENSION_NAME,
-            VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-        };
+            std::vector<const char*> requiredExtensions = {
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
 
-        #ifdef PLATFORM_LINUX
-        {
-            // Only request surface extensions actually available
-            // (blindly requesting both breaks capture tools like RenderDoc)
-            uint32_t surfExtCount = 0;
-            vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount, nullptr);
-            std::vector<VkExtensionProperties> surfExts(surfExtCount);
-            vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount, surfExts.data());
-            auto hasSurfExt = [&](const char* name) {
-                for (auto& e : surfExts)
-                    if (strcmp(e.extensionName, name) == 0) return true;
-                return false;
-            };
-            if (hasSurfExt("VK_KHR_wayland_surface"))
-                requiredExtensions.push_back("VK_KHR_wayland_surface");
-            if (hasSurfExt("VK_KHR_xlib_surface"))
-                requiredExtensions.push_back("VK_KHR_xlib_surface");
-        }
-        #elif defined(PLATFORM_WIN)
+#ifdef PLATFORM_LINUX
+            {
+                // Only request surface extensions actually available
+                // (blindly requesting both breaks capture tools like RenderDoc)
+                uint32_t surfExtCount = 0;
+                vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount,
+                                                       nullptr);
+                std::vector<VkExtensionProperties> surfExts(surfExtCount);
+                vkEnumerateInstanceExtensionProperties(nullptr, &surfExtCount,
+                                                       surfExts.data());
+                auto hasSurfExt = [&](const char* name) {
+                    for (auto& e : surfExts)
+                        if (strcmp(e.extensionName, name) == 0) return true;
+                    return false;
+                };
+                if (hasSurfExt("VK_KHR_wayland_surface"))
+                    requiredExtensions.push_back("VK_KHR_wayland_surface");
+                if (hasSurfExt("VK_KHR_xlib_surface"))
+                    requiredExtensions.push_back("VK_KHR_xlib_surface");
+            }
+#elif defined(PLATFORM_WIN)
             requiredExtensions.push_back(
                 VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-        #elif defined(TARGET_OS_MAC) || defined(TARGET_OS_IOS)
+#elif defined(TARGET_OS_MAC) || defined(TARGET_OS_IOS)
             requiredExtensions.push_back(VK_MVK_MOLTENVK_EXTENSION_NAME);
-        #endif
+#endif
 
-        // Always attempt to enable validation layers so GPU errors are
-        // reported via the debug messenger as SLEAK_ERROR messages rather
-        // than silent VK_ERROR_DEVICE_LOST crashes.  If the layer is not
-        // installed the instance still creates successfully (empty list).
-        std::vector<const char*> enabledLayers;
-        {
-            uint32_t layerCount = 0;
-            vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-            std::vector<VkLayerProperties> availableLayers(layerCount);
-            vkEnumerateInstanceLayerProperties(&layerCount,
-                                                availableLayers.data());
-
+            // Validation layer gating
+            const bool syncValidation = CommandLine::HasFlag("--syncval");
+            bool wantValidation =
+                syncValidation || CommandLine::HasFlag("--validate");
+#ifdef _DEBUG
+            wantValidation = true;
+#endif
             const char* desiredLayer = "VK_LAYER_KHRONOS_validation";
-            for (const auto& layer : availableLayers) {
-                if (strcmp(layer.layerName, desiredLayer) == 0) {
-                    enabledLayers.push_back(desiredLayer);
-                    SLEAK_INFO("Vulkan validation layer enabled");
-                    break;
+            std::vector<const char*> enabledLayers;
+            if (wantValidation) {
+                uint32_t layerCount = 0;
+                vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+                std::vector<VkLayerProperties> availableLayers(layerCount);
+                vkEnumerateInstanceLayerProperties(&layerCount,
+                                                   availableLayers.data());
+
+                for (const auto& layer : availableLayers) {
+                    if (strcmp(layer.layerName, desiredLayer) == 0) {
+                        enabledLayers.push_back(desiredLayer);
+                        SLEAK_INFO("Vulkan validation layer enabled");
+                        break;
+                    }
+                }
+                if (enabledLayers.empty()) {
+                    SLEAK_WARN(
+                        "VK_LAYER_KHRONOS_validation not available — GPU "
+                        "errors will not be reported");
                 }
             }
+            m_validationEnabled = !enabledLayers.empty();
             if (enabledLayers.empty()) {
-                SLEAK_WARN("VK_LAYER_KHRONOS_validation not available — GPU errors will not be reported");
+                auto it = std::find_if(
+                    requiredExtensions.begin(), requiredExtensions.end(),
+                    [](const char* ext) {
+                        return strcmp(ext, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) ==
+                               0;
+                    });
+                if (it != requiredExtensions.end()) {
+                    requiredExtensions.erase(it);
+                }
             }
-        }
-        if (enabledLayers.empty()) {
-            auto it = std::find_if(
-                requiredExtensions.begin(), requiredExtensions.end(),
-                [](const char* ext) {
-                    return strcmp(ext,
-                                  VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
-                });
-            if (it != requiredExtensions.end()) {
-                requiredExtensions.erase(it);
+
+            // Sync validation settings
+            const VkBool32 syncEnabled = VK_TRUE;
+            VkLayerSettingEXT syncSetting{desiredLayer, "validate_sync",
+                                          VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1,
+                                          &syncEnabled};
+            VkLayerSettingsCreateInfoEXT layerSettings{};
+            layerSettings.sType =
+                VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT;
+            layerSettings.settingCount = 1;
+            layerSettings.pSettings = &syncSetting;
+            bool useLayerSettings = false;
+            if (m_validationEnabled && syncValidation) {
+                uint32_t layerExtCount = 0;
+                vkEnumerateInstanceExtensionProperties(desiredLayer,
+                                                       &layerExtCount, nullptr);
+                std::vector<VkExtensionProperties> layerExts(layerExtCount);
+                vkEnumerateInstanceExtensionProperties(
+                    desiredLayer, &layerExtCount, layerExts.data());
+                for (const auto& ext : layerExts) {
+                    if (strcmp(ext.extensionName,
+                               VK_EXT_LAYER_SETTINGS_EXTENSION_NAME) == 0) {
+                        useLayerSettings = true;
+                        break;
+                    }
+                }
+                if (useLayerSettings) {
+                    requiredExtensions.push_back(
+                        VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+                    SLEAK_INFO("Vulkan synchronization validation enabled");
+                } else {
+                    SLEAK_WARN(
+                        "Vulkan synchronization validation needs "
+                        "VK_EXT_layer_settings, which this layer lacks");
+                }
             }
-        }
 
-        // Check and list vulkan extensions
-        uint32_t extensionCount = 0;
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
-                                                nullptr);
-        std::vector<VkExtensionProperties> extensions(extensionCount);
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
-                                                extensions.data());
+            // Check and list vulkan extensions
+            uint32_t extensionCount = 0;
+            vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
+                                                   nullptr);
+            std::vector<VkExtensionProperties> extensions(extensionCount);
+            vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
+                                                   extensions.data());
 
-        VkApplicationInfo appInfo{};
-        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "SleakEngine";
-        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.pEngineName = "Sleak Engine";
-        appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.apiVersion = VK_API_VERSION_1_1;
+            VkApplicationInfo appInfo{};
+            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+            appInfo.pApplicationName = "SleakEngine";
+            appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+            appInfo.pEngineName = "Sleak Engine";
+            appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+            appInfo.apiVersion = VK_API_VERSION_1_1;
 
-        VkInstanceCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pApplicationInfo = &appInfo;
-        createInfo.enabledExtensionCount =
-            static_cast<uint32_t>(requiredExtensions.size());
-        createInfo.ppEnabledExtensionNames = requiredExtensions.data();
-        createInfo.enabledLayerCount =
-            static_cast<uint32_t>(enabledLayers.size());
-        createInfo.ppEnabledLayerNames = enabledLayers.data();
+            VkInstanceCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+            createInfo.pApplicationInfo = &appInfo;
+            createInfo.enabledExtensionCount =
+                static_cast<uint32_t>(requiredExtensions.size());
+            createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+            createInfo.enabledLayerCount =
+                static_cast<uint32_t>(enabledLayers.size());
+            createInfo.ppEnabledLayerNames = enabledLayers.data();
 
-        VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-        if (!enabledLayers.empty()) {
-            PopulateDebugMessengerCreateInfo(debugCreateInfo);
-            createInfo.pNext = &debugCreateInfo;
-        }
+            VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+            if (m_validationEnabled) {
+                PopulateDebugMessengerCreateInfo(debugCreateInfo);
+                if (useLayerSettings) debugCreateInfo.pNext = &layerSettings;
+                createInfo.pNext = &debugCreateInfo;
+            }
 
-        VkResult result =
-            vkCreateInstance(&createInfo, nullptr, &instance);
-        if (result != VK_SUCCESS) {
-            SLEAK_ERROR("Failed to create Vulkan instance!");
+            VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+            if (result != VK_SUCCESS) {
+                SLEAK_ERROR("Failed to create Vulkan instance!");
+                return false;
+            }
+
+            SLEAK_INFO("Vulkan instance created successfully.");
+            return true;
+
+        } catch (const std::exception& e) {
+            SLEAK_ERROR("Exception in InitVulkan: {}", e.what());
             return false;
         }
-
-        SLEAK_INFO("Vulkan instance created successfully.");
-        return true;
-
-    } catch (const std::exception& e) {
-        SLEAK_ERROR("Exception in InitVulkan: {}", e.what());
-        return false;
     }
-}
 
 /// Selects the physical GPU and creates the logical device and queues.
 bool VulkanRenderer::CreateDevice() {
@@ -256,13 +302,20 @@ bool VulkanRenderer::CreateDevice() {
     // Build unique queue create infos (no duplicates!)
     auto queueCreateInfos = GetUniqueQueueCreateInfos();
 
-    // Get supported features
+    // Enable only used features
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physicalDevice, &supported);
     VkPhysicalDeviceFeatures features{};
-    vkGetPhysicalDeviceFeatures(physicalDevice, &features);
+    features.samplerAnisotropy = supported.samplerAnisotropy;
+    features.fullDrawIndexUint32 = supported.fullDrawIndexUint32;
+    if (CommandLine::HasFlag("--validate"))
+        features.robustBufferAccess = supported.robustBufferAccess;
 
     // Query max MSAA sample count
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    SLEAK_INFO("Selected GPU: {} (driver {:#x})", deviceProperties.deviceName,
+               deviceProperties.driverVersion);
     VkSampleCountFlags counts = deviceProperties.limits.framebufferColorSampleCounts
                               & deviceProperties.limits.framebufferDepthSampleCounts;
     m_maxMsaaSampleCount = 1;
@@ -325,8 +378,10 @@ VulkanRenderer::GetUniqueQueueCreateInfos() {
     return result;
 }
 
-/// Registers the debug messenger callback for validation output.
+/// Registers the debug messenger callback when the validation layer is on.
 bool VulkanRenderer::SetupDebugMessenger() {
+    if (!m_validationEnabled) return true;
+
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     PopulateDebugMessengerCreateInfo(createInfo);
 

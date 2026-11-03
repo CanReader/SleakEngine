@@ -237,7 +237,7 @@ bool VulkanRenderer::CreateGBufferPipeline() {
     pipelineInfo.basePipelineIndex   = -1;
 
     VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_gbufferPipeline);
+        device, m_pipelineCache, 1, &pipelineInfo, nullptr, &m_gbufferPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create GBuffer pipeline!");
         return false;
@@ -249,6 +249,8 @@ bool VulkanRenderer::CreateGBufferPipeline() {
 
 /// Compiles the skinned GBuffer shaders so skinned meshes write into the GBuffer.
 bool VulkanRenderer::CreateSkinnedGbufferPipeline() {
+    if (m_skinnedGbufferPipeline != VK_NULL_HANDLE) return true;
+
     // Load skinned vert + gbuffer frag (SPIR-V already on disk)
     VulkanShader* sh = new VulkanShader(device);
     if (!sh->compile("assets/shaders/skinned_shader.vert.spv",
@@ -349,7 +351,7 @@ bool VulkanRenderer::CreateSkinnedGbufferPipeline() {
     pi.basePipelineIndex   = -1;
 
     VkResult res = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pi, nullptr, &m_skinnedGbufferPipeline);
+        device, m_pipelineCache, 1, &pi, nullptr, &m_skinnedGbufferPipeline);
     delete sh;
     if (res != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create skinned GBuffer pipeline!");
@@ -548,8 +550,9 @@ bool VulkanRenderer::CreateLightingPipeline() {
     pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex   = -1;
 
-    VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_lightingPipeline);
+    VkResult result =
+        vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &pipelineInfo,
+                                  nullptr, &m_lightingPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("GBuffer: Failed to create lighting pipeline!");
         return false;
@@ -575,7 +578,7 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     depthAtt.format         = depthFormat;
     depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
     depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -595,15 +598,26 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     subpass.pColorAttachments       = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
 
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    std::array<VkSubpassDependency, 2> deps{};
+    deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass = 0;
+    deps[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    // Feeds the post passes
+    deps[1].srcSubpass = 0;
+    deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
     std::array<VkAttachmentDescription, 2> attachments = {colorAtt, depthAtt};
 
@@ -613,8 +627,8 @@ bool VulkanRenderer::CreateForwardRenderPass() {
     rpInfo.pAttachments    = attachments.data();
     rpInfo.subpassCount    = 1;
     rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies = deps.data();
 
     return vkCreateRenderPass(device, &rpInfo, nullptr, &m_forwardRenderPass) == VK_SUCCESS;
 }
@@ -1088,6 +1102,7 @@ void VulkanRenderer::CleanupGBufferResources() {
     CleanupSSAOResources();
     CleanupSSRResources();
     CleanupBloomResources();
+    CleanupSceneCopyImages();
 
     m_gbufferResourcesCreated    = false;
     m_inGeometryPass             = false;
@@ -1113,6 +1128,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     // 1. End GBuffer render pass — transitions color RTs → SHADER_READ_ONLY,
     //    depth → DEPTH_STENCIL_READ_ONLY via finalLayout in CreateGBufferRenderPass
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::GBuffer);
     m_inGeometryPass = false;
     m_activeCustomFormat = 0;  // geometry pass is over; pipeline state doesn't survive across render passes
 
@@ -1136,6 +1152,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     rpBegin.clearValueCount   = 1;
     rpBegin.pClearValues      = &clearVal;
 
+    BeginGpuPass(GpuPass::Lighting);
     vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     // 4. Set viewport and scissor
@@ -1155,6 +1172,13 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 
     // 5. Bind lighting pipeline
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline);
+
+    // IBL is not baked here
+    static bool iblWarned = false;
+    if (m_iblEnabled && !iblWarned) {
+        SLEAK_WARN("Vulkan: IBL is not implemented, using hemisphere ambient");
+        iblWarned = true;
+    }
 
     // 6. Bind descriptor sets:
     //    set 0: GBuffer samplers (RTs + shadow maps)
@@ -1176,6 +1200,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 
     // 8. End lighting render pass
     vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::Lighting);
 
     // 9. Transition depth back to DEPTH_STENCIL_ATTACHMENT_OPTIMAL for forward pass
     VkImageMemoryBarrier depthBarrier{};
@@ -1208,6 +1233,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
     rpBegin.renderArea.extent = scExtent;
     rpBegin.clearValueCount   = 0;  // LOAD_OP — no clear needed
 
+    BeginGpuPass(GpuPass::Forward);
     vkCmdBeginRenderPass(command, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport{};
@@ -1234,11 +1260,7 @@ void VulkanRenderer::BeginForwardTransparentPass() {
                                 pipelineLay, 0, 1,
                                 &descriptorSets[CurrentFrameIndex], 0, nullptr);
     }
-    if (m_boneUBOCreated) {
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipelineLay, 1, 1,
-                                &boneDescriptorSets[currentFrame], 0, nullptr);
-    }
+    BindIdentityBonePalette(pipelineLay);
     if (m_lightUBOCreated) {
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipelineLay, 2, 1,
@@ -1275,6 +1297,11 @@ void VulkanRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     // exact inverse the lighting pass uses to reconstruct world from depth.
     if (copySize >= sizeof(m_cachedInvViewProj))
         memcpy(m_cachedInvViewProj, data, sizeof(m_cachedInvViewProj));
+    if (copySize >= sizeof(DeferredCBData)) {
+        const auto* cb = static_cast<const DeferredCBData*>(data);
+        m_cachedNearPlane = cb->NearP;
+        m_cachedFarPlane = cb->FarP;
+    }
 
     // Compute sub-pixel Halton jitter for this frame (UV space).
     // Applied to WVP push constants in BindConstantBuffer during the geometry pass

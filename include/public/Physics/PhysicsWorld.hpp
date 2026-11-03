@@ -108,11 +108,12 @@ namespace Sleak {
                            float maxDist, uint32_t layerMask = 0xFFFFFFFF) const;
 
         private:
-            void UpdateBroadphase();
-            void FindPairsAndResolve();
+         /// Refits every proxy, enlarging dynamic ones along their velocity.
+         void UpdateBroadphase(float dt);
+         void FindPairsAndResolve();
 
-            DynamicAABBTree m_tree;
-            std::vector<ColliderComponent*> m_colliders;
+         DynamicAABBTree m_tree;
+         std::vector<ColliderComponent*> m_colliders;
         };
 
     } // namespace Physics

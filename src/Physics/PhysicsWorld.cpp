@@ -1,14 +1,54 @@
-#include <Physics/PhysicsWorld.hpp>
-#include <Physics/ColliderComponent.hpp>
-#include <Physics/RigidbodyComponent.hpp>
-#include <Core/GameObject.hpp>
 #include <Camera/Camera.hpp>
-#include <ECS/Components/TransformComponent.hpp>
+#include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
+#include <ECS/Components/TransformComponent.hpp>
+#include <Physics/ColliderComponent.hpp>
+#include <Physics/PhysicsWorld.hpp>
+#include <Physics/RigidbodyComponent.hpp>
 #include <algorithm>
+#include <cmath>
 
 namespace Sleak {
 namespace Physics {
+
+namespace {
+
+/// Rigidbody that collision response can push, or nullptr if none.
+RigidbodyComponent* GetMovableBody(ColliderComponent* collider) {
+    GameObject* owner = collider->GetOwner();
+    if (!owner) return nullptr;
+    auto* rb = owner->GetComponent<RigidbodyComponent>();
+    if (!rb || rb->GetBodyType() == BodyType::Static) return nullptr;
+    return rb;
+}
+
+/// World position and scale the narrowphase uses for a collider.
+void GetColliderPose(ColliderComponent* collider, Vector3D& pos,
+                     Vector3D& scale) {
+    GameObject* owner = collider->GetOwner();
+    if (auto* transform = owner->GetComponent<TransformComponent>()) {
+        pos = transform->GetWorldPosition() + collider->GetOffset();
+        scale = transform->GetWorldScale();
+    } else if (auto* cam = dynamic_cast<Camera*>(owner)) {
+        pos = cam->GetPosition() + collider->GetOffset();
+    }
+}
+
+/// Distance a dynamic body travels next step, zero for anything else.
+Vector3D PredictDisplacement(ColliderComponent* collider, float dt) {
+    Vector3D none(0, 0, 0);
+    RigidbodyComponent* rb = GetMovableBody(collider);
+    if (!rb || rb->GetBodyType() != BodyType::Dynamic) return none;
+
+    Vector3D d = rb->GetVelocity() * dt;
+    if (!std::isfinite(d.GetX()) || !std::isfinite(d.GetY()) ||
+        !std::isfinite(d.GetZ())) {
+        return none;
+    }
+    return d;
+}
+
+}  // namespace
 
 void PhysicsWorld::RegisterCollider(ColliderComponent* collider) {
     if (!collider) return;
@@ -90,17 +130,17 @@ void PhysicsWorld::Step(float dt) {
         }
     }
 
-    UpdateBroadphase();
+    UpdateBroadphase(dt);
     FindPairsAndResolve();
 }
 
-void PhysicsWorld::UpdateBroadphase() {
+void PhysicsWorld::UpdateBroadphase(float dt) {
     for (auto* collider : m_colliders) {
         int proxyId = collider->GetProxyId();
         if (proxyId < 0) continue;
 
         AABB newAABB = collider->GetWorldAABB();
-        m_tree.MoveProxy(proxyId, newAABB, Vector3D(0, 0, 0));
+        m_tree.MoveProxy(proxyId, newAABB, PredictDisplacement(collider, dt));
     }
 }
 
@@ -109,63 +149,58 @@ void PhysicsWorld::FindPairsAndResolve() {
         ColliderComponent* colliderA = m_colliders[i];
         if (colliderA->GetProxyId() < 0) continue;
 
+        // Passive colliders never drive queries; their pairs have no response
+        RigidbodyComponent* rbA = GetMovableBody(colliderA);
+        if (!rbA) continue;
+
         AABB worldA = colliderA->GetWorldAABB();
 
         m_tree.Query(worldA, [&](int proxyId) -> bool {
-            auto* colliderB = static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
+            auto* colliderB =
+                static_cast<ColliderComponent*>(m_tree.GetUserData(proxyId));
             if (colliderB == colliderA) return true;
 
-            // Skip duplicate pairs: only process when A < B (pointer order)
-            if (colliderA > colliderB) return true;
+            // Movable pairs are visited from both sides: keep pointer order
+            RigidbodyComponent* rbB = GetMovableBody(colliderB);
+            if (rbB && colliderA > colliderB) return true;
 
             // Layer filtering
-            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0) return true;
-            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0) return true;
-
-            // Get transform data
-            auto* ownerA = colliderA->GetOwner();
-            auto* ownerB = colliderB->GetOwner();
-            if (!ownerA || !ownerB) return true;
-
-            Vector3D posA, posB;
-            Vector3D scaleA(1, 1, 1), scaleB(1, 1, 1);
-
-            auto* transformA = ownerA->GetComponent<TransformComponent>();
-            if (transformA) {
-                posA = transformA->GetWorldPosition() + colliderA->GetOffset();
-                scaleA = transformA->GetWorldScale();
-            } else if (auto* camA = dynamic_cast<Camera*>(ownerA)) {
-                posA = camA->GetPosition() + colliderA->GetOffset();
-            }
-
-            auto* transformB = ownerB->GetComponent<TransformComponent>();
-            if (transformB) {
-                posB = transformB->GetWorldPosition() + colliderB->GetOffset();
-                scaleB = transformB->GetWorldScale();
-            } else if (auto* camB = dynamic_cast<Camera*>(ownerB)) {
-                posB = camB->GetPosition() + colliderB->GetOffset();
-            }
-
-            CollisionManifold manifold = TestCollision(
-                colliderA->GetShape(), posA, scaleA,
-                colliderB->GetShape(), posB, scaleB);
-
-            if (!manifold.hasCollision) return true;
+            if ((colliderA->GetLayer() & colliderB->GetMask()) == 0)
+                return true;
+            if ((colliderB->GetLayer() & colliderA->GetMask()) == 0)
+                return true;
 
             // Skip if both are triggers
             if (colliderA->IsTrigger() && colliderB->IsTrigger()) return true;
 
-            // Resolve: push rigidbodies apart
-            auto* rbA = ownerA->GetComponent<RigidbodyComponent>();
-            auto* rbB = ownerB->GetComponent<RigidbodyComponent>();
+            if (!colliderA->GetOwner() || !colliderB->GetOwner()) return true;
 
-            if (rbA && rbA->GetBodyType() != BodyType::Static) {
-                rbA->ResolveCollision(manifold.contact.normal * -1.0f,
-                                      manifold.contact.penetration);
+            // Narrowphase argument order stays pointer-ordered
+            const bool aFirst = colliderA < colliderB;
+            ColliderComponent* first = aFirst ? colliderA : colliderB;
+            ColliderComponent* second = aFirst ? colliderB : colliderA;
+            RigidbodyComponent* rbFirst = aFirst ? rbA : rbB;
+            RigidbodyComponent* rbSecond = aFirst ? rbB : rbA;
+
+            Vector3D posFirst, posSecond;
+            Vector3D scaleFirst(1, 1, 1), scaleSecond(1, 1, 1);
+            GetColliderPose(first, posFirst, scaleFirst);
+            GetColliderPose(second, posSecond, scaleSecond);
+
+            CollisionManifold manifold =
+                TestCollision(first->GetShape(), posFirst, scaleFirst,
+                              second->GetShape(), posSecond, scaleSecond);
+
+            if (!manifold.hasCollision) return true;
+
+            // Resolve: push rigidbodies apart
+            if (rbFirst) {
+                rbFirst->ResolveCollision(manifold.contact.normal * -1.0f,
+                                          manifold.contact.penetration);
             }
-            if (rbB && rbB->GetBodyType() != BodyType::Static) {
-                rbB->ResolveCollision(manifold.contact.normal,
-                                      manifold.contact.penetration);
+            if (rbSecond) {
+                rbSecond->ResolveCollision(manifold.contact.normal,
+                                           manifold.contact.penetration);
             }
 
             return true;

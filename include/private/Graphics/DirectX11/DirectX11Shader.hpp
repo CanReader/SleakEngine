@@ -9,6 +9,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#ifdef SLEAK_HOT_RELOAD
+#include <unordered_set>
+#endif
 
 #include "../Common/Shader.hpp"
 
@@ -20,6 +23,8 @@ class DirectX11Shader : public Shader {
    public:
     DirectX11Shader(ID3D11Device* device);
     ~DirectX11Shader() override;
+    DirectX11Shader(const DirectX11Shader&) = delete;
+    DirectX11Shader& operator=(const DirectX11Shader&) = delete;
 
     /// Compiles the combined-path convention (vs_main/ps_main entry points) from a single HLSL file.
     bool compile(const std::string& shaderPath) override;
@@ -33,7 +38,41 @@ class DirectX11Shader : public Shader {
     ID3D11InputLayout* createInputLayout();
     ID3D11InputLayout* getInputLayout() const { return Layout.Get(); }
 
+#ifdef SLEAK_HOT_RELOAD
+    /// Rebuilds stages and input layout, keeping the old ones on failure.
+    bool Reload();
+    /// Shares the stages and layout of a shader built from the same files.
+    void AdoptStages(const DirectX11Shader& source);
+    /// Returns true when both shaders compile the same files and entry points.
+    bool HasSameSources(const DirectX11Shader& other) const {
+        return m_sources == other.m_sources;
+    }
+    /// Returns the stem of the vertex source, e.g. skybox for skybox.hlsl.
+    const std::string& GetStem() const { return m_vertStem; }
+    /// Returns true when the vertex or pixel source has the given stem.
+    bool UsesStem(const std::string& stem) const {
+        return stem == m_vertStem || stem == m_fragStem;
+    }
+    /// Returns every live DirectX11Shader instance.
+    static const std::unordered_set<DirectX11Shader*>& GetLiveShaders();
+#endif
+
    private:
+    /// Files and entry points the two stages compile from.
+    struct StageSources {
+        std::string vertPath;
+        std::string vertEntry;
+        std::string fragPath;
+        std::string fragEntry;
+
+        bool operator==(const StageSources&) const = default;
+    };
+
+    /// Compiles both stages into new objects and swaps them in on success.
+    bool BuildStages(StageSources sources);
+    /// Creates an input layout matching the inputs of the vertex bytecode.
+    bool CreateLayoutFor(ID3DBlob* vertexBlob,
+                         Microsoft::WRL::ComPtr<ID3D11InputLayout>& layout);
     /// Compiles one HLSL entry point/profile via D3DCompile into a shader object and bytecode blob.
     template <typename T>
     bool compileShader(const std::string& filePath,
@@ -53,6 +92,12 @@ class DirectX11Shader : public Shader {
     Microsoft::WRL::ComPtr<ID3DBlob>
         m_vertexShaderBlob;  // For input layout creation
     Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShaderBlob;
+
+#ifdef SLEAK_HOT_RELOAD
+    StageSources m_sources;
+    std::string m_vertStem;
+    std::string m_fragStem;
+#endif
 
     D3D11_INPUT_ELEMENT_DESC DefaultLayout[5] = {
     // Semantic        Index  Format                          Slot  Offset  Class                        Step Rate

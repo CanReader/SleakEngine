@@ -1,11 +1,12 @@
-#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
-#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
-
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <vector>
+
+#include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "Core/Logger.hpp"
 
 namespace Sleak {
@@ -187,25 +188,19 @@ bool VulkanRenderer::CreateShadowResources() {
         cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmdBuf, &cmdBeginInfo);
 
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_shadowImage;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(cmdBuf,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        // Clear to far depth
+        VkClearValue clear{};
+        clear.depthStencil = {1.0f, 0};
+        VkRenderPassBeginInfo clearPass{};
+        clearPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        clearPass.renderPass = m_shadowRenderPass;
+        clearPass.framebuffer = m_shadowFramebuffer;
+        clearPass.renderArea.extent = {m_shadowMapResolution,
+                                       m_shadowMapResolution};
+        clearPass.clearValueCount = 1;
+        clearPass.pClearValues = &clear;
+        vkCmdBeginRenderPass(cmdBuf, &clearPass, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdEndRenderPass(cmdBuf);
 
         vkEndCommandBuffer(cmdBuf);
 
@@ -333,8 +328,8 @@ bool VulkanRenderer::CreateShadowPipeline() {
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; // same winding as main pass
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = 1.25f;
-    rasterizer.depthBiasSlopeFactor = 1.75f;
+    rasterizer.depthBiasConstantFactor = SHADOW_DEPTH_BIAS_CONSTANT;
+    rasterizer.depthBiasSlopeFactor = SHADOW_DEPTH_BIAS_SLOPE;
     rasterizer.depthBiasClamp = 0.0f;
 
     VkPipelineMultisampleStateCreateInfo msaa{};
@@ -375,7 +370,7 @@ bool VulkanRenderer::CreateShadowPipeline() {
     pipelineInfo.basePipelineIndex = -1;
 
     VkResult result = vkCreateGraphicsPipelines(
-        device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_shadowPipeline);
+        device, m_pipelineCache, 1, &pipelineInfo, nullptr, &m_shadowPipeline);
     if (result != VK_SUCCESS) {
         SLEAK_ERROR("VulkanRenderer: Failed to create shadow pipeline!");
         return false;
@@ -422,12 +417,15 @@ bool VulkanRenderer::CreateShadowLightUBOResources() {
     }
 
     // Create descriptor pool for light UBO + shadow samplers.
-    // Two shadow samplers per frame now (compare + raw for PCSS blocker search).
+    // Two shadow samplers per frame now (compare + raw for PCSS blocker
+    // search). Set 3 also carries the scene-read color, depth, sky, and UBO
+    // bindings.
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSizes[0].descriptorCount =
+        MAX_FRAMES_IN_FLIGHT * LIGHT_POOL_UBOS_PER_FRAME;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
+    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * SET3_SAMPLER_COUNT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -591,6 +589,7 @@ void VulkanRenderer::CleanupShadowResources() {
 void VulkanRenderer::BeginShadowPass() {
     m_shadowPassActive = true;
     m_shadowPCCacheValid = false;
+    m_shadowPCPushedLayout = VK_NULL_HANDLE;
 }
 
 /// Marks the shadow pass inactive.
@@ -598,11 +597,21 @@ void VulkanRenderer::EndShadowPass() {
     m_shadowPassActive = false;
 }
 
-/// Copies light and shadow data into the current frame's mapped UBO.
+/// Copies light and shadow data into the current frame's mapped UBO. LightVP
+/// is replaced by the matrix the shadow map was rendered with, since the map
+/// is recorded in BeginRender before the caller stages a newer one.
 void VulkanRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     if (!m_lightUBOCreated || !data) return;
     uint32_t copySize = std::min(size, static_cast<uint32_t>(sizeof(ShadowLightUBO)));
     memcpy(m_lightUBOMapped[currentFrame], data, copySize);
+
+    constexpr size_t kLightVPOffset = offsetof(ShadowLightUBO, LightVP);
+    if (m_shadowMapRendered &&
+        copySize >= kLightVPOffset + sizeof(m_shadowMapLightVP)) {
+        char* dst = static_cast<char*>(m_lightUBOMapped[currentFrame]);
+        memcpy(dst + kLightVPOffset, m_shadowMapLightVP,
+               sizeof(m_shadowMapLightVP));
+    }
 }
 
 /// Stages the light view-projection matrix for commit at the next BeginRender.

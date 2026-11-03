@@ -10,12 +10,15 @@
 #include <Graphics/DirectX12/DirectX12Buffer.hpp>
 #include <Graphics/DirectX12/DirectX12CubemapTexture.hpp>
 #include <Runtime/MeshData.hpp>
+#include <algorithm>
 #include <codecvt>
 #include <cstdint>
 #include <cstring>
 #include <locale>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "Graphics/Common/RenderCommandQueue.hpp"
 
@@ -52,21 +55,70 @@ uint64_t HashBytecode(ID3DBlob* blob) {
     return hash;
 }
 
-Microsoft::WRL::ComPtr<ID3DBlob> CompileStage(const wchar_t* path,
+constexpr const char* VERTEX_ENTRY = "VS_Main";
+constexpr const char* PIXEL_ENTRY = "PS_Main";
+constexpr const char* VERTEX_PROFILE = "vs_5_0";
+constexpr const char* PIXEL_PROFILE = "ps_5_0";
+constexpr const char* SHADOW_SHADER_PATH =
+    "assets/shaders/default_shader_dx12.hlsl";
+constexpr const char* SKYBOX_SHADER_PATH = "assets/shaders/skybox_dx12.hlsl";
+constexpr const char* DEBUG_LINE_SHADER_PATH =
+    "assets/shaders/debug_line_dx12.hlsl";
+#ifdef SLEAK_HOT_RELOAD
+constexpr const char* SHADOW_SHADER_STEM = "default_shader";
+constexpr const char* SKYBOX_STEM = "skybox";
+constexpr const char* DEBUG_LINE_STEM = "debug_line";
+#endif
+
+// Transform CB layout: [WVP][World]; shadow CB: [LightVP*World][World]
+constexpr int MATRIX_DIM = 4;
+constexpr int MATRIX_FLOATS = MATRIX_DIM * MATRIX_DIM;
+constexpr int TRANSFORM_CB_FLOATS = 2 * MATRIX_FLOATS;
+constexpr size_t TRANSFORM_CB_BYTES = TRANSFORM_CB_FLOATS * sizeof(float);
+constexpr size_t TRANSFORM_WORLD_OFFSET = MATRIX_FLOATS * sizeof(float);
+
+/// Writes World * LightVP (row-major) followed by World into out.
+void BuildShadowTransform(const float* world, const float* lightVP,
+                          float* out) {
+    for (int r = 0; r < MATRIX_DIM; ++r) {
+        for (int c = 0; c < MATRIX_DIM; ++c) {
+            float sum = 0.0f;
+            for (int k = 0; k < MATRIX_DIM; ++k) {
+                sum += world[r * MATRIX_DIM + k] * lightVP[k * MATRIX_DIM + c];
+            }
+            out[r * MATRIX_DIM + c] = sum;
+        }
+    }
+    memcpy(out + MATRIX_FLOATS, world, MATRIX_FLOATS * sizeof(float));
+}
+
+/// Compiles one fixed-pass stage, logging the compiler output on failure.
+Microsoft::WRL::ComPtr<ID3DBlob> CompileStage(const char* path,
                                               const char* entry,
                                               const char* profile) {
+    const std::wstring widePath(path, path + std::strlen(path));
     Microsoft::WRL::ComPtr<ID3DBlob> blob, errorBlob;
-    HRESULT hr = D3DCompileFromFile(path, nullptr, nullptr, entry, profile, 0,
-                                    0, &blob, &errorBlob);
+    HRESULT hr = D3DCompileFromFile(widePath.c_str(), nullptr, nullptr, entry,
+                                    profile, 0, 0, &blob, &errorBlob);
     if (FAILED(hr)) {
         if (errorBlob) {
-            SLEAK_ERROR("{} ({}) compile error: {}", entry, profile,
+            SLEAK_ERROR("{} {} ({}) compile error: {}", path, entry, profile,
                         (char*)errorBlob->GetBufferPointer());
+        } else {
+            SLEAK_ERROR("{} {} ({}) compile error: 0x{:08X}", path, entry,
+                        profile, static_cast<unsigned int>(hr));
         }
         return nullptr;
     }
     return blob;
 }
+
+#ifdef SLEAK_HOT_RELOAD
+/// True when the reload batch contains the stem.
+bool HasStem(const std::vector<std::string>& stems, const char* stem) {
+    return std::find(stems.begin(), stems.end(), stem) != stems.end();
+}
+#endif
 }  // namespace
 
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
@@ -572,13 +624,172 @@ ID3D12PipelineState* DirectX12Renderer::GetPipeline(const PipelineKey& key,
     return pso.Get();
 }
 
+ID3D12PipelineState* DirectX12Renderer::GetShaderPipeline(ID3DBlob* vs,
+                                                          ID3DBlob* ps) {
+    PipelineKey key;
+    key.vsHash = HashBytecode(vs);
+    key.psHash = HashBytecode(ps);
+    return GetPipeline(key, vs, ps);
+}
+
+#ifdef SLEAK_HOT_RELOAD
+bool DirectX12Renderer::ReloadShaders(const std::vector<std::string>& stems) {
+    // Old PSOs are released below, so no frame may still use them
+    WaitForGPU();
+
+    std::vector<ID3D12PipelineState*> replaced;
+    ReloadLiveShaders(stems, replaced);
+    if (HasStem(stems, SHADOW_SHADER_STEM)) ReloadShadowPassPSO(replaced);
+    if (HasStem(stems, SKYBOX_STEM))
+        ReloadPassPipeline(m_skyboxPipelineState, m_skyboxPipelineFailed,
+                           &DirectX12Renderer::CreateSkyboxPipelineState,
+                           SKYBOX_STEM, replaced);
+    if (HasStem(stems, DEBUG_LINE_STEM))
+        ReloadPassPipeline(m_debugLinePipelineState, m_debugLinePipelineFailed,
+                           &DirectX12Renderer::CreateDebugLinePipelineState,
+                           DEBUG_LINE_STEM, replaced);
+    PruneReplacedPipelines(replaced);
+    m_shaderPipeline = nullptr;
+    m_passPipeline = nullptr;
+
+    for (const std::string& stem : stems) {
+        const bool used =
+            stem == SHADOW_SHADER_STEM || stem == SKYBOX_STEM ||
+            stem == DEBUG_LINE_STEM ||
+            std::ranges::any_of(DirectX12Shader::GetLiveShaders(),
+                                [&stem](const DirectX12Shader* shader) {
+                                    return shader->UsesStem(stem);
+                                });
+        if (!used)
+            SLEAK_WARN(
+                "Hot reload: no loaded DirectX 12 shader is built from '{}'",
+                stem);
+    }
+    return true;
+}
+
+void DirectX12Renderer::ReloadLiveShaders(
+    const std::vector<std::string>& stems,
+    std::vector<ID3D12PipelineState*>& replaced) {
+    const auto usesAnyStem = [&stems](const DirectX12Shader* shader) {
+        return std::ranges::any_of(stems, [shader](const std::string& stem) {
+            return shader->UsesStem(stem);
+        });
+    };
+
+    // Shaders built from the same files compile once and share the result
+    std::vector<const DirectX12Shader*> rebuilt;
+    std::vector<const DirectX12Shader*> failed;
+    for (DirectX12Shader* shader : DirectX12Shader::GetLiveShaders()) {
+        if (!usesAnyStem(shader)) continue;
+        const auto sameSources = [shader](const DirectX12Shader* other) {
+            return shader->HasSameSources(*other);
+        };
+        if (std::ranges::any_of(failed, sameSources)) continue;
+
+        Microsoft::WRL::ComPtr<ID3DBlob> vs;
+        Microsoft::WRL::ComPtr<ID3DBlob> ps;
+        ID3D12PipelineState* pso = nullptr;
+        const auto twin = std::ranges::find_if(rebuilt, sameSources);
+        if (twin != rebuilt.end()) {
+            vs = (*twin)->getVertexShaderBlob();
+            ps = (*twin)->getPixelShaderBlob();
+            pso = (*twin)->GetPipelineState();
+        } else if (shader->RecompileStages(vs, ps)) {
+            pso = GetShaderPipeline(vs.Get(), ps.Get());
+        }
+        if (!pso) {
+            failed.push_back(shader);
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old pipeline",
+                       shader->GetStem());
+            continue;
+        }
+        if (twin == rebuilt.end()) {
+            rebuilt.push_back(shader);
+            SLEAK_INFO("Reloaded DirectX 12 shader '{}'", shader->GetStem());
+        }
+
+        // The first shader also provides the default PSO and shadow fallback
+        if (m_cachedVSBlob &&
+            m_cachedVSBlob.Get() == shader->getVertexShaderBlob()) {
+            m_cachedVSBlob = vs;
+            m_defaultPipelineState = pso;
+        }
+        if (ID3D12PipelineState* old = shader->GetPipelineState())
+            replaced.push_back(old);
+        shader->ReplaceStages(std::move(vs), std::move(ps), pso);
+    }
+}
+
+void DirectX12Renderer::ReloadPassPipeline(
+    ID3D12PipelineState*& pso, bool& failed,
+    bool (DirectX12Renderer::*create)(), const char* stem,
+    std::vector<ID3D12PipelineState*>& replaced) {
+    ID3D12PipelineState* old = std::exchange(pso, nullptr);
+    failed = false;
+    // Not built yet, the first pass compiles the new file
+    if (!old) return;
+
+    if ((this->*create)()) {
+        replaced.push_back(old);
+        SLEAK_INFO("Reloaded DirectX 12 pipeline '{}'", stem);
+        return;
+    }
+    pso = old;
+    failed = false;
+    SLEAK_WARN("Pipeline '{}' failed to reload, keeping the old one", stem);
+}
+
+void DirectX12Renderer::ReloadShadowPassPSO(
+    std::vector<ID3D12PipelineState*>& replaced) {
+    // Not built yet, the first shadow pass compiles the new file
+    if (!m_shadowVSCompiled) return;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> vs =
+        CompileStage(SHADOW_SHADER_PATH, VERTEX_ENTRY, VERTEX_PROFILE);
+    if (!vs) {
+        SLEAK_WARN("Shadow pass shader failed to reload, keeping the old one");
+        return;
+    }
+    ID3D12PipelineState* oldPSO = std::exchange(m_shadowPassPSO, nullptr);
+    Microsoft::WRL::ComPtr<ID3DBlob> oldVS = std::exchange(m_shadowVSBlob, vs);
+    if (CreateShadowPassPSO()) {
+        if (oldPSO) replaced.push_back(oldPSO);
+        SLEAK_INFO("Reloaded DirectX 12 pipeline 'shadow pass'");
+        return;
+    }
+    m_shadowPassPSO = oldPSO;
+    m_shadowVSBlob = std::move(oldVS);
+    SLEAK_WARN("Shadow pass PSO failed to rebuild, keeping the old one");
+}
+
+void DirectX12Renderer::PruneReplacedPipelines(
+    const std::vector<ID3D12PipelineState*>& replaced) {
+    const auto inUse = [this](ID3D12PipelineState* pso) {
+        if (pso == m_defaultPipelineState || pso == m_shadowPassPSO ||
+            pso == m_skyboxPipelineState || pso == m_debugLinePipelineState)
+            return true;
+        return std::ranges::any_of(DirectX12Shader::GetLiveShaders(),
+                                   [pso](const DirectX12Shader* shader) {
+                                       return shader->GetPipelineState() == pso;
+                                   });
+    };
+    std::erase_if(m_pipelineCache, [&](const auto& entry) {
+        ID3D12PipelineState* pso = entry.second.Get();
+        return std::find(replaced.begin(), replaced.end(), pso) !=
+                   replaced.end() &&
+               !inUse(pso);
+    });
+}
+#endif
+
 bool DirectX12Renderer::CreateShadowPassPSO() {
     if (m_shadowPassPSO) return true;
 
     if (!m_shadowVSCompiled) {
         m_shadowVSCompiled = true;
-        m_shadowVSBlob = CompileStage(
-            L"assets/shaders/default_shader_dx12.hlsl", "VS_Main", "vs_5_0");
+        m_shadowVSBlob =
+            CompileStage(SHADOW_SHADER_PATH, VERTEX_ENTRY, VERTEX_PROFILE);
     }
     ID3DBlob* vs = m_shadowVSBlob ? m_shadowVSBlob.Get() : m_cachedVSBlob.Get();
     if (!vs) {
@@ -1026,26 +1237,23 @@ void DirectX12Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!dx12Buf) return;
 
     // Shadow pass: use a dedicated shadow CB with LightVP*World for slot 0
-    if (m_inShadowPass && slot == 0 && dx12Buf->GetCPUShadowCopySize() >= 128) {
+    if (m_inShadowPass && slot == 0 &&
+        dx12Buf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
         const float* srcWorld = reinterpret_cast<const float*>(
-            static_cast<const char*>(dx12Buf->GetCPUShadowCopy()) + 64);
+            static_cast<const char*>(dx12Buf->GetCPUShadowCopy()) +
+            TRANSFORM_WORLD_OFFSET);
 
-        float shadowPC[32];
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                }
-                shadowPC[r * 4 + c] = sum;
-            }
+        // Casters sharing a World reuse this pass's ring copy
+        if (!m_shadowCBAddress || memcmp(srcWorld, m_shadowWorldCache,
+                                         sizeof(m_shadowWorldCache)) != 0) {
+            DirectX12UploadRing::Allocation alloc;
+            if (!m_uploadRing.Allocate(TRANSFORM_CB_BYTES, alloc)) return;
+            BuildShadowTransform(srcWorld, m_lightVP,
+                                 static_cast<float*>(alloc.cpu));
+            memcpy(m_shadowWorldCache, srcWorld, sizeof(m_shadowWorldCache));
+            m_shadowCBAddress = alloc.gpu;
         }
-        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
-
-        DirectX12UploadRing::Allocation alloc;
-        if (!m_uploadRing.Allocate(sizeof(shadowPC), alloc)) return;
-        memcpy(alloc.cpu, shadowPC, sizeof(shadowPC));
-        commandList->SetGraphicsRootConstantBufferView(slot, alloc.gpu);
+        commandList->SetGraphicsRootConstantBufferView(slot, m_shadowCBAddress);
         return;
     }
 
@@ -1095,10 +1303,7 @@ Shader* DirectX12Renderer::CreateShader(const std::string& shaderSource) {
 
     ID3DBlob* vs = shader->getVertexShaderBlob();
     ID3DBlob* ps = shader->getPixelShaderBlob();
-    PipelineKey key;
-    key.vsHash = HashBytecode(vs);
-    key.psHash = HashBytecode(ps);
-    if (ID3D12PipelineState* pso = GetPipeline(key, vs, ps)) {
+    if (ID3D12PipelineState* pso = GetShaderPipeline(vs, ps)) {
         shader->SetPipelineState(
             Microsoft::WRL::ComPtr<ID3D12PipelineState>(pso));
         if (!m_defaultPipelineState) {
@@ -1340,6 +1545,9 @@ void DirectX12Renderer::RenderShadowPass() {
     }
     BindLightConstants();
 
+    // Ring memory is per frame and lightVP may have changed since last pass
+    m_shadowCBAddress = 0;
+
     // Execute shadow draw commands
     m_inShadowPass = true;
     if (queue) {
@@ -1358,10 +1566,8 @@ bool DirectX12Renderer::CreateSkyboxPipelineState() {
     if (m_skyboxPipelineFailed) return false;
     m_skyboxPipelineFailed = true;
 
-    auto vs =
-        CompileStage(L"assets/shaders/skybox_dx12.hlsl", "VS_Main", "vs_5_0");
-    auto ps =
-        CompileStage(L"assets/shaders/skybox_dx12.hlsl", "PS_Main", "ps_5_0");
+    auto vs = CompileStage(SKYBOX_SHADER_PATH, VERTEX_ENTRY, VERTEX_PROFILE);
+    auto ps = CompileStage(SKYBOX_SHADER_PATH, PIXEL_ENTRY, PIXEL_PROFILE);
     if (!vs || !ps) return false;
 
     // No culling, depth write off with LEQUAL, and depth clip off so the
@@ -1414,10 +1620,9 @@ bool DirectX12Renderer::CreateDebugLinePipelineState() {
     if (m_debugLinePipelineFailed) return false;
     m_debugLinePipelineFailed = true;
 
-    auto vs = CompileStage(L"assets/shaders/debug_line_dx12.hlsl", "VS_Main",
-                           "vs_5_0");
-    auto ps = CompileStage(L"assets/shaders/debug_line_dx12.hlsl", "PS_Main",
-                           "ps_5_0");
+    auto vs =
+        CompileStage(DEBUG_LINE_SHADER_PATH, VERTEX_ENTRY, VERTEX_PROFILE);
+    auto ps = CompileStage(DEBUG_LINE_SHADER_PATH, PIXEL_ENTRY, PIXEL_PROFILE);
     if (!vs || !ps) return false;
 
     PipelineKey key;
