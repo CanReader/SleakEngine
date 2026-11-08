@@ -1,10 +1,10 @@
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <initializer_list>
 #include <string>
 #include <vector>
 
+#include "../../include/private/Graphics/Common/FrameCapture.hpp"
 #include "../../include/private/Graphics/Vulkan/VulkanRenderer.hpp"
 #include "Core/Logger.hpp"
 
@@ -177,26 +177,16 @@ void VulkanRenderer::FinishFrameCapture() {
     const size_t pixels =
         static_cast<size_t>(m_captureExtent.width) * m_captureExtent.height;
     const auto* src = static_cast<const uint8_t*>(mapped);
-    std::vector<uint8_t> rgb(pixels * 3);
+    std::vector<uint8_t> rgb(pixels * FRAME_CAPTURE_CHANNELS);
     for (size_t i = 0; i < pixels; ++i) {
-        rgb[i * 3 + 0] = src[i * 4 + r];
-        rgb[i * 3 + 1] = src[i * 4 + g];
-        rgb[i * 3 + 2] = src[i * 4 + b];
+        rgb[i * FRAME_CAPTURE_CHANNELS + 0] = src[i * 4 + r];
+        rgb[i * FRAME_CAPTURE_CHANNELS + 1] = src[i * 4 + g];
+        rgb[i * FRAME_CAPTURE_CHANNELS + 2] = src[i * 4 + b];
     }
     vkUnmapMemory(device, m_captureMemory);
     CleanupFrameCapture();
 
-    std::ofstream out(path, std::ios::binary);
-    out << "P6\n"
-        << m_captureExtent.width << " " << m_captureExtent.height << "\n255\n";
-    out.write(reinterpret_cast<const char*>(rgb.data()),
-              static_cast<std::streamsize>(rgb.size()));
-    if (!out) {
-        SLEAK_ERROR("Frame capture: could not write {}", path);
-        return;
-    }
-    SLEAK_INFO("Frame capture: wrote {}x{} to {}", m_captureExtent.width,
-               m_captureExtent.height, path);
+    WriteFramePPM(path, m_captureExtent.width, m_captureExtent.height, rgb);
 }
 
 /// Frees the capture readback buffer.

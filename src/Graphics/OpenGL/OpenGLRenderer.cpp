@@ -21,6 +21,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
 #include "Graphics/Common/ConstantBuffer.hpp"
+#include "Graphics/Common/FrameCapture.hpp"
 #include "Graphics/Common/RenderCommandQueue.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
 #include "Graphics/Common/SSAOKernel.hpp"
@@ -48,6 +49,10 @@ constexpr int MAT4_DIM = 4;
 constexpr size_t MAT4_FLOATS = MAT4_DIM * MAT4_DIM;
 constexpr size_t MAT4_BYTES = MAT4_FLOATS * sizeof(float);
 constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
+
+// Pixel pack alignment: tight rows for the capture, GL's default afterwards
+constexpr GLint CAPTURE_PACK_ALIGNMENT = 1;
+constexpr GLint DEFAULT_PACK_ALIGNMENT = 4;
 
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
@@ -301,15 +306,56 @@ void OpenGLRenderer::EndRender() {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    // A captured frame leaves the UI out, as on Vulkan
+    const bool capture = !m_capturePath.empty();
     if (bImInitialized) {
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (!capture) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     }
+    if (capture) WriteFrameCapture();
 
     glBindVertexArray(0);
     SDL_GL_SwapWindow(m_Window->GetSDLWindow());
 
     UpdateFrameMetrics();
+}
+
+bool OpenGLRenderer::RequestFrameCapture(const std::string& path) {
+    if (path.empty()) return false;
+    m_capturePath = path;
+    return true;
+}
+
+void OpenGLRenderer::WriteFrameCapture() {
+    std::string path;
+    path.swap(m_capturePath);
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSizeInPixels(m_Window->GetSDLWindow(), &width, &height);
+    if (width <= 0 || height <= 0) {
+        SLEAK_ERROR("Frame capture: window has no pixels, {} not written",
+                    path);
+        return;
+    }
+
+    const size_t rowBytes = static_cast<size_t>(width) * FRAME_CAPTURE_CHANNELS;
+    std::vector<uint8_t> bottomUp(rowBytes * static_cast<size_t>(height));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, CAPTURE_PACK_ALIGNMENT);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE,
+                 bottomUp.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, DEFAULT_PACK_ALIGNMENT);
+
+    // GL rows run bottom-up; the PPM starts at the top row
+    std::vector<uint8_t> rgb(bottomUp.size());
+    for (int y = 0; y < height; ++y) {
+        const size_t src = static_cast<size_t>(height - 1 - y) * rowBytes;
+        std::memcpy(rgb.data() + static_cast<size_t>(y) * rowBytes,
+                    bottomUp.data() + src, rowBytes);
+    }
+    WriteFramePPM(path, static_cast<uint32_t>(width),
+                  static_cast<uint32_t>(height), rgb);
 }
 
 void OpenGLRenderer::Cleanup() {

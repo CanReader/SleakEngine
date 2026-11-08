@@ -9,6 +9,7 @@
 #include <Core/OSDef.hpp>
 #include <array>
 #include <cstdint>
+#include <string>
 
 #include "../../Core/Window.hpp"
 #include "../Common/RenderContext.hpp"
@@ -37,6 +38,13 @@ public:
 
     virtual uint32_t GetFeatureCaps() const override {
         return CapDeferred | CapSSAO | CapIBL | CapShadows;
+    }
+
+    /// Arms a UI-free readback of the next presented frame into a binary PPM.
+    bool RequestFrameCapture(const std::string& path) override;
+    /// True while an armed capture has not been written yet.
+    bool IsFrameCapturePending() const override {
+        return !m_capturePath.empty();
     }
 
     virtual void Resize(uint32_t width, uint32_t height) override;
@@ -105,6 +113,12 @@ private:
     Window* m_Window;
     SDL_GLContext m_GLContext = nullptr;
     bool m_Initialized = false;
+
+    // Frame capture (-capture): set by RequestFrameCapture, cleared once
+    // written
+    std::string m_capturePath;
+    /// Reads the finished back buffer into the armed PPM and disarms it.
+    void WriteFrameCapture();
 
     GLuint m_VAO = 0;
     bool m_debugLineMode = false;

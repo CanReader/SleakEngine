@@ -134,6 +134,7 @@ set(DEBUG_SOURCES
 )
 
 set(GRAPHICS_COMMON_SOURCES
+    src/Graphics/Common/FrameCapture.cpp
     src/Graphics/Common/GraphicsConfig.cpp
     src/Graphics/Common/Material.cpp
     src/Graphics/Common/MeshBatch.cpp
