@@ -362,6 +362,7 @@ void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
         CleanupSceneRead();
         CleanupGBufferResources();
+        CleanupFrameUBOs();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -840,6 +841,17 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     if (!data) return;
 
     const auto* ubo = static_cast<const RenderEngine::ShadowLightUBO*>(data);
+    if (size >= sizeof(RenderEngine::ShadowLightUBO)) {
+        m_frameData.SetLight(*ubo);
+        if (CreateFrameUBOs()) {
+            RenderEngine::ShadowLightUBO raw = *ubo;
+            if (m_shadowMapRendered)
+                memcpy(raw.LightVP, m_shadowMapLightVP, sizeof(raw.LightVP));
+            glNamedBufferSubData(m_shadowLightRawUBO, 0, sizeof(raw), &raw);
+            glBindBufferBase(GL_UNIFORM_BUFFER, SHADOW_LIGHT_UBO_BINDING,
+                             m_shadowLightRawUBO);
+        }
+    }
 
     RenderEngine::PCSSShadowGPUData shadowData{};
     // Sample with the map's own matrix
@@ -860,6 +872,71 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
 
     // Bind shadow UBO at binding 5 (matches shader)
     glBindBufferBase(GL_UNIFORM_BUFFER, 5, m_shadowUBO);
+}
+
+bool OpenGLRenderer::CreateFrameUBOs() {
+    if (m_frameUBOsCreated) return true;
+    struct FrameBuffer {
+        GLuint* buffer;
+        size_t size;
+        GLuint binding;
+    };
+    const FrameBuffer buffers[] = {
+        {&m_frameDataUBO, sizeof(RenderEngine::FrameData),
+         FRAME_DATA_UBO_BINDING},
+        {&m_frameUserUBO, RenderEngine::FRAME_USER_DATA_MAX_BYTES,
+         FRAME_USER_UBO_BINDING},
+        {&m_frameCascadeUBO, RenderEngine::FRAME_CASCADE_BLOCK_BYTES,
+         FRAME_CASCADE_UBO_BINDING},
+        {&m_shadowLightRawUBO, sizeof(RenderEngine::ShadowLightUBO),
+         SHADOW_LIGHT_UBO_BINDING},
+        {&m_frameAtmosphereUBO, RenderEngine::FRAME_ATMOSPHERE_BLOCK_BYTES,
+         FRAME_ATMOSPHERE_UBO_BINDING},
+    };
+    for (const FrameBuffer& entry : buffers) {
+        const std::vector<uint8_t> zeros(entry.size, 0);
+        glCreateBuffers(1, entry.buffer);
+        glNamedBufferData(*entry.buffer, static_cast<GLsizeiptr>(entry.size),
+                          zeros.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, entry.binding, *entry.buffer);
+    }
+    m_frameUBOsCreated = true;
+    return true;
+}
+
+void OpenGLRenderer::CleanupFrameUBOs() {
+    for (GLuint* buffer : {&m_frameDataUBO, &m_frameUserUBO, &m_frameCascadeUBO,
+                           &m_shadowLightRawUBO, &m_frameAtmosphereUBO}) {
+        if (*buffer) glDeleteBuffers(1, buffer);
+        *buffer = 0;
+    }
+    m_frameUBOsCreated = false;
+}
+
+void OpenGLRenderer::UploadFrameData() {
+    if (!CreateFrameUBOs()) return;
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
+
+    RenderEngine::FrameTargetInfo target;
+    target.width = static_cast<uint32_t>(std::max(width, 0));
+    target.height = static_cast<uint32_t>(std::max(height, 0));
+    if (m_ssaoEnabled && m_ssaoCreated && IsDeferredEnabled())
+        target.featureFlags |= RenderEngine::FrameFlagSSAO;
+    if (m_shadowPassEnabled)
+        target.featureFlags |= RenderEngine::FrameFlagShadows;
+    if (IsDeferredEnabled())
+        target.featureFlags |= RenderEngine::FrameFlagDeferred;
+
+    RenderEngine::FrameData data{};
+    m_frameData.Build(target, data);
+    glNamedBufferSubData(m_frameDataUBO, 0, sizeof(data), &data);
+    glNamedBufferSubData(m_frameUserUBO, 0,
+                         RenderEngine::FRAME_USER_DATA_MAX_BYTES,
+                         m_frameData.GetUserData());
+    glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_DATA_UBO_BINDING, m_frameDataUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_USER_UBO_BINDING, m_frameUserUBO);
 }
 
 bool OpenGLRenderer::CreateShadowMapResources() {

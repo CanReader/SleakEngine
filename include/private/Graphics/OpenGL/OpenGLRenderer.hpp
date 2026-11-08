@@ -173,6 +173,8 @@ private:
     /// Uploads light and shadow data, sampling with the matrix the shadow
     /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    /// Uploads this frame's FrameData and game block (buffers 11 and 12).
+    void UploadFrameData() override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
     /// Allocates the UBO backing ShadowLightUBO.
@@ -247,6 +249,24 @@ private:
     /// Lazily (re)bakes IBL data when the bound skybox cubemap changes.
     void EnsureIBL();
     void CleanupIBL();
+
+    // ---- Frame globals (sleak/binding.glsl SLEAK_*_GL) ----
+    static constexpr GLuint FRAME_DATA_UBO_BINDING = 11;
+    static constexpr GLuint FRAME_USER_UBO_BINDING = 12;
+    static constexpr GLuint FRAME_CASCADE_UBO_BINDING = 13;
+    static constexpr GLuint SHADOW_LIGHT_UBO_BINDING = 14;
+    static constexpr GLuint FRAME_ATMOSPHERE_UBO_BINDING = 15;
+    GLuint m_frameDataUBO = 0;
+    GLuint m_frameUserUBO = 0;
+    GLuint m_frameCascadeUBO = 0;
+    GLuint m_shadowLightRawUBO = 0;  // ShadowLightUBO as Vulkan sees it
+    GLuint m_frameAtmosphereUBO = 0;
+    bool m_frameUBOsCreated = false;
+    /// Creates and binds the frame, game, cascade, raw light and atmosphere
+    /// buffers, zero-filled.
+    bool CreateFrameUBOs();
+    /// Deletes the buffers CreateFrameUBOs made.
+    void CleanupFrameUBOs();
 
     // ---- Scene read for transparent formats ----
     static constexpr GLuint SCENE_COLOR_UNIT = 4;
