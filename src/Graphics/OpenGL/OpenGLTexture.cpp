@@ -133,6 +133,7 @@ bool OpenGLTexture::LoadFromFile(const std::string& filePath) {
     int w, h, channels;
     stbi_set_flip_vertically_on_load(true);
     unsigned char* pixels = stbi_load(filePath.c_str(), &w, &h, &channels, 4);
+    stbi_set_flip_vertically_on_load(false);
     if (!pixels) {
         SLEAK_ERROR("OpenGLTexture: Failed to load image: {}",
                     filePath);
