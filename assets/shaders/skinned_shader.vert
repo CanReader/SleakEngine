@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
 // Skinned Material Shader - Vulkan Vertex Shader
@@ -25,22 +26,7 @@ layout(set = 1, binding = 0) uniform BoneUBO {
     mat4 boneMatrices[MAX_BONES];
 };
 
-// Light/Shadow UBO (set 2, binding 0)
-layout(set = 2, binding = 0) uniform ShadowLightUBO {
-    vec4  uLightDir;       // xyz = direction, w = pad
-    vec4  uLightColor;     // rgb = color, a = intensity
-    vec4  uAmbient;        // rgb = color, a = intensity
-    vec4  uCameraPos;      // xyz = camera world pos, w = pad
-    mat4  uLightVP;        // light view-projection matrix
-    float uShadowBias;
-    float uShadowStrength;
-    float uShadowTexelSize;
-    float uLightSize;
-    vec4  uFogColor;
-    float uFogStart;
-    float uFogEnd;
-    vec2  _fogPad;            // std140: must be vec2 (8B) not float[2] (stride-16 = 32B)
-};
+#include "sleak/shadow_light.glsl"
 
 layout(location = 0) out vec3 fragWorldPos;
 layout(location = 1) out vec3 fragWorldNorm;

@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
 // Deferred Lighting Pass — Cook-Torrance PBR BRDF + IBL
@@ -30,33 +31,7 @@ layout(set = 1, binding = 0) uniform DeferredCB {
 };
 
 // -- Set 2: Shadow + Light UBO --------------------------------------
-layout(set = 2, binding = 0) uniform ShadowLightUBO {
-    vec4  uLightDir;         // xyz=direction FROM light, w=normalBias
-    vec4  uLightColor;       // rgb=color, a=intensity
-    vec4  uAmbient;          // rgb=sky color, a=intensity
-    vec4  uCameraPos;        // xyz=worldPos, w=sceneClock
-    mat4  uLightVP;
-    float uShadowBias;
-    float uShadowStrength;
-    float uShadowTexelSize;
-    float uLightSize;
-    vec4  uFogColor;         // horizon
-    float uFogStart;
-    float uFogEnd;
-    vec2  _fogPad;
-    vec4  uFogZenithColor;   // zenith
-    float uHeightFogTop;
-    float uHeightFogDensity;
-    float uHeightFogFalloff;
-    float uHeightFogEnabled;
-    // Extra fill/rim lights (no shadows)
-    vec4  uExtraDir[3];      // xyz=direction FROM light, w=unused
-    vec4  uExtraColor[3];    // rgb=color, a=intensity
-    uint  uNumExtraLights;   // 0-3
-    // no pad member: std140 aligns the mat4 to 320, matching the C++ struct
-    // (a vec3 pad here pushed uNdcToShadow to 336 -> garbage shadow matrix)
-    mat4  uNdcToShadow;      // NDC -> shadow clip, CPU-composed (no shimmer)
-};
+#include "sleak/shadow_light.glsl"
 
 // -- Set 3: IBL -----------------------------------------------------
 layout(set = 3, binding = 0) uniform samplerCube iblIrradiance;

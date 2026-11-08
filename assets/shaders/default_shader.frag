@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
 // Default Material Shader - Vulkan Fragment Shader
@@ -17,26 +18,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D diffuseTexture;
 
-layout(set = 2, binding = 0) uniform ShadowLightUBO {
-    vec4  uLightDir;
-    vec4  uLightColor;
-    vec4  uAmbient;        // rgb = sky ambient color, a = intensity
-    vec4  uCameraPos;
-    mat4  uLightVP;
-    float uShadowBias;
-    float uShadowStrength;
-    float uShadowTexelSize;
-    float uLightSize;
-    vec4  uFogColor;       // horizon
-    float uFogStart;
-    float uFogEnd;
-    vec2  _fogPad;         // std140: must be vec2 (8B), NOT float[2] (stride-16 = 32B)
-    vec4  uFogZenithColor; // zenith
-    float uHeightFogTop;
-    float uHeightFogDensity;
-    float uHeightFogFalloff;
-    float uHeightFogEnabled;
-};
+#include "sleak/shadow_light.glsl"
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;     // hardware PCF
 layout(set = 3, binding = 1) uniform sampler2D       shadowMapRaw;  // blocker search
