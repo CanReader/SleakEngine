@@ -61,8 +61,8 @@ struct TextureDesc {
     TextureFormat format = TextureFormat::RGBA8;
     /// Store as sRGB so sampling returns linear color.
     bool srgb = false;
-    /// Total levels; 0 means the full chain down to 1x1.
-    uint32_t mipLevels = 1;
+    /// Total levels; 0, the default, means the full chain down to 1x1.
+    uint32_t mipLevels = 0;
 };
 
 /// Pixels of one mip level, rows top to bottom with no row padding.
