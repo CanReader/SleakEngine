@@ -153,8 +153,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install glslc
-        run: sudo apt-get update && sudo apt-get install -y glslc
+      - name: Install shader tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc spirv-tools glslang-tools
 
       - name: Every Vulkan shader compiles
         run: |
@@ -163,7 +165,7 @@ jobs:
           for src in *.vert *.frag; do
             [ -e "$src" ] || continue
             case "$src" in *_gl.vert|*_gl.frag) continue ;; esac
-            if ! glslc "$src" -o /tmp/out.spv; then
+            if ! glslc -I include "$src" -o /tmp/out.spv; then
               echo "FAILED to compile: $src"
               fail=1
             fi
@@ -198,9 +200,18 @@ jobs:
           done
           exit $orphan
 
+      - name: Uniform blocks match their C++ structs
+        run: |
+          python3 scripts/check_ubo_layout.py \
+            --header include/private/Graphics/Common/ConstantBuffer.hpp \
+            --include-dir assets/shaders/include \
+            --check FrameData:sleak/frame.glsl:FrameDataUBO \
+            --check ShadowLightUBO:sleak/shadow_light.glsl:ShadowLightUBO
+
       # The committed .spv are what a machine without glslc ships. glslc
       # releases emit different code for the same source, so instead of a
-      # byte compare, any GLSL edit has to come with its recompiled .spv.
+      # byte compare, any GLSL edit has to come with its recompiled .spv. An
+      # include edit counts as an edit of every shader that includes it.
       - name: Edited GLSL comes with its SPIR-V
         env:
           BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
@@ -213,23 +224,27 @@ jobs:
             exit 0
           fi
           BASE=$(git merge-base "$BASE" HEAD)
-          changed=$(git diff --name-only "$BASE" HEAD -- assets/shaders)
-          stale=0
-          for src in $(echo "$changed" | grep -E '\.(vert|frag)$' | grep -vE '_gl\.(vert|frag)$'); do
-            [ -f "$src" ] || continue
-            echo "$changed" | grep -qx "$src.spv" && continue
-            # Edits that compile to the same code (comments) need no new .spv
-            ext="${src##*.}"
-            if git show "$BASE:$src" > "/tmp/base.$ext" 2>/dev/null &&
-               glslc "/tmp/base.$ext" -o /tmp/base.spv &&
-               glslc "$src" -o /tmp/head.spv &&
-               cmp -s /tmp/base.spv /tmp/head.spv; then
-              continue
+          mkdir -p /tmp/base
+          git archive "$BASE" assets/shaders | tar -x -C /tmp/base
+          git diff --name-only "$BASE" HEAD -- assets/shaders > /tmp/changed.txt
+          python3 scripts/check_spirv_fresh.py --base /tmp/base --head . \
+            --shaders assets/shaders --include assets/shaders/include \
+            --changed /tmp/changed.txt
+
+      - name: Every OpenGL shader validates
+        run: |
+          cd assets/shaders
+          fail=0
+          for src in *_gl.vert *_gl.frag; do
+            [ -e "$src" ] || continue
+            out="/tmp/gl_expanded.${src##*.}"
+            if ! glslangValidator -E -Iinclude "$src" > "$out" ||
+               ! glslangValidator "$out"; then
+              echo "FAILED to validate: $src"
+              fail=1
             fi
-            echo "$src changed but $src.spv did not. Run: glslc $src -o $src.spv"
-            stale=1
           done
-          exit $stale
+          exit $fail
 
   # An engine change that breaks the game should be caught at review time, not
   # by the game's nightly job the following morning.
