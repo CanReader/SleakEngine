@@ -2,8 +2,23 @@
 #include <Core/Logger.hpp>
 #include <stb_image.h>
 
+/// Bytes per texel of the RGBA8 family.
+#define RGBA8_TEXEL_BYTES 4
+/// Upper bound on stale GL errors drained before an upload.
+#define GL_ERROR_DRAIN_LIMIT 64
+
 namespace Sleak {
 namespace RenderEngine {
+
+namespace {
+
+/// Drops stale GL errors so the next check reports only new ones.
+void ClearGLErrors() {
+    for (int i = 0; i < GL_ERROR_DRAIN_LIMIT; ++i)
+        if (glGetError() == GL_NO_ERROR) return;
+}
+
+}  // namespace
 
 OpenGLTexture::OpenGLTexture() {}
 
@@ -37,6 +52,72 @@ bool OpenGLTexture::LoadFromMemory(const void* data, uint32_t width,
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
+
+/// Uploads caller levels into immutable storage and builds missing ones.
+bool OpenGLTexture::LoadMipChain(const TextureDesc& desc,
+                                 const TextureMipLevel* levels,
+                                 uint32_t levelCount) {
+    if (!levels || desc.width == 0 || desc.height == 0 || desc.mipLevels == 0 ||
+        desc.mipLevels > GetFullMipCount(desc.width, desc.height) ||
+        (levelCount != 1 && levelCount != desc.mipLevels)) {
+        SLEAK_ERROR("OpenGLTexture: bad mip chain ({} of {} levels, {}x{})",
+                    levels ? levelCount : 0u, desc.mipLevels, desc.width,
+                    desc.height);
+        return false;
+    }
+    for (uint32_t i = 0; i < levelCount; ++i) {
+        const size_t levelBytes =
+            static_cast<size_t>(GetMipExtent(desc.width, i)) *
+            GetMipExtent(desc.height, i) * RGBA8_TEXEL_BYTES;
+        if (!levels[i].pixels || levels[i].sizeBytes != levelBytes) {
+            SLEAK_ERROR("OpenGLTexture: mip {} has {} bytes, expected {}", i,
+                        levels[i].pixels ? levels[i].sizeBytes : 0, levelBytes);
+            return false;
+        }
+    }
+
+    if (m_texture != 0) {
+        glDeleteTextures(1, &m_texture);
+        m_texture = 0;
+    }
+    m_width = desc.width;
+    m_height = desc.height;
+    m_format = desc.format;
+    m_srgb = desc.srgb;
+
+    const GLenum internalFormat = desc.srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+    const GLenum pixelFormat =
+        desc.format == TextureFormat::BGRA8 ? GL_BGRA : GL_RGBA;
+    ClearGLErrors();
+
+    glCreateTextures(GL_TEXTURE_2D, 1, &m_texture);
+    glTextureStorage2D(m_texture, static_cast<GLsizei>(desc.mipLevels),
+                       internalFormat, static_cast<GLsizei>(desc.width),
+                       static_cast<GLsizei>(desc.height));
+    for (uint32_t i = 0; i < levelCount; ++i)
+        glTextureSubImage2D(m_texture, static_cast<GLint>(i), 0, 0,
+                            static_cast<GLsizei>(GetMipExtent(desc.width, i)),
+                            static_cast<GLsizei>(GetMipExtent(desc.height, i)),
+                            pixelFormat, GL_UNSIGNED_BYTE, levels[i].pixels);
+    if (levelCount < desc.mipLevels) glGenerateTextureMipmap(m_texture);
+
+    // Same sampling defaults as LoadFromMemory
+    glTextureParameteri(m_texture, GL_TEXTURE_MIN_FILTER,
+                        GL_LINEAR_MIPMAP_LINEAR);
+    glTextureParameteri(m_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(m_texture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(m_texture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        SLEAK_ERROR("OpenGLTexture: mip chain upload failed (GL error 0x{:X})",
+                    error);
+        glDeleteTextures(1, &m_texture);
+        m_texture = 0;
+        return false;
+    }
     return true;
 }
 

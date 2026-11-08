@@ -17,6 +17,9 @@ public:
     /// Uploads raw pixel data as a new GL texture, generating mips.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Uploads caller levels into immutable storage and builds missing ones.
+    bool LoadMipChain(const TextureDesc& desc, const TextureMipLevel* levels,
+                      uint32_t levelCount) override;
     /// Decodes an image file and uploads it as a new GL texture.
     bool LoadFromFile(const std::string& filePath) override;
 
@@ -32,6 +35,8 @@ public:
     uint32_t GetHeight() const override { return m_height; }
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
+    /// True when the storage is GL_SRGB8_ALPHA8.
+    bool IsSRGB() const override { return m_srgb; }
 
     uint64_t GetImGuiTextureID() const override { return static_cast<uint64_t>(m_texture); }
 
@@ -42,6 +47,7 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
     TextureFormat m_format = TextureFormat::RGBA8;
+    bool m_srgb = false;
     TextureFilter m_filter = TextureFilter::Linear;
     float m_lodBias = 0.0f;
 };

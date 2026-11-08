@@ -86,6 +86,14 @@ OpenGLRenderer::OpenGLRenderer(Window* window)
             delete tex;
             return nullptr;
         });
+    ResourceManager::RegisterCreateTextureFromDesc(
+        [](const TextureDesc& desc, const TextureMipLevel* levels,
+           uint32_t levelCount) -> Texture* {
+            auto* tex = new OpenGLTexture();
+            if (tex->LoadMipChain(desc, levels, levelCount)) return tex;
+            delete tex;
+            return nullptr;
+        });
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
