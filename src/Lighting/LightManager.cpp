@@ -3,7 +3,6 @@
 #include <Core/CommandLine.hpp>
 #include <Core/Logger.hpp>
 #include <Core/SceneBase.hpp>
-#include <Core/Timer.hpp>
 #include <Core/Window.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
@@ -337,20 +336,11 @@ void LightManager::UpdateShadowData() {
     ubo.Ambient[2] = m_ambientB;
     ubo.Ambient[3] = m_ambientIntensity;
 
-    // CameraPos.w carries a monotonic scene clock, consumed by shaders that
-    // need animation time (e.g. water waves on the Vulkan backend — the engine
-    // has no MaterialUBO slot in its Vulkan pipeline layout, so there is
-    // nowhere else to stash time). Using a static Timer keeps this
-    // self-contained and independent of Application state.
-    static Sleak::Timer s_sceneClock;
-    static const bool s_fixedStep = !CommandLine::GetValue("-capture").empty();
-    static uint64_t s_sceneFrames = 0;
+    // CameraPos.w: legacy copy of the engine clock (FrameData::Time)
     ubo.CameraPos[0] = camPos.GetX();
     ubo.CameraPos[1] = camPos.GetY();
     ubo.CameraPos[2] = camPos.GetZ();
-    // Capture: frame-driven clock
-    ubo.CameraPos[3] = s_fixedStep ? static_cast<float>(s_sceneFrames++) / 60.0f
-                                   : s_sceneClock.Elapsed();
+    ubo.CameraPos[3] = app->GetEngineTime();
 
     // CURRENT lightVP — renderers stage SetLightVP and commit at BeginRender,
     // so this frame's shadow map IS rendered with this matrix. The old
