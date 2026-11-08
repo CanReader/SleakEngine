@@ -1116,7 +1116,7 @@ private:
     static constexpr uint32_t GPU_ROW_OTHER = GPU_PASS_COUNT;
     static constexpr uint32_t GPU_ROW_TOTAL = GPU_PASS_COUNT + 1;
     static constexpr uint32_t GPU_ROW_COUNT = GPU_PASS_COUNT + 2;
-    static constexpr uint32_t GPU_MAX_PAIRS = 16;
+    static constexpr uint32_t GPU_MAX_PAIRS = 32;
     static constexpr uint32_t GPU_QUERIES_PER_FRAME = 2 + 2 * GPU_MAX_PAIRS;
 
     /// Timestamp pairs recorded into one frame-in-flight slot of the pool.

@@ -183,8 +183,17 @@ void VulkanRenderer::MarkGpuFrameSubmitted() {
 void VulkanRenderer::BeginGpuPass(GpuPass pass) {
     if (!m_gpuProfilerEnabled) return;
     GpuProfileSlot& slot = m_gpuSlots[currentFrame];
-    if (!slot.recording || slot.pairOpen || slot.pairCount >= GPU_MAX_PAIRS)
+    if (!slot.recording || slot.pairOpen) return;
+    if (slot.pairCount >= GPU_MAX_PAIRS) {
+        static bool warned = false;
+        if (!warned)
+            SLEAK_WARN(
+                "GPU profiler: more than {} passes in a frame, the "
+                "rest count as other",
+                GPU_MAX_PAIRS);
+        warned = true;
         return;
+    }
     vkCmdWriteTimestamp(
         command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuQueryPool,
         currentFrame * GPU_QUERIES_PER_FRAME + 2 + 2 * slot.pairCount);
