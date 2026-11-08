@@ -59,10 +59,11 @@ accepting that the backends you skipped will not render it.
 ## 2. GLSL and SPIR-V
 
 Vulkan consumes `.spv` binaries only. The GLSL sources sit beside them and
-are compiled by `glslc` with no flags:
+are compiled by `glslc` with the include library on the search path:
 
 ```
-glslc assets/shaders/foo.vert -o assets/shaders/foo.vert.spv
+glslc -I assets/shaders/include assets/shaders/foo.vert \
+    -o assets/shaders/foo.vert.spv
 ```
 
 The output name keeps the full source name and appends `.spv`, so
@@ -72,16 +73,18 @@ produces a file the loader never looks for.
 `.spv` files are committed to the repository, but only as a fallback that
 keeps a checkout runnable on Vulkan without the Vulkan SDK installed. A
 build with `glslc` never reads or writes them. CI fails when a change to a
-Vulkan `.vert` or `.frag` lands without its `.spv`, unless the edit compiles
-to the same code (a comment), so recompile and commit the `.spv` with every
-GLSL edit.
+Vulkan `.vert` or `.frag`, or to an include it uses, lands without its
+`.spv`, unless the edit compiles to the same code (a comment), so recompile
+and commit the `.spv` with every GLSL edit.
 
 ### The engine's CompileShaders target
 
 The engine's `CMakeLists.txt` globs `assets/shaders/*.vert` and
 `assets/shaders/*.frag` with `CONFIGURE_DEPENDS`, filters out anything ending
 in `_gl.vert` or `_gl.frag`, and emits one custom command per shader that
-compiles it into `<build>/Engine/shaders`. The commands are collected into an
+compiles it into `<build>/Engine/shaders` with `-I assets/shaders/include`.
+Every shader depends on every file in the include library, so an include
+edit rebuilds them all. The commands are collected into an
 `ALL` target named `CompileShaders`, and `Engine` depends on it.
 
 Staging depends on how the engine is built:
@@ -98,7 +101,9 @@ Two limits are worth knowing before you rely on it:
 
 - **Engine scope only.** The glob is rooted at the engine's own
   `assets/shaders`. A game's shader folder is invisible to it. Games compile
-  their own shaders through their own script or target.
+  their own shaders through their own script or target; the global
+  properties `ENGINE_SHADER_INCLUDE_DIR` and `ENGINE_SHADER_INCLUDES` give
+  that step the include folder and the files to depend on.
 - **Fallback when `glslc` is absent.** Configure warns and stages the
   committed `.spv` instead, so GLSL edits have no effect until `glslc` is
   installed. If a shader has no committed `.spv` either, configure fails.
@@ -106,13 +111,13 @@ Two limits are worth knowing before you rely on it:
 ### Game shader folders
 
 A project that ships its own shaders supplies its own compile step, since
-the engine target will not touch them. SleakCraft's
-`scripts/compile_shaders.sh` is the reference shape: it walks both
-`Engine/assets/shaders` and `Game/assets/shaders`, skips any file whose name
-matches `*_gl.*`, runs `glslc <src> -o <src>.spv`, and reports failures
-without aborting the loop, exiting non-zero if any shader failed or if
-nothing was compiled at all. Run it after every edit to a game `.vert` or
-`.frag`, since no build step will do it for you.
+the engine target will not touch them. SleakCraft is the reference shape:
+its game CMake target compiles `Game/assets/shaders/*.vert` and `*.frag`
+into the build tree with both include folders and stages the results over
+the committed copies, and `scripts/compile_shaders.sh` refreshes the
+committed `.spv` of both folders (`glslc -I ... <src> -o <src>.spv`),
+exiting non-zero if any shader failed or if nothing was compiled at all.
+Run the script before committing a GLSL or include edit.
 
 ---
 
@@ -146,8 +151,12 @@ first that the variant file exists under the exact expected name.
 ## 4. GLSL for OpenGL
 
 OpenGL loads `foo_gl.vert` and `foo_gl.frag` as GLSL text and compiles them
-in the driver. Its error reporting is the best of the four:
-`Cannot open shader file: {path}` names the missing file,
+in the driver. Before that, the loader inlines every `#include` from
+`assets/shaders/include` (the runtime copy of the include folders), keeps
+`#version` first, drops the `GL_GOOGLE_include_directive` line and marks
+each file with `#line`, so driver errors name the include file and line.
+Its error reporting is the best of the four:
+`Cannot read shader {path}: {reason}` names the missing file or include,
 `Failed to read shader files: {vert} and {frag}` names both, and
 `Shader compilation failed: {log}` and `Shader program linking failed: {log}`
 forward the driver's own diagnostics.
@@ -258,7 +267,47 @@ not even name the file it wanted.
 
 ---
 
-## 7. Where to Look in the Source
+## 7. Shared Includes and FrameData
+
+Shared GLSL lives in `assets/shaders/include/<namespace>/`: `sleak/` for
+the engine, a game namespace (SleakCraft uses `craft/`) for game code.
+Vulkan resolves includes at compile time and OpenGL at load time, so the
+same file serves both. The engine library holds:
+
+| File | Contents |
+| :--- | :--- |
+| `sleak/binding.glsl` | Slot numbers, `SLEAK_BINDING(set, vkBinding, glBinding)` keyed on glslc's `VULKAN` macro, depth-range and UV/clip flip helpers |
+| `sleak/frame.glsl` | The `FrameData` block (`uFrame`), `SLEAK_FRAME_USER_BLOCK`, the Debug guards |
+| `sleak/shadow_light.glsl` | The full `ShadowLightUBO` block |
+
+Rules: a file that uses `#include` declares
+`#extension GL_GOOGLE_include_directive : require` right after `#version`;
+include files never contain `#version` or `#extension`, use
+`#ifndef SLEAK_*_GLSL` guards, and keep `#include` out of block comments.
+
+Per-frame data sits in descriptor set 2 on Vulkan and in uniform buffers
+11-15 on OpenGL:
+
+| Block | Vulkan | OpenGL | Contents |
+| :--- | :--- | :--- | :--- |
+| `ShadowLightUBO` | set 2, binding 0 | 14 | Primary light, shadow and fog |
+| `FrameData` | set 2, binding 1 | 11 | Clock, frame index, screen, jitter, camera and matrices, light, flags |
+| Game block | set 2, binding 2 | 12 | Up to 1 KiB set with `Application::SetFrameUserData` |
+| Cascades | set 2, binding 3 | 13 | Reserved, zero |
+| Atmosphere | set 2, binding 4 | 15 | Reserved, zero |
+
+`FrameData` is std140 and append-only. To add a field, append it to the C++
+struct in `ConstantBuffer.hpp` with its `static_assert`, append the member
+to `sleak/frame.glsl`, bump `FRAME_DATA_VERSION` and
+`SLEAK_FRAME_DATA_VERSION` together, and run `scripts/check_ubo_layout.py`.
+`uFrame.Time` is the engine clock (`Application::GetEngineTime`, frame / 60
+under `-capture`); `ShadowLightUBO.CameraPos.w` is a legacy copy of it.
+Debug builds set a guard flag: a fragment shader built against another
+`FrameData` version draws magenta, a vertex shader drops its geometry.
+
+---
+
+## 8. Where to Look in the Source
 
 | Question | File |
 | :--- | :--- |
@@ -268,3 +317,6 @@ not even name the file it wanted.
 | Sticky failure flags and draw suppression | `include/private/Graphics/Vulkan/VulkanRenderer.hpp`, `CustomFormatPipelines` |
 | OpenGL attribute binding from a layout | `src/Graphics/OpenGL/OpenGLRenderer.cpp`, `BindVertexBuffer` |
 | The layout description itself | `include/public/Runtime/VertexLayout.hpp` |
+| Include library | `assets/shaders/include/sleak/` |
+| OpenGL include resolver and log mapping | `src/Graphics/Common/ShaderIncludes.cpp` |
+| `FrameData` layout and fill | `include/private/Graphics/Common/ConstantBuffer.hpp`, `src/Graphics/Common/FrameData.cpp` |
