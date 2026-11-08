@@ -69,6 +69,17 @@ namespace Sleak {
                 };
             }
 
+            /// Backend factory building a texture from a desc and mip levels.
+            using TextureFromDescFunc = std::function<Texture*(
+                const TextureDesc&, const TextureMipLevel*, uint32_t)>;
+
+            /// Registers the backend factory behind Sleak::CreateTexture.
+            static void RegisterCreateTextureFromDesc(
+                TextureFromDescFunc func) {
+                std::lock_guard<std::mutex> lock(threadManager);
+                TextureFromDescCreateFunc = std::move(func);
+            }
+
             // Register a function for creating cubemap textures
             template <typename T>
             static void RegisterCreateCubemapTexture(T* instance, Texture* (T::*method)(const std::array<std::string, 6>&)) {
@@ -95,6 +106,11 @@ namespace Sleak {
             static Sleak::Texture* CreateTexture(const std::string& TexturePath);
             /// Creates a texture from raw pixel data via the currently registered backend factory.
             static Sleak::Texture* CreateTextureFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format, uint32_t maxMipLevels = 0);
+            /// Creates a texture from a desc and mip levels. Backends without a
+            /// desc factory get level 0 through the from-memory one.
+            static Sleak::Texture* CreateTextureFromDesc(
+                const TextureDesc& desc, const TextureMipLevel* levels,
+                uint32_t levelCount);
             /// Loads a cubemap from six face image paths via the currently registered backend factory.
             static Sleak::Texture* CreateCubemapTexture(const std::array<std::string, 6>& FacePaths);
             /// Loads a cubemap from a single equirectangular panorama via the currently registered backend factory.
@@ -106,6 +122,7 @@ namespace Sleak {
             static std::function<std::any(const std::string&)> ShaderCreateFunc;
             static std::function<std::any(const std::string&)> TextureCreateFunc;
             static std::function<std::any(const void*, uint32_t, uint32_t, TextureFormat, uint32_t)> TextureFromMemoryCreateFunc;
+            static TextureFromDescFunc TextureFromDescCreateFunc;
             static std::function<std::any(const std::array<std::string, 6>&)> CubemapTextureCreateFunc;
             static std::function<std::any(const std::string&)> CubemapPanoramaCreateFunc;
 
