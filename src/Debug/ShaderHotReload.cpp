@@ -6,12 +6,14 @@
 #include <Core/Logger.hpp>
 #include <Core/Timer.hpp>
 #include <Graphics/Common/Renderer.hpp>
+#include <Graphics/Common/ShaderIncludes.hpp>
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #ifdef PLATFORM_WIN
 #include <process.h>
@@ -36,10 +38,13 @@ constexpr const char* SPIRV_EXTENSION = ".spv";
 constexpr const char* TEMP_EXTENSION = ".tmp";
 constexpr std::string_view GL_SUFFIX = "_gl";
 constexpr std::string_view DX12_SUFFIX = "_dx12";
+constexpr std::string_view INCLUDE_EXTENSION = ".glsl";
 
 struct State {
     FileWatcher watcher;
     std::vector<fs::path> directories;
+    // <root>/include of every root that has one, in root order
+    std::vector<fs::path> includeRoots;
     std::set<fs::path> pending;
     Timer quietTimer;
 };
@@ -76,7 +81,30 @@ bool ReplaceWith(const fs::path& tmp, const fs::path& target) {
 /// True for shader sources the watcher reacts to.
 bool IsShaderSource(const fs::path& file) {
     const fs::path ext = file.extension();
-    return ext == ".vert" || ext == ".frag" || ext == ".hlsl";
+    return ext == ".vert" || ext == ".frag" || ext == ".hlsl" ||
+           ext == INCLUDE_EXTENSION;
+}
+
+/// True for #include libraries, which reach a backend only through the
+/// shaders that include them.
+bool IsShaderInclude(const fs::path& file) {
+    return file.extension() == INCLUDE_EXTENSION;
+}
+
+/// Index of the watched root a file lives under, or the root count.
+size_t RootIndexOf(const fs::path& file, const State& state) {
+    for (size_t i = 0; i < state.directories.size(); ++i) {
+        const fs::path rel = file.lexically_relative(state.directories[i]);
+        if (!rel.empty() && *rel.begin() != "..") return i;
+    }
+    return state.directories.size();
+}
+
+/// A file's path inside its root, e.g. include/sleak/frame.glsl.
+fs::path RelativeToRoot(const fs::path& file, const State& state) {
+    const size_t root = RootIndexOf(file, state);
+    if (root == state.directories.size()) return file.filename();
+    return file.lexically_relative(state.directories[root]);
 }
 
 /// True for GLSL that glslc compiles to SPIR-V for Vulkan.
@@ -127,29 +155,34 @@ std::string VariantFor(const std::string& stem,
     return stem;
 }
 
-/// True when a later source folder has a file with the same name.
+/// True when a later source folder has a file at the same relative path.
 bool IsOverridden(const fs::path& file, const State& state) {
-    const auto dir = std::find(state.directories.begin(),
-                               state.directories.end(), file.parent_path());
-    if (dir == state.directories.end()) return false;
-    for (auto later = dir + 1; later != state.directories.end(); ++later) {
+    const size_t root = RootIndexOf(file, state);
+    const fs::path rel = RelativeToRoot(file, state);
+    for (size_t later = root + 1; later < state.directories.size(); ++later) {
         std::error_code ec;
-        if (fs::exists(*later / file.filename(), ec)) return true;
+        if (fs::exists(state.directories[later] / rel, ec)) return true;
     }
     return false;
 }
 
-/// Compiles GLSL to SPIR-V next to the source. Keeps the old .spv on error.
-bool CompileSpirv(const fs::path& src, const fs::path& spv) {
+/// Compiles GLSL to SPIR-V next to the source, searching every include root.
+/// Keeps the old .spv on error.
+bool CompileSpirv(const fs::path& src, const fs::path& spv,
+                  const State& state) {
 #ifndef SLEAK_GLSLC_PATH
     (void)spv;
+    (void)state;
     SLEAK_WARN("Hot reload: glslc was not found at configure time, {} skipped",
                src.filename().string());
     return false;
 #else
     const fs::path tmp = TempPathFor(spv);
-    std::string cmd = "\"" SLEAK_GLSLC_PATH "\" \"" + src.string() +
-                      "\" -o \"" + tmp.string() + "\" 2>&1";
+    std::string includes;
+    for (const fs::path& root : state.includeRoots)
+        includes += " -I \"" + root.string() + "\"";
+    std::string cmd = "\"" SLEAK_GLSLC_PATH "\"" + includes + " \"" +
+                      src.string() + "\" -o \"" + tmp.string() + "\" 2>&1";
 #ifdef PLATFORM_WIN
     cmd = "\"" + cmd + "\"";
     FILE* pipe = _popen(cmd.c_str(), "r");
@@ -182,11 +215,14 @@ bool CompileSpirv(const fs::path& src, const fs::path& spv) {
 #endif
 }
 
-/// Copies a file into the runtime shader folder the backends load from.
-bool CopyToRuntime(const fs::path& file) {
-    const fs::path target = fs::path(RUNTIME_SHADER_DIR) / file.filename();
+/// Copies a file into the runtime shader folder the backends load from,
+/// keeping include/<namespace>/ subfolders.
+bool CopyToRuntime(const fs::path& file, const State& state) {
+    const fs::path target =
+        fs::path(RUNTIME_SHADER_DIR) / RelativeToRoot(file, state);
     const fs::path tmp = TempPathFor(target);
     std::error_code ec;
+    fs::create_directories(target.parent_path(), ec);
     fs::copy_file(file, tmp, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         SLEAK_ERROR("Hot reload: can't copy {}: {}", file.filename().string(),
@@ -210,10 +246,31 @@ std::string ProcessFile(const fs::path& file, const State& state) {
     if (IsVulkanSource(file)) {
         fs::path spv = file;
         spv += SPIRV_EXTENSION;
-        if (!CompileSpirv(file, spv) || !CopyToRuntime(spv)) return {};
+        if (!CompileSpirv(file, spv, state) || !CopyToRuntime(spv, state))
+            return {};
     }
-    if (!CopyToRuntime(file)) return {};
+    if (!CopyToRuntime(file, state)) return {};
+    if (IsShaderInclude(file)) return {};
     return StemOf(file);
+}
+
+/// Shader sources in every root that include the given library file.
+std::vector<fs::path> DependentsOf(const fs::path& include,
+                                   const State& state) {
+    std::vector<fs::path> dependents;
+    for (const fs::path& root : state.directories) {
+        std::error_code ec;
+        for (const fs::directory_entry& entry :
+             fs::directory_iterator(root, ec)) {
+            const fs::path& file = entry.path();
+            const fs::path ext = file.extension();
+            if (ext != ".vert" && ext != ".frag") continue;
+            if (RenderEngine::ShaderDependsOn(file, include,
+                                              state.includeRoots))
+                dependents.push_back(file);
+        }
+    }
+    return dependents;
 }
 
 }  // namespace
@@ -233,6 +290,15 @@ void ShaderHotReload::AddSourceDirectory(const std::string& dir) {
         return;
     if (!state.watcher.AddDirectory(path.string())) return;
     state.directories.push_back(path);
+    const fs::path includes = path / RenderEngine::SHADER_INCLUDE_DIR;
+    if (fs::is_directory(includes, ec)) {
+        state.includeRoots.push_back(includes);
+        for (const fs::directory_entry& entry :
+             fs::directory_iterator(includes, ec)) {
+            if (entry.is_directory(ec))
+                state.watcher.AddDirectory(entry.path().string());
+        }
+    }
     SLEAK_INFO("Hot reload: watching {}", path.string());
 #else
     (void)dir;
@@ -261,8 +327,29 @@ void ShaderHotReload::Poll() {
     const RenderEngine::RendererType active = renderer->GetType();
 
     Timer reloadTimer;
-    std::vector<std::string> stems;
+    std::set<fs::path> sources;
+    std::set<fs::path> dependents;
     for (const fs::path& file : state.pending) {
+        if (!IsShaderInclude(file)) {
+            sources.insert(file);
+            continue;
+        }
+        ProcessFile(file, state);
+        const std::vector<fs::path> users = DependentsOf(file, state);
+        if (users.empty())
+            SLEAK_INFO("Hot reload: no shader includes {}",
+                       file.filename().string());
+        dependents.insert(users.begin(), users.end());
+    }
+    std::vector<std::string> stems;
+    for (const fs::path& file : dependents) {
+        if (sources.contains(file)) continue;
+        std::string stem = ProcessFile(file, state);
+        if (stem.empty() || BackendOf(file) != active) continue;
+        if (std::find(stems.begin(), stems.end(), stem) == stems.end())
+            stems.push_back(std::move(stem));
+    }
+    for (const fs::path& file : sources) {
         std::string stem = ProcessFile(file, state);
         if (stem.empty()) continue;
         if (BackendOf(file) != active) {
