@@ -79,8 +79,11 @@ bool OpenGLTexture::LoadMipChain(const TextureDesc& desc,
     }
 
     if (m_texture != 0) {
-        glDeleteTextures(1, &m_texture);
-        m_texture = 0;
+        SLEAK_ERROR(
+            "OpenGLTexture: texture {} already has contents; create a new "
+            "texture instead",
+            m_texture);
+        return false;
     }
     m_width = desc.width;
     m_height = desc.height;

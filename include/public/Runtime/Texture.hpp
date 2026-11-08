@@ -98,8 +98,7 @@ inline uint32_t GetMipExtent(uint32_t size, uint32_t level) {
 ///
 /// Call Sleak::CreateTexture on the thread that drives the renderer. It
 /// copies the pixels before returning and takes either level 0 alone or
-/// every level of the resolved chain. A texture is filled once: loading new
-/// contents into a texture that is already in use is not supported.
+/// every level of the resolved chain.
 ///
 /// Filtering and wrap mode are set per texture, not per material, so
 /// change them on the object a material hands back. Reach for
@@ -151,16 +150,6 @@ public:
 
     /// Forces nearest magnification; minification and mips keep SetFilter.
     virtual void SetNearestMagnification(bool enabled) {}
-
-    /// Uploads levels [0, levelCount) and builds the rest of desc.mipLevels.
-    /// The default uploads level 0 through LoadFromMemory and ignores sRGB.
-    virtual bool LoadMipChain(const TextureDesc& desc,
-                              const TextureMipLevel* levels,
-                              uint32_t levelCount) {
-        if (!levels || levelCount == 0) return false;
-        return LoadFromMemory(levels[0].pixels, desc.width, desc.height,
-                              desc.format);
-    }
 
     /// True when the GPU decodes this texture from sRGB when sampling.
     virtual bool IsSRGB() const { return false; }

@@ -22,8 +22,9 @@ public:
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
     /// Uploads caller levels with one copy each, or level 0 plus blit mips.
+    /// Refilling replaces the image and gets fresh descriptor sets.
     bool LoadMipChain(const TextureDesc& desc, const TextureMipLevel* levels,
-                      uint32_t levelCount) override;
+                      uint32_t levelCount);
     /// Decodes an image file and uploads it as a new Vulkan image.
     bool LoadFromFile(const std::string& filePath) override;
 

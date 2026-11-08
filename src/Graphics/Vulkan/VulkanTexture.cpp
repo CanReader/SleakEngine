@@ -172,6 +172,7 @@ bool VulkanTexture::LoadMipChain(const TextureDesc& desc,
         stagingSize += levelBytes;
     }
 
+    const bool refill = !m_descriptorSets.empty();
     Cleanup();
 
     m_width = desc.width;
@@ -334,6 +335,16 @@ bool VulkanTexture::LoadMipChain(const TextureDesc& desc,
     if (!CreateImageView(vkFormat)) return false;
     if (!CreateSampler()) return false;
 
+    // A refill gets descriptor sets for the new image
+    if (refill && m_descriptorWriter) {
+        const DescriptorWriter writer = m_descriptorWriter;
+        writer(this);
+        if (m_descriptorSets.empty()) {
+            SLEAK_ERROR(
+                "VulkanTexture: refilled texture has no descriptor sets");
+            return false;
+        }
+    }
     return true;
 }
 
