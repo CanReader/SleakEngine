@@ -142,19 +142,20 @@ a texture from raw RGBA for atlases assembled at runtime. See
 
 `Sleak::CreateTexture` is the full-control version of the latter. Describe
 the texture with a `TextureDesc`: size, `RGBA8` or `BGRA8`, the `srgb` flag,
-and `mipLevels`, where 0 means the full chain down to 1x1. Then pass either
-level 0 alone, and the backend builds the other levels, or every level of the
-chain. Rows run top to bottom with no padding, and level `i` is
-`GetMipExtent(width, i)` by `GetMipExtent(height, i)` texels. The pixels are
-copied before the call returns, and the result is a `RefPtr<Texture>` that is
-null on bad input or failure. Call it on the thread that drives the renderer.
+and `mipLevels`, where 0, the default, means the full chain down to 1x1. Then
+pass either level 0 alone, and the backend builds the other levels, or every
+level of the chain. Rows run top to bottom with no padding, and level `i` is
+`GetMipExtent(width, i)` by `GetMipExtent(height, i)` texels. The pixel storage
+behind each `TextureMipLevel` must stay alive until `CreateTexture` returns;
+the texture keeps its own copy after that. The result is a `RefPtr<Texture>`
+that is null on bad input or failure. Call it on the thread that drives the
+renderer.
 
 ```cpp
 Sleak::TextureDesc desc;
 desc.width = 256;
 desc.height = 256;
-desc.mipLevels = 0;  // full chain
-desc.srgb = true;    // color data, sampled as linear
+desc.srgb = true;  // color data, sampled as linear
 
 // Level 0 alone: the backend generates the other mips
 const Sleak::TextureMipLevel base{pixels.data(), pixels.size()};
@@ -169,10 +170,12 @@ if (texture.IsValid()) material->SetDiffuseTexture(texture);
 ```
 
 Vulkan and OpenGL upload every supplied level as given and honour `srgb` and
-`mipLevels`. DirectX 11 and 12 take level 0, build their own mips, ignore
-`srgb`, and log a warning once. Filter, wrap mode and LOD bias still come from
-the texture's setters; `SetNearestMagnification(true)` keeps magnified texels
-sharp while `SetFilter` keeps driving minification and mips.
+`mipLevels`. DirectX 11 and 12 take level 0 only: they build their own full
+chain, ignore `mipLevels` and `srgb`, reject `BGRA8` through `CreateTexture`,
+and log a warning once. Filter, wrap mode and LOD bias still come from the
+texture's setters; `SetNearestMagnification(true)` keeps magnified texels
+sharp while `SetFilter` keeps driving minification and mips. DirectX ignores
+`SetNearestMagnification`.
 
 ---
 

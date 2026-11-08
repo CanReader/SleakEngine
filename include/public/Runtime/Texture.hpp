@@ -149,6 +149,7 @@ public:
     virtual float GetLodBias() const { return 0.0f; }
 
     /// Forces nearest magnification; minification and mips keep SetFilter.
+    /// DirectX 11 and 12 ignore it.
     virtual void SetNearestMagnification(bool enabled) {}
 
     /// True when the GPU decodes this texture from sRGB when sampling.
@@ -159,6 +160,7 @@ public:
 
 /// Creates a 2D texture from level 0 alone (the backend builds the other
 /// mips) or from every level; returns a null RefPtr on bad input or failure.
+/// DirectX takes RGBA8 only and ignores mipLevels, sRGB and levels past 0.
 ENGINE_API RefPtr<Texture> CreateTexture(const TextureDesc& desc,
                                          const TextureMipLevel* levels,
                                          uint32_t levelCount);
