@@ -209,6 +209,13 @@ class ENGINE_API Application {
     /// Seconds since the previous frame, a fixed 1/60 under -capture.
     float GetDeltaTime() const { return DeltaTime; }
 
+    /// Largest block SetFrameUserData accepts, in bytes.
+    static constexpr uint32_t MAX_FRAME_USER_DATA_BYTES = 1024;
+    /// Copies an opaque block game shaders read every frame (Vulkan set 2
+    /// binding 2, OpenGL uniform buffer 12); kept until the next call.
+    /// Returns false when it is larger than MAX_FRAME_USER_DATA_BYTES.
+    bool SetFrameUserData(const void* data, uint32_t size);
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     /// Stashes the new size; the resize is applied at the start of the next frame.

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "FrameDataBuilder.hpp"
 #include "RenderContext.hpp"
 
 namespace Sleak {
@@ -159,6 +160,11 @@ public:
     void SetShadowPassEnabled(bool enabled) { m_shadowPassEnabled = enabled; }
     bool IsShadowPassEnabled() const { return m_shadowPassEnabled; }
 
+    /// Keeps the game's opaque per-frame block; false when it is too large.
+    bool SetFrameUserData(const void* data, uint32_t size) {
+        return m_frameData.SetUserData(data, size);
+    }
+
     // VSync
     virtual void SetVSync(bool enabled) {
         if (enabled == m_vsync) return;
@@ -304,6 +310,9 @@ public:
 
     // Shadow pass
     bool m_shadowPassEnabled = false;
+
+    // FrameData contents, uploaded by the backends that read it
+    FrameDataBuilder m_frameData;
 
     // Post-process: Tonemapping
     // Disabled by default — game renders in sRGB space, not linear HDR.

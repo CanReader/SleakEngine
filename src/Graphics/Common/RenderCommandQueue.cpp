@@ -62,6 +62,8 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::ExecuteCommands(RenderContext* context) {
+            // Camera, lights and jitter are final for the frame by now
+            context->UploadFrameData();
 
             SortCommands();
             OptimizeBatching();

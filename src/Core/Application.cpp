@@ -500,6 +500,18 @@ namespace Sleak {
         renderer->SetPCSSEnabled(cfg.pcssEnabled);
     }
 
+    bool Application::SetFrameUserData(const void* data, uint32_t size) {
+        static_assert(MAX_FRAME_USER_DATA_BYTES ==
+                      RenderEngine::FRAME_USER_DATA_MAX_BYTES);
+        if (renderer && renderer->SetFrameUserData(data, size)) return true;
+        static bool warned = false;
+        if (!warned)
+            SLEAK_ERROR("SetFrameUserData: {} bytes rejected (limit {})", size,
+                        MAX_FRAME_USER_DATA_BYTES);
+        warned = true;
+        return false;
+    }
+
     const GraphicsConfig& Application::GetGraphicsConfig() const {
         return m_graphicsConfig;
     }

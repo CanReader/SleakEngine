@@ -6,6 +6,7 @@
 #include <Core/Window.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/ConstantBuffer.hpp>
+#include <Graphics/Common/FrameDataBuilder.hpp>
 #include <Graphics/Common/RenderContext.hpp>
 #include <Graphics/Common/Renderer.hpp>
 #include <Graphics/Common/ResourceManager.hpp>
@@ -451,14 +452,7 @@ void LightManager::UpdateDeferredCB() {
     // Screen size from Window static state
     cb.ScreenWidth  = static_cast<float>(app->GetWindow().GetWidth());
     cb.ScreenHeight = static_cast<float>(app->GetWindow().GetHeight());
-    cb.NearPlane    = 0.1f;
-    cb.FarPlane     = 2000.0f;
-    if (auto* game = app->GetGame(); game && game->GetActiveScene()) {
-        if (auto* cam = game->GetActiveScene()->GetActiveCamera()) {
-            cb.NearPlane = cam->GetNearPlane();
-            cb.FarPlane = cam->GetFarPlane();
-        }
-    }
+    RenderEngine::GetMainCameraPlanes(cb.NearPlane, cb.FarPlane);
 
     ctx->UpdateDeferredCB(&cb, sizeof(cb));
 }
