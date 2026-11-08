@@ -374,6 +374,18 @@ void VulkanTexture::SetLodBias(float bias) {
     }
 }
 
+/// Forces nearest magnification; minification and mips keep SetFilter.
+void VulkanTexture::SetNearestMagnification(bool enabled) {
+    if (enabled == m_nearestMagnification) return;
+    m_nearestMagnification = enabled;
+    if (m_sampler != VK_NULL_HANDLE) {
+        vkDestroySampler(m_device, m_sampler, nullptr);
+        m_sampler = VK_NULL_HANDLE;
+        CreateSampler();
+        UpdateDescriptorSets();
+    }
+}
+
 void VulkanTexture::UpdateDescriptorSets() {
     if (m_descriptorSets.empty() || m_imageView == VK_NULL_HANDLE || m_sampler == VK_NULL_HANDLE)
         return;
@@ -645,6 +657,7 @@ bool VulkanTexture::CreateSampler() {
         default:
             break;
     }
+    if (m_nearestMagnification) magFilter = VK_FILTER_NEAREST;
 
     // Never exceed the device's anisotropy limit.
     maxAnisotropy = std::min(maxAnisotropy, deviceMaxAniso);

@@ -185,6 +185,20 @@ void OpenGLTexture::SetFilter(TextureFilter filter) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             break;
     }
+    if (m_nearestMagnification)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+/// Forces nearest magnification; minification and mips keep SetFilter.
+void OpenGLTexture::SetNearestMagnification(bool enabled) {
+    if (enabled == m_nearestMagnification) return;
+    m_nearestMagnification = enabled;
+    if (m_texture == 0) return;
+    const bool nearest = enabled || m_filter == TextureFilter::Nearest;
+    glBindTexture(GL_TEXTURE_2D, m_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                    nearest ? GL_NEAREST : GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 

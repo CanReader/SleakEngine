@@ -30,6 +30,8 @@ public:
     void SetWrapMode(TextureWrapMode wrapMode) override;
     void SetLodBias(float bias) override;
     float GetLodBias() const override { return m_lodBias; }
+    /// Forces nearest magnification; minification and mips keep SetFilter.
+    void SetNearestMagnification(bool enabled) override;
 
     uint32_t GetWidth() const override { return m_width; }
     uint32_t GetHeight() const override { return m_height; }
@@ -50,6 +52,7 @@ private:
     bool m_srgb = false;
     TextureFilter m_filter = TextureFilter::Linear;
     float m_lodBias = 0.0f;
+    bool m_nearestMagnification = false;
 };
 
 }  // namespace RenderEngine

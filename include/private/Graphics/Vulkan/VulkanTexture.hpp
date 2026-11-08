@@ -31,6 +31,8 @@ public:
     void SetWrapMode(TextureWrapMode wrapMode) override;
     void SetLodBias(float bias) override;
     float GetLodBias() const override { return m_lodBias; }
+    /// Forces nearest magnification; minification and mips keep SetFilter.
+    void SetNearestMagnification(bool enabled) override;
 
     // Cap generated mip levels (0 = full chain). Set before Load*; used to
     // stop atlas tiles bleeding into each other at distant mips.
@@ -105,6 +107,7 @@ public:
     TextureFilter m_filter = TextureFilter::Linear;
     TextureWrapMode m_wrapMode = TextureWrapMode::Repeat;
     float m_lodBias = 0.0f;
+    bool m_nearestMagnification = false;
     uint32_t m_mipLevels = 1;      // actual generated levels
     uint32_t m_maxMipLevels = 0;   // 0 = full chain; else clamp
 };

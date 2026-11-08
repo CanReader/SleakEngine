@@ -149,6 +149,9 @@ public:
     virtual void SetLodBias(float bias) {}
     virtual float GetLodBias() const { return 0.0f; }
 
+    /// Forces nearest magnification; minification and mips keep SetFilter.
+    virtual void SetNearestMagnification(bool enabled) {}
+
     /// Uploads levels [0, levelCount) and builds the rest of desc.mipLevels.
     /// The default uploads level 0 through LoadFromMemory and ignores sRGB.
     virtual bool LoadMipChain(const TextureDesc& desc,
