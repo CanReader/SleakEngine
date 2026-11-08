@@ -100,12 +100,19 @@ namespace Sleak {
             }
 
             // Fallback: level 0 plus the backend's own mips
+            if (desc.format == TextureFormat::BGRA8) {
+                SLEAK_ERROR(
+                    "CreateTexture: this backend takes RGBA8 only; convert "
+                    "BGRA8 pixels before the call");
+                return nullptr;
+            }
             static bool warned = false;
             if (!warned) {
                 warned = true;
                 SLEAK_WARN(
                     "CreateTexture: this backend has no mip-chain upload; "
-                    "using level 0 and backend mips, sRGB ignored");
+                    "using level 0 and backend mips, mip count and sRGB "
+                    "ignored");
             }
             std::any result = TextureFromMemoryCreateFunc(
                 levels[0].pixels, desc.width, desc.height, desc.format,
