@@ -32,6 +32,19 @@ VkFormat ToVkFormat(TextureFormat format, bool srgb) {
     return srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
 }
 
+/// Warns once per format that textures of it keep level 0 only.
+void WarnNoBlitMips(VkFormat format) {
+    static std::mutex mutex;
+    static std::vector<VkFormat> warned;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (std::find(warned.begin(), warned.end(), format) != warned.end()) return;
+    warned.push_back(format);
+    SLEAK_WARN(
+        "VulkanTexture: format {} cannot blit mips; its textures keep level 0 "
+        "only",
+        static_cast<int>(format));
+}
+
 /// GPU objects of a destroyed texture, kept until no submitted frame can
 /// still reference them.
 struct ReleasedTexture {
@@ -189,8 +202,10 @@ bool VulkanTexture::LoadMipChain(const TextureDesc& desc,
         vkGetPhysicalDeviceFormatProperties(m_physicalDevice, vkFormat,
                                             &fmtProps);
         if ((fmtProps.optimalTilingFeatures & MIP_BLIT_FEATURES) !=
-            MIP_BLIT_FEATURES)
+            MIP_BLIT_FEATURES) {
+            WarnNoBlitMips(vkFormat);
             mipLevels = 1;
+        }
     }
     m_mipLevels = mipLevels;
 
