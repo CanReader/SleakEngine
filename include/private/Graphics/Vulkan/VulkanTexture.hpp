@@ -83,8 +83,8 @@ public:
     /// outlive any frame still in flight.
     void Cleanup();
     /// Swaps in a sampler built from the current state and retires the old
-    /// sampler and its descriptor sets once no frame in flight uses them.
-    void RecreateSampler();
+    /// one once no frame uses it; false keeps the previous sampler.
+    bool RecreateSampler();
 
     /// Finds a physical device memory type matching the filter and required properties.
     uint32_t FindMemoryType(uint32_t typeFilter,

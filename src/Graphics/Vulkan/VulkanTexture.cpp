@@ -390,27 +390,27 @@ void VulkanTexture::Unbind() const {
 
 void VulkanTexture::SetFilter(TextureFilter filter) {
     if (filter == m_filter) return;
-    m_filter = filter;
-    RecreateSampler();
+    const TextureFilter previous = std::exchange(m_filter, filter);
+    if (!RecreateSampler()) m_filter = previous;
 }
 
 void VulkanTexture::SetWrapMode(TextureWrapMode wrapMode) {
     if (wrapMode == m_wrapMode) return;
-    m_wrapMode = wrapMode;
-    RecreateSampler();
+    const TextureWrapMode previous = std::exchange(m_wrapMode, wrapMode);
+    if (!RecreateSampler()) m_wrapMode = previous;
 }
 
 void VulkanTexture::SetLodBias(float bias) {
     if (bias == m_lodBias) return;
-    m_lodBias = bias;
-    RecreateSampler();
+    const float previous = std::exchange(m_lodBias, bias);
+    if (!RecreateSampler()) m_lodBias = previous;
 }
 
 /// Forces nearest magnification; minification and mips keep SetFilter.
 void VulkanTexture::SetNearestMagnification(bool enabled) {
     if (enabled == m_nearestMagnification) return;
     m_nearestMagnification = enabled;
-    RecreateSampler();
+    if (!RecreateSampler()) m_nearestMagnification = !enabled;
 }
 
 /// Sets how the texture replaces its descriptor sets after a change.
@@ -419,13 +419,13 @@ void VulkanTexture::SetDescriptorWriter(DescriptorWriter writer) {
 }
 
 /// Swaps in a sampler built from the current state and retires the old
-/// sampler and its descriptor sets once no frame in flight uses them.
-void VulkanTexture::RecreateSampler() {
-    if (m_sampler == VK_NULL_HANDLE) return;
+/// one once no frame uses it; false keeps the previous sampler.
+bool VulkanTexture::RecreateSampler() {
+    if (m_sampler == VK_NULL_HANDLE) return true;
     const VkSampler oldSampler = std::exchange(m_sampler, VK_NULL_HANDLE);
     if (!CreateSampler()) {
         m_sampler = oldSampler;
-        return;
+        return false;
     }
 
     // Fresh descriptor sets; SetDescriptorSets retires the old ones
@@ -441,7 +441,7 @@ void VulkanTexture::RecreateSampler() {
                 "previous sampler");
             vkDestroySampler(m_device, m_sampler, nullptr);
             m_sampler = oldSampler;
-            return;
+            return false;
         }
     }
 
@@ -450,6 +450,7 @@ void VulkanTexture::RecreateSampler() {
     entry.sampler = oldSampler;
     entry.imguiSet = std::exchange(m_imguiDescriptorSet, VK_NULL_HANDLE);
     Retire(std::move(entry));
+    return true;
 }
 
 uint64_t VulkanTexture::GetImGuiTextureID() const {
