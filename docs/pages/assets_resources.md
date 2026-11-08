@@ -140,6 +140,40 @@ and returns a UI-bindable id, and `Sleak::UI::CreateTextureFromPixels` builds
 a texture from raw RGBA for atlases assembled at runtime. See
 @ref ui_system.
 
+`Sleak::CreateTexture` is the full-control version of the latter. Describe
+the texture with a `TextureDesc`: size, `RGBA8` or `BGRA8`, the `srgb` flag,
+and `mipLevels`, where 0 means the full chain down to 1x1. Then pass either
+level 0 alone, and the backend builds the other levels, or every level of the
+chain. Rows run top to bottom with no padding, and level `i` is
+`GetMipExtent(width, i)` by `GetMipExtent(height, i)` texels. The pixels are
+copied before the call returns, and the result is a `RefPtr<Texture>` that is
+null on bad input or failure. Call it on the thread that drives the renderer.
+
+```cpp
+Sleak::TextureDesc desc;
+desc.width = 256;
+desc.height = 256;
+desc.mipLevels = 0;  // full chain
+desc.srgb = true;    // color data, sampled as linear
+
+// Level 0 alone: the backend generates the other mips
+const Sleak::TextureMipLevel base{pixels.data(), pixels.size()};
+Sleak::RefPtr<Sleak::Texture> texture = Sleak::CreateTexture(desc, &base, 1);
+
+// Or every level, built by your own filter
+std::vector<Sleak::TextureMipLevel> chain = BuildMyMips(pixels, desc);
+texture = Sleak::CreateTexture(desc, chain.data(),
+                               static_cast<uint32_t>(chain.size()));
+
+if (texture.IsValid()) material->SetDiffuseTexture(texture);
+```
+
+Vulkan and OpenGL upload every supplied level as given and honour `srgb` and
+`mipLevels`. DirectX 11 and 12 take level 0, build their own mips, ignore
+`srgb`, and log a warning once. Filter, wrap mode and LOD bias still come from
+the texture's setters; `SetNearestMagnification(true)` keeps magnified texels
+sharp while `SetFilter` keeps driving minification and mips.
+
 ---
 
 ## 4. Materials
