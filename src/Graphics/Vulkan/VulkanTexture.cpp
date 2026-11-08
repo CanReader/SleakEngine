@@ -1,6 +1,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 
 #include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
 #include <stb_image.h>
 
 #include <Core/Logger.hpp>
@@ -37,6 +38,7 @@ struct ReleasedTexture {
     VkDevice device = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> sets;
+    VkDescriptorSet imguiSet = VK_NULL_HANDLE;
     VkSampler sampler = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkImage image = VK_NULL_HANDLE;
@@ -48,6 +50,12 @@ std::mutex g_releaseMutex;
 std::vector<ReleasedTexture> g_released;
 uint64_t g_releaseSerial = 1;
 
+/// True while the ImGui Vulkan backend can still free its descriptor sets.
+bool ImGuiVulkanAlive() {
+    return ImGui::GetCurrentContext() != nullptr &&
+           ImGui::GetIO().BackendRendererUserData != nullptr;
+}
+
 /// Frees a released texture's descriptor sets and destroys its objects.
 void DestroyReleasedTexture(ReleasedTexture& entry) {
     if (entry.pool != VK_NULL_HANDLE && !entry.sets.empty()) {
@@ -55,10 +63,20 @@ void DestroyReleasedTexture(ReleasedTexture& entry) {
                              static_cast<uint32_t>(entry.sets.size()),
                              entry.sets.data());
     }
+    // Freed with its pool once the ImGui backend shut down
+    if (entry.imguiSet != VK_NULL_HANDLE && ImGuiVulkanAlive())
+        ImGui_ImplVulkan_RemoveTexture(entry.imguiSet);
     if (entry.sampler) vkDestroySampler(entry.device, entry.sampler, nullptr);
     if (entry.view) vkDestroyImageView(entry.device, entry.view, nullptr);
     if (entry.image) vkDestroyImage(entry.device, entry.image, nullptr);
     if (entry.memory) vkFreeMemory(entry.device, entry.memory, nullptr);
+}
+
+/// Queues objects for destruction once the frames that may use them finish.
+void Retire(ReleasedTexture entry) {
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    entry.serial = g_releaseSerial;
+    g_released.push_back(std::move(entry));
 }
 
 }  // namespace
@@ -345,68 +363,67 @@ void VulkanTexture::Unbind() const {
 }
 
 void VulkanTexture::SetFilter(TextureFilter filter) {
+    if (filter == m_filter) return;
     m_filter = filter;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    RecreateSampler();
 }
 
 void VulkanTexture::SetWrapMode(TextureWrapMode wrapMode) {
+    if (wrapMode == m_wrapMode) return;
     m_wrapMode = wrapMode;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    RecreateSampler();
 }
 
 void VulkanTexture::SetLodBias(float bias) {
+    if (bias == m_lodBias) return;
     m_lodBias = bias;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    RecreateSampler();
 }
 
 /// Forces nearest magnification; minification and mips keep SetFilter.
 void VulkanTexture::SetNearestMagnification(bool enabled) {
     if (enabled == m_nearestMagnification) return;
     m_nearestMagnification = enabled;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    RecreateSampler();
 }
 
-void VulkanTexture::UpdateDescriptorSets() {
-    if (m_descriptorSets.empty() || m_imageView == VK_NULL_HANDLE || m_sampler == VK_NULL_HANDLE)
+/// Sets how the texture replaces its descriptor sets after a change.
+void VulkanTexture::SetDescriptorWriter(DescriptorWriter writer) {
+    m_descriptorWriter = std::move(writer);
+}
+
+/// Swaps in a sampler built from the current state and retires the old
+/// sampler and its descriptor sets once no frame in flight uses them.
+void VulkanTexture::RecreateSampler() {
+    if (m_sampler == VK_NULL_HANDLE) return;
+    const VkSampler oldSampler = std::exchange(m_sampler, VK_NULL_HANDLE);
+    if (!CreateSampler()) {
+        m_sampler = oldSampler;
         return;
-
-    for (auto& set : m_descriptorSets) {
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = m_imageView;
-        imageInfo.sampler = m_sampler;
-
-        VkWriteDescriptorSet descriptorWrite{};
-        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = set;
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pImageInfo = &imageInfo;
-
-        vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
     }
+
+    // Fresh descriptor sets; SetDescriptorSets retires the old ones
+    const std::vector<VkDescriptorSet> oldSets = m_descriptorSets;
+    if (!oldSets.empty()) {
+        if (m_descriptorWriter) {
+            const DescriptorWriter writer = m_descriptorWriter;
+            writer(this);
+        }
+        if (m_descriptorSets == oldSets) {
+            SLEAK_ERROR(
+                "VulkanTexture: descriptor sets not replaced; keeping the "
+                "previous sampler");
+            vkDestroySampler(m_device, m_sampler, nullptr);
+            m_sampler = oldSampler;
+            return;
+        }
+    }
+
+    ReleasedTexture entry;
+    entry.device = m_device;
+    entry.sampler = oldSampler;
+    entry.imguiSet = std::exchange(m_imguiDescriptorSet, VK_NULL_HANDLE);
+    Retire(std::move(entry));
 }
 
 uint64_t VulkanTexture::GetImGuiTextureID() const {
@@ -426,9 +443,7 @@ void VulkanTexture::SetDescriptorSets(std::vector<VkDescriptorSet> sets,
         entry.device = m_device;
         entry.pool = m_descriptorPool;
         entry.sets = std::move(m_descriptorSets);
-        std::lock_guard<std::mutex> lock(g_releaseMutex);
-        entry.serial = g_releaseSerial;
-        g_released.push_back(std::move(entry));
+        Retire(std::move(entry));
     }
     m_descriptorSets = std::move(sets);
     m_descriptorPool = pool;
@@ -439,29 +454,24 @@ void VulkanTexture::SetDescriptorSets(std::vector<VkDescriptorSet> sets,
 void VulkanTexture::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
-    if (m_imguiDescriptorSet != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(m_imguiDescriptorSet);
-        m_imguiDescriptorSet = VK_NULL_HANDLE;
-    }
     if (m_descriptorSets.empty() && m_sampler == VK_NULL_HANDLE &&
         m_imageView == VK_NULL_HANDLE && m_image == VK_NULL_HANDLE &&
-        m_imageMemory == VK_NULL_HANDLE)
+        m_imageMemory == VK_NULL_HANDLE &&
+        m_imguiDescriptorSet == VK_NULL_HANDLE)
         return;
 
     ReleasedTexture entry;
     entry.device = m_device;
     entry.pool = m_descriptorPool;
     entry.sets = std::move(m_descriptorSets);
+    entry.imguiSet = std::exchange(m_imguiDescriptorSet, VK_NULL_HANDLE);
     entry.sampler = std::exchange(m_sampler, VK_NULL_HANDLE);
     entry.view = std::exchange(m_imageView, VK_NULL_HANDLE);
     entry.image = std::exchange(m_image, VK_NULL_HANDLE);
     entry.memory = std::exchange(m_imageMemory, VK_NULL_HANDLE);
     m_descriptorSets.clear();
     m_descriptorPool = VK_NULL_HANDLE;
-
-    std::lock_guard<std::mutex> lock(g_releaseMutex);
-    entry.serial = g_releaseSerial;
-    g_released.push_back(std::move(entry));
+    Retire(std::move(entry));
 }
 
 uint32_t VulkanTexture::FindMemoryType(

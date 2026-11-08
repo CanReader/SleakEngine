@@ -236,6 +236,9 @@ void VulkanRenderer::WriteTextureDescriptors(VulkanTexture* texture) {
     }
 
     texture->SetDescriptorSets(std::move(sets), descriptorPool);
+    if (!texture->HasDescriptorWriter())
+        texture->SetDescriptorWriter(
+            [this](VulkanTexture* target) { WriteTextureDescriptors(target); });
 }
 
 /// Initializes ImGui and its Vulkan backend against the active render pass.

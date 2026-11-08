@@ -1,9 +1,12 @@
 #ifndef VULKANTEXTURE_HPP_
 #define VULKANTEXTURE_HPP_
 
+#include <vulkan/vulkan.h>
+
 #include <Core/OSDef.hpp>
 #include <Runtime/Texture.hpp>
-#include <vulkan/vulkan.h>
+#include <functional>
+#include <vector>
 
 namespace Sleak {
 namespace RenderEngine {
@@ -57,6 +60,15 @@ public:
     const std::vector<VkDescriptorSet>& GetDescriptorSets() const { return m_descriptorSets; }
     bool HasDescriptorSets() const { return !m_descriptorSets.empty(); }
 
+    /// Allocates and writes fresh descriptor sets for a texture.
+    using DescriptorWriter = std::function<void(VulkanTexture*)>;
+    /// Sets how the texture replaces its descriptor sets after a change.
+    void SetDescriptorWriter(DescriptorWriter writer);
+    /// True once the renderer has registered a descriptor writer.
+    bool HasDescriptorWriter() const {
+        return static_cast<bool>(m_descriptorWriter);
+    }
+
     /// Stamps textures released from now on with the serial of the next
     /// frame submission, the last one that may still reference them.
     static void SetReleaseSerial(uint64_t serial);
@@ -69,8 +81,9 @@ public:
     /// Hands the descriptor sets and GPU objects to the release queue so they
     /// outlive any frame still in flight.
     void Cleanup();
-    /// Writes this texture's image view/sampler into each of its per-frame descriptor sets.
-    void UpdateDescriptorSets();
+    /// Swaps in a sampler built from the current state and retires the old
+    /// sampler and its descriptor sets once no frame in flight uses them.
+    void RecreateSampler();
 
     /// Finds a physical device memory type matching the filter and required properties.
     uint32_t FindMemoryType(uint32_t typeFilter,
@@ -98,6 +111,7 @@ public:
 
     std::vector<VkDescriptorSet> m_descriptorSets;
     VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    DescriptorWriter m_descriptorWriter;
     mutable VkDescriptorSet m_imguiDescriptorSet = VK_NULL_HANDLE;
 
     uint32_t m_width = 0;
