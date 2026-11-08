@@ -18,6 +18,9 @@ public:
     /// Uploads raw pixel data through a staging buffer and generates mips.
     bool LoadFromMemory(const void* data, uint32_t width, uint32_t height,
                         TextureFormat format) override;
+    /// Uploads caller levels with one copy each, or level 0 plus blit mips.
+    bool LoadMipChain(const TextureDesc& desc, const TextureMipLevel* levels,
+                      uint32_t levelCount) override;
     /// Decodes an image file and uploads it as a new Vulkan image.
     bool LoadFromFile(const std::string& filePath) override;
 
@@ -37,6 +40,8 @@ public:
     uint32_t GetHeight() const override { return m_height; }
     TextureFormat GetFormat() const override { return m_format; }
     TextureType GetType() const override { return TextureType::Texture2D; }
+    /// True when the image view is an sRGB format.
+    bool IsSRGB() const override { return m_srgb; }
 
     uint64_t GetImGuiTextureID() const override;
 
@@ -96,6 +101,7 @@ public:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
     TextureFormat m_format = TextureFormat::RGBA8;
+    bool m_srgb = false;
     TextureFilter m_filter = TextureFilter::Linear;
     TextureWrapMode m_wrapMode = TextureWrapMode::Repeat;
     float m_lodBias = 0.0f;
