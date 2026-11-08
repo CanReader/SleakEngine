@@ -68,6 +68,18 @@ VulkanRenderer::VulkanRenderer(Window* window)
             delete tex;
             return nullptr;
         });
+    ResourceManager::RegisterCreateTextureFromDesc(
+        [this](const TextureDesc& desc, const TextureMipLevel* levels,
+               uint32_t levelCount) -> ::Sleak::Texture* {
+            auto* tex = new VulkanTexture(device, physicalDevice, commands,
+                                          graphicsQueue);
+            if (tex->LoadMipChain(desc, levels, levelCount)) {
+                WriteTextureDescriptors(tex);
+                return tex;
+            }
+            delete tex;
+            return nullptr;
+        });
 }
 
 /// Calls Cleanup() to tear down all Vulkan resources.

@@ -97,9 +97,11 @@ ENGINE_API uint64_t LoadTextureForUI(const std::string& filePath, float* outWidt
 ENGINE_API void ShutdownTextureCache();  // engine calls at teardown
 
 /// Create a texture from raw RGBA pixel data (for runtime atlas building etc.).
+/// Prefer Sleak::CreateTexture for control over format, sRGB and mips.
 ENGINE_API Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const void* rgbaPixels, uint32_t maxMipLevels = 0);
 
-/// Load image file into RGBA pixels (caller must free with FreeImagePixels).
+/// Loads an image file into RGBA8 pixels, rows top to bottom (caller must
+/// free with FreeImagePixels).
 ENGINE_API unsigned char* LoadImagePixels(const char* path, int* w, int* h);
 ENGINE_API void FreeImagePixels(unsigned char* pixels);
 

@@ -315,6 +315,7 @@ Sleak::Texture* CreateTextureFromPixels(uint32_t width, uint32_t height, const v
 
 unsigned char* LoadImagePixels(const char* path, int* w, int* h) {
     int channels;
+    stbi_set_flip_vertically_on_load(false);
     return stbi_load(path, w, h, &channels, 4); // force RGBA
 }
 

@@ -1,6 +1,7 @@
 #include "../../include/private/Graphics/Vulkan/VulkanTexture.hpp"
 
 #include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
 #include <stb_image.h>
 
 #include <Core/Logger.hpp>
@@ -11,10 +12,38 @@
 #include <utility>
 #include <vector>
 
+/// Bytes per texel of the RGBA8 family.
+#define RGBA8_TEXEL_BYTES 4
+
 namespace Sleak {
 namespace RenderEngine {
 
 namespace {
+
+/// Format features a blit-built mip chain needs.
+constexpr VkFormatFeatureFlags MIP_BLIT_FEATURES =
+    VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+    VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+
+/// Vulkan format of an RGBA8-family texture, sRGB or UNORM.
+VkFormat ToVkFormat(TextureFormat format, bool srgb) {
+    if (format == TextureFormat::BGRA8)
+        return srgb ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
+    return srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+}
+
+/// Warns once per format that textures of it keep level 0 only.
+void WarnNoBlitMips(VkFormat format) {
+    static std::mutex mutex;
+    static std::vector<VkFormat> warned;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (std::find(warned.begin(), warned.end(), format) != warned.end()) return;
+    warned.push_back(format);
+    SLEAK_WARN(
+        "VulkanTexture: format {} cannot blit mips; its textures keep level 0 "
+        "only",
+        static_cast<int>(format));
+}
 
 /// GPU objects of a destroyed texture, kept until no submitted frame can
 /// still reference them.
@@ -22,6 +51,7 @@ struct ReleasedTexture {
     VkDevice device = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> sets;
+    VkDescriptorSet imguiSet = VK_NULL_HANDLE;
     VkSampler sampler = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkImage image = VK_NULL_HANDLE;
@@ -33,6 +63,12 @@ std::mutex g_releaseMutex;
 std::vector<ReleasedTexture> g_released;
 uint64_t g_releaseSerial = 1;
 
+/// True while the ImGui Vulkan backend can still free its descriptor sets.
+bool ImGuiVulkanAlive() {
+    return ImGui::GetCurrentContext() != nullptr &&
+           ImGui::GetIO().BackendRendererUserData != nullptr;
+}
+
 /// Frees a released texture's descriptor sets and destroys its objects.
 void DestroyReleasedTexture(ReleasedTexture& entry) {
     if (entry.pool != VK_NULL_HANDLE && !entry.sets.empty()) {
@@ -40,10 +76,20 @@ void DestroyReleasedTexture(ReleasedTexture& entry) {
                              static_cast<uint32_t>(entry.sets.size()),
                              entry.sets.data());
     }
+    // Freed with its pool once the ImGui backend shut down
+    if (entry.imguiSet != VK_NULL_HANDLE && ImGuiVulkanAlive())
+        ImGui_ImplVulkan_RemoveTexture(entry.imguiSet);
     if (entry.sampler) vkDestroySampler(entry.device, entry.sampler, nullptr);
     if (entry.view) vkDestroyImageView(entry.device, entry.view, nullptr);
     if (entry.image) vkDestroyImage(entry.device, entry.image, nullptr);
     if (entry.memory) vkFreeMemory(entry.device, entry.memory, nullptr);
+}
+
+/// Queues objects for destruction once the frames that may use them finish.
+void Retire(ReleasedTexture entry) {
+    std::lock_guard<std::mutex> lock(g_releaseMutex);
+    entry.serial = g_releaseSerial;
+    g_released.push_back(std::move(entry));
 }
 
 }  // namespace
@@ -87,27 +133,95 @@ VulkanTexture::~VulkanTexture() {
 }
 
 bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
-                                    uint32_t height, TextureFormat format) {
+                                   uint32_t height, TextureFormat format) {
     if (!data || width == 0 || height == 0) return false;
 
+    // Non-BGRA8 formats upload as RGBA8
+    TextureDesc desc;
+    desc.width = width;
+    desc.height = height;
+    desc.format = format == TextureFormat::BGRA8 ? TextureFormat::BGRA8
+                                                 : TextureFormat::RGBA8;
+    const uint32_t fullCount = GetFullMipCount(width, height);
+    desc.mipLevels =
+        m_maxMipLevels > 0 ? std::min(m_maxMipLevels, fullCount) : fullCount;
+    const TextureMipLevel level0{
+        data, static_cast<size_t>(width) * height * RGBA8_TEXEL_BYTES};
+    const bool loaded = LoadMipChain(desc, &level0, 1);
+    m_format = format;
+    return loaded;
+}
+
+/// Uploads caller levels with one copy each, or level 0 plus blit mips.
+bool VulkanTexture::LoadMipChain(const TextureDesc& desc,
+                                 const TextureMipLevel* levels,
+                                 uint32_t levelCount) {
+    if (!levels || desc.width == 0 || desc.height == 0 || desc.mipLevels == 0 ||
+        desc.mipLevels > GetFullMipCount(desc.width, desc.height) ||
+        (levelCount != 1 && levelCount != desc.mipLevels)) {
+        SLEAK_ERROR("VulkanTexture: bad mip chain ({} of {} levels, {}x{})",
+                    levels ? levelCount : 0u, desc.mipLevels, desc.width,
+                    desc.height);
+        return false;
+    }
+
+    // Staging layout: supplied levels back to back, tightly packed
+    std::vector<VkBufferImageCopy> regions(levelCount);
+    VkDeviceSize stagingSize = 0;
+    for (uint32_t i = 0; i < levelCount; ++i) {
+        VkBufferImageCopy& region = regions[i];
+        region.bufferOffset = stagingSize;
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i, 0, 1};
+        region.imageExtent = {GetMipExtent(desc.width, i),
+                              GetMipExtent(desc.height, i), 1};
+        const VkDeviceSize levelBytes =
+            static_cast<VkDeviceSize>(region.imageExtent.width) *
+            region.imageExtent.height * RGBA8_TEXEL_BYTES;
+        if (!levels[i].pixels || levels[i].sizeBytes != levelBytes) {
+            SLEAK_ERROR("VulkanTexture: mip {} has {} bytes, expected {}", i,
+                        levels[i].pixels ? levels[i].sizeBytes : 0, levelBytes);
+            return false;
+        }
+        stagingSize += levelBytes;
+    }
+
+    const bool refill = !m_descriptorSets.empty();
     Cleanup();
 
-    m_width = width;
-    m_height = height;
-    m_format = format;
+    m_width = desc.width;
+    m_height = desc.height;
+    m_format = desc.format;
+    m_srgb = desc.srgb;
 
-    VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * 4;
+    const VkFormat vkFormat = ToVkFormat(desc.format, desc.srgb);
+    uint32_t mipLevels = desc.mipLevels;
 
-    // 1. Create staging buffer
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
+    // Level 0 only when the format cannot blit mips
+    if (levelCount == 1 && mipLevels > 1) {
+        VkFormatProperties fmtProps{};
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, vkFormat,
+                                            &fmtProps);
+        if ((fmtProps.optimalTilingFeatures & MIP_BLIT_FEATURES) !=
+            MIP_BLIT_FEATURES) {
+            WarnNoBlitMips(vkFormat);
+            mipLevels = 1;
+        }
+    }
+    m_mipLevels = mipLevels;
+
+    // Staging buffer
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    auto destroyStaging = [&]() {
+        if (stagingBuffer) vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        if (stagingMemory) vkFreeMemory(m_device, stagingMemory, nullptr);
+    };
 
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = imageSize;
+    bufferInfo.size = stagingSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
     if (vkCreateBuffer(m_device, &bufferInfo, nullptr, &stagingBuffer) !=
         VK_SUCCESS) {
         SLEAK_ERROR("VulkanTexture: Failed to create staging buffer");
@@ -123,59 +237,49 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
     allocInfo.memoryTypeIndex = FindMemoryType(
         memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory) !=
         VK_SUCCESS) {
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         SLEAK_ERROR("VulkanTexture: Failed to allocate staging memory");
+        destroyStaging();
         return false;
     }
 
-    vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
-
-    // 2. Copy pixel data to staging buffer
-    void* mapped;
-    vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &mapped);
-    memcpy(mapped, data, static_cast<size_t>(imageSize));
+    void* mapped = nullptr;
+    if (vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0) !=
+            VK_SUCCESS ||
+        vkMapMemory(m_device, stagingMemory, 0, stagingSize, 0, &mapped) !=
+            VK_SUCCESS) {
+        SLEAK_ERROR("VulkanTexture: Failed to map staging memory");
+        destroyStaging();
+        return false;
+    }
+    for (uint32_t i = 0; i < levelCount; ++i)
+        memcpy(static_cast<uint8_t*>(mapped) + regions[i].bufferOffset,
+               levels[i].pixels, levels[i].sizeBytes);
     vkUnmapMemory(m_device, stagingMemory);
 
-    // 3. Create VkImage with a full mip chain
-    VkFormat vkFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    if (format == TextureFormat::BGRA8)
-        vkFormat = VK_FORMAT_B8G8R8A8_UNORM;
-
-    uint32_t maxDim = std::max(width, height);
-    uint32_t mipLevels =
-        static_cast<uint32_t>(std::floor(std::log2(maxDim))) + 1u;
-    if (m_maxMipLevels > 0 && m_maxMipLevels < mipLevels)
-        mipLevels = m_maxMipLevels;
-
-    // Linear-blit support is required to downsample; else fall back to 1 level.
-    VkFormatProperties fmtProps{};
-    vkGetPhysicalDeviceFormatProperties(m_physicalDevice, vkFormat, &fmtProps);
-    if (!(fmtProps.optimalTilingFeatures &
-          VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
-        mipLevels = 1;
-    m_mipLevels = mipLevels;
-
-    if (!CreateImage(width, height, vkFormat,
+    if (!CreateImage(desc.width, desc.height, vkFormat,
                      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                          VK_IMAGE_USAGE_SAMPLED_BIT,
                      mipLevels)) {
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingMemory, nullptr);
+        destroyStaging();
         return false;
     }
 
-    // 4. Single command buffer: barrier all mips -> DST, copy mip0, gen mips.
+    // Upload: all mips to DST, copy, then blit or go to SHADER_READ
     VkCommandBufferAllocateInfo cmdAllocInfo{};
     cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmdAllocInfo.commandPool = m_commandPool;
     cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdAllocInfo.commandBufferCount = 1;
-    VkCommandBuffer cmdBuffer;
-    vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer);
+    VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(m_device, &cmdAllocInfo, &cmdBuffer) !=
+        VK_SUCCESS) {
+        SLEAK_ERROR("VulkanTexture: Failed to allocate upload commands");
+        destroyStaging();
+        return false;
+    }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -200,27 +304,20 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                          nullptr, 1, &toDst);
 
-    VkBufferImageCopy region{};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = {width, height, 1};
     vkCmdCopyBufferToImage(cmdBuffer, stagingBuffer, m_image,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, levelCount,
+                           regions.data());
 
-    if (mipLevels > 1) {
-        GenerateMipmaps(cmdBuffer, static_cast<int32_t>(width),
-                        static_cast<int32_t>(height));
+    if (mipLevels > levelCount) {
+        GenerateMipmaps(cmdBuffer, static_cast<int32_t>(desc.width),
+                        static_cast<int32_t>(desc.height));
     } else {
-        // Single level: mip0 DST -> SHADER_READ
+        // All levels copied: DST -> SHADER_READ
         VkImageMemoryBarrier toRead = toDst;
         toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        toRead.subresourceRange.levelCount = 1;
         vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
                              nullptr, 0, nullptr, 1, &toRead);
@@ -234,21 +331,35 @@ bool VulkanTexture::LoadFromMemory(const void* data, uint32_t width,
     submitInfo.pCommandBuffers = &cmdBuffer;
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence uploadFence;
-    vkCreateFence(m_device, &fenceInfo, nullptr, &uploadFence);
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, uploadFence);
-    vkWaitForFences(m_device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(m_device, uploadFence, nullptr);
+    VkFence uploadFence = VK_NULL_HANDLE;
+    bool uploaded = vkCreateFence(m_device, &fenceInfo, nullptr,
+                                  &uploadFence) == VK_SUCCESS;
+    uploaded = uploaded && vkQueueSubmit(m_graphicsQueue, 1, &submitInfo,
+                                         uploadFence) == VK_SUCCESS;
+    uploaded = uploaded && vkWaitForFences(m_device, 1, &uploadFence, VK_TRUE,
+                                           UINT64_MAX) == VK_SUCCESS;
+    if (uploadFence) vkDestroyFence(m_device, uploadFence, nullptr);
     vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuffer);
+    destroyStaging();
+    if (!uploaded) {
+        SLEAK_ERROR("VulkanTexture: Failed to submit the texture upload");
+        return false;
+    }
 
-    // 5. Cleanup staging resources
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
-
-    // 6. Create image view and sampler
+    // View over every level, then sampler
     if (!CreateImageView(vkFormat)) return false;
     if (!CreateSampler()) return false;
 
+    // A refill gets descriptor sets for the new image
+    if (refill && m_descriptorWriter) {
+        const DescriptorWriter writer = m_descriptorWriter;
+        writer(this);
+        if (m_descriptorSets.empty()) {
+            SLEAK_ERROR(
+                "VulkanTexture: refilled texture has no descriptor sets");
+            return false;
+        }
+    }
     return true;
 }
 
@@ -278,56 +389,68 @@ void VulkanTexture::Unbind() const {
 }
 
 void VulkanTexture::SetFilter(TextureFilter filter) {
-    m_filter = filter;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    if (filter == m_filter) return;
+    const TextureFilter previous = std::exchange(m_filter, filter);
+    if (!RecreateSampler()) m_filter = previous;
 }
 
 void VulkanTexture::SetWrapMode(TextureWrapMode wrapMode) {
-    m_wrapMode = wrapMode;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    if (wrapMode == m_wrapMode) return;
+    const TextureWrapMode previous = std::exchange(m_wrapMode, wrapMode);
+    if (!RecreateSampler()) m_wrapMode = previous;
 }
 
 void VulkanTexture::SetLodBias(float bias) {
-    m_lodBias = bias;
-    if (m_sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(m_device, m_sampler, nullptr);
-        m_sampler = VK_NULL_HANDLE;
-        CreateSampler();
-        UpdateDescriptorSets();
-    }
+    if (bias == m_lodBias) return;
+    const float previous = std::exchange(m_lodBias, bias);
+    if (!RecreateSampler()) m_lodBias = previous;
 }
 
-void VulkanTexture::UpdateDescriptorSets() {
-    if (m_descriptorSets.empty() || m_imageView == VK_NULL_HANDLE || m_sampler == VK_NULL_HANDLE)
-        return;
+/// Forces nearest magnification; minification and mips keep SetFilter.
+void VulkanTexture::SetNearestMagnification(bool enabled) {
+    if (enabled == m_nearestMagnification) return;
+    m_nearestMagnification = enabled;
+    if (!RecreateSampler()) m_nearestMagnification = !enabled;
+}
 
-    for (auto& set : m_descriptorSets) {
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = m_imageView;
-        imageInfo.sampler = m_sampler;
+/// Sets how the texture replaces its descriptor sets after a change.
+void VulkanTexture::SetDescriptorWriter(DescriptorWriter writer) {
+    m_descriptorWriter = std::move(writer);
+}
 
-        VkWriteDescriptorSet descriptorWrite{};
-        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = set;
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pImageInfo = &imageInfo;
-
-        vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+/// Swaps in a sampler built from the current state and retires the old
+/// one once no frame uses it; false keeps the previous sampler.
+bool VulkanTexture::RecreateSampler() {
+    if (m_sampler == VK_NULL_HANDLE) return true;
+    const VkSampler oldSampler = std::exchange(m_sampler, VK_NULL_HANDLE);
+    if (!CreateSampler()) {
+        m_sampler = oldSampler;
+        return false;
     }
+
+    // Fresh descriptor sets; SetDescriptorSets retires the old ones
+    const std::vector<VkDescriptorSet> oldSets = m_descriptorSets;
+    if (!oldSets.empty()) {
+        if (m_descriptorWriter) {
+            const DescriptorWriter writer = m_descriptorWriter;
+            writer(this);
+        }
+        if (m_descriptorSets == oldSets) {
+            SLEAK_ERROR(
+                "VulkanTexture: descriptor sets not replaced; keeping the "
+                "previous sampler");
+            vkDestroySampler(m_device, m_sampler, nullptr);
+            m_sampler = oldSampler;
+            return false;
+        }
+    }
+
+    ReleasedTexture entry;
+    entry.device = m_device;
+    entry.sampler = oldSampler;
+    entry.imguiSet = std::exchange(m_imguiDescriptorSet, VK_NULL_HANDLE);
+    Retire(std::move(entry));
+    return true;
 }
 
 uint64_t VulkanTexture::GetImGuiTextureID() const {
@@ -347,9 +470,7 @@ void VulkanTexture::SetDescriptorSets(std::vector<VkDescriptorSet> sets,
         entry.device = m_device;
         entry.pool = m_descriptorPool;
         entry.sets = std::move(m_descriptorSets);
-        std::lock_guard<std::mutex> lock(g_releaseMutex);
-        entry.serial = g_releaseSerial;
-        g_released.push_back(std::move(entry));
+        Retire(std::move(entry));
     }
     m_descriptorSets = std::move(sets);
     m_descriptorPool = pool;
@@ -360,29 +481,24 @@ void VulkanTexture::SetDescriptorSets(std::vector<VkDescriptorSet> sets,
 void VulkanTexture::Cleanup() {
     if (m_device == VK_NULL_HANDLE) return;
 
-    if (m_imguiDescriptorSet != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(m_imguiDescriptorSet);
-        m_imguiDescriptorSet = VK_NULL_HANDLE;
-    }
     if (m_descriptorSets.empty() && m_sampler == VK_NULL_HANDLE &&
         m_imageView == VK_NULL_HANDLE && m_image == VK_NULL_HANDLE &&
-        m_imageMemory == VK_NULL_HANDLE)
+        m_imageMemory == VK_NULL_HANDLE &&
+        m_imguiDescriptorSet == VK_NULL_HANDLE)
         return;
 
     ReleasedTexture entry;
     entry.device = m_device;
     entry.pool = m_descriptorPool;
     entry.sets = std::move(m_descriptorSets);
+    entry.imguiSet = std::exchange(m_imguiDescriptorSet, VK_NULL_HANDLE);
     entry.sampler = std::exchange(m_sampler, VK_NULL_HANDLE);
     entry.view = std::exchange(m_imageView, VK_NULL_HANDLE);
     entry.image = std::exchange(m_image, VK_NULL_HANDLE);
     entry.memory = std::exchange(m_imageMemory, VK_NULL_HANDLE);
     m_descriptorSets.clear();
     m_descriptorPool = VK_NULL_HANDLE;
-
-    std::lock_guard<std::mutex> lock(g_releaseMutex);
-    entry.serial = g_releaseSerial;
-    g_released.push_back(std::move(entry));
+    Retire(std::move(entry));
 }
 
 uint32_t VulkanTexture::FindMemoryType(
@@ -578,6 +694,7 @@ bool VulkanTexture::CreateSampler() {
         default:
             break;
     }
+    if (m_nearestMagnification) magFilter = VK_FILTER_NEAREST;
 
     // Never exceed the device's anisotropy limit.
     maxAnisotropy = std::min(maxAnisotropy, deviceMaxAniso);

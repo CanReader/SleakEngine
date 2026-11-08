@@ -1,8 +1,11 @@
 #ifndef _TEXTURE_H_
 #define _TEXTURE_H_
 
-#include <string>
+#include <Core/OSDef.hpp>
+#include <Memory/RefPtr.hpp>
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace Sleak {
 /// Pixel layout a Texture's data is stored/uploaded in.
@@ -48,13 +51,54 @@ enum class TextureWrapMode {
     MirrorClampToEdge,
 };
 
-/// Backend-agnostic GPU texture interface; each renderer backend supplies its own implementation.
+/// Size, pixel format, color space and mip count of a texture built from
+/// caller pixels with CreateTexture().
+/// @ingroup rendering
+struct TextureDesc {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    /// RGBA8 or BGRA8; other formats are rejected.
+    TextureFormat format = TextureFormat::RGBA8;
+    /// Store as sRGB so sampling returns linear color.
+    bool srgb = false;
+    /// Total levels; 0, the default, means the full chain down to 1x1.
+    uint32_t mipLevels = 0;
+};
+
+/// Pixels of one mip level, rows top to bottom with no row padding.
+/// @ingroup rendering
+struct TextureMipLevel {
+    const void* pixels = nullptr;
+    size_t sizeBytes = 0;
+};
+
+/// Level count of a full mip chain for a width x height image.
+inline uint32_t GetFullMipCount(uint32_t width, uint32_t height) {
+    uint32_t levels = 1;
+    for (uint32_t size = width > height ? width : height; size > 1; size >>= 1)
+        ++levels;
+    return levels;
+}
+
+/// Edge length of a mip level, never below one texel.
+inline uint32_t GetMipExtent(uint32_t size, uint32_t level) {
+    for (uint32_t i = 0; i < level && size > 1; ++i) size >>= 1;
+    return size > 0 ? size : 1;
+}
+
+/// Backend-agnostic GPU texture interface; each renderer backend supplies its
+/// own implementation.
 ///
 /// You rarely construct one directly. Materials create and own their
 /// textures when you call a `Set...Texture(path)` setter, ModelLoader
-/// creates them while importing, and Sleak::UI::CreateTextureFromPixels
-/// makes one from raw pixel data for UI use. The concrete type is whatever
-/// the active backend provides, which is why every method here is virtual.
+/// creates them while importing, and Sleak::CreateTexture makes one from
+/// caller pixels with an explicit format, sRGB flag and mip chain. The
+/// concrete type is whatever the active backend provides, which is why
+/// every method here is virtual.
+///
+/// Call Sleak::CreateTexture on the thread that drives the renderer. It
+/// copies the pixels before returning and takes either level 0 alone or
+/// every level of the resolved chain.
 ///
 /// Filtering and wrap mode are set per texture, not per material, so
 /// change them on the object a material hands back. Reach for
@@ -104,8 +148,22 @@ public:
     virtual void SetLodBias(float bias) {}
     virtual float GetLodBias() const { return 0.0f; }
 
+    /// Forces nearest magnification; minification and mips keep SetFilter.
+    /// DirectX 11 and 12 ignore it.
+    virtual void SetNearestMagnification(bool enabled) {}
+
+    /// True when the GPU decodes this texture from sRGB when sampling.
+    virtual bool IsSRGB() const { return false; }
+
     virtual uint64_t GetImGuiTextureID() const { return 0; }
 };
+
+/// Creates a 2D texture from level 0 alone (the backend builds the other
+/// mips) or from every level; returns a null RefPtr on bad input or failure.
+/// DirectX takes RGBA8 only and ignores mipLevels, sRGB and levels past 0.
+ENGINE_API RefPtr<Texture> CreateTexture(const TextureDesc& desc,
+                                         const TextureMipLevel* levels,
+                                         uint32_t levelCount);
 
 } // namespace Sleak
 
