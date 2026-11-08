@@ -4,7 +4,7 @@
 
 /// Bytes per texel of the RGBA8 family.
 #define RGBA8_TEXEL_BYTES 4
-/// Upper bound on stale GL errors drained before an upload.
+/// Upper bound on pending GL errors drained before an upload.
 #define GL_ERROR_DRAIN_LIMIT 64
 
 namespace Sleak {
@@ -12,10 +12,15 @@ namespace RenderEngine {
 
 namespace {
 
-/// Drops stale GL errors so the next check reports only new ones.
-void ClearGLErrors() {
-    for (int i = 0; i < GL_ERROR_DRAIN_LIMIT; ++i)
-        if (glGetError() == GL_NO_ERROR) return;
+/// Logs and clears errors raised before an upload so its own check sees
+/// only new ones.
+void LogPendingGLErrors() {
+    for (int i = 0; i < GL_ERROR_DRAIN_LIMIT; ++i) {
+        const GLenum error = glGetError();
+        if (error == GL_NO_ERROR) return;
+        SLEAK_WARN("OpenGLTexture: GL error 0x{:X} was pending before upload",
+                   error);
+    }
 }
 
 }  // namespace
@@ -93,7 +98,7 @@ bool OpenGLTexture::LoadMipChain(const TextureDesc& desc,
     const GLenum internalFormat = desc.srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
     const GLenum pixelFormat =
         desc.format == TextureFormat::BGRA8 ? GL_BGRA : GL_RGBA;
-    ClearGLErrors();
+    LogPendingGLErrors();
 
     glCreateTextures(GL_TEXTURE_2D, 1, &m_texture);
     glTextureStorage2D(m_texture, static_cast<GLsizei>(desc.mipLevels),
