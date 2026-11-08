@@ -112,9 +112,9 @@ void main() {
             ssaoRadius / max(abs(fragViewZ - actualViewZ), 1e-4));
 
         // Occluded when real geometry at this UV is closer to camera than
-        // the sampled hemisphere point. "Closer to camera" is the larger
-        // (less-negative in GL) view-space Z.
-        occlusion += (actualViewZ >= sampleViewZ + ssaoBias ? 1.0 : 0.0)
+        // the sampled hemisphere point. The engine view is left-handed
+        // (+Z forward), so closer means the smaller view-space Z.
+        occlusion += (actualViewZ <= sampleViewZ - ssaoBias ? 1.0 : 0.0)
                    * rangeCheck;
     }
 

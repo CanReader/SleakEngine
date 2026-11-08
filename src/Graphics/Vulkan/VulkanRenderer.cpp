@@ -372,6 +372,7 @@ void VulkanRenderer::BeginRender() {
         BeginGpuPass(GpuPass::GBuffer);
         vkCmdBeginRenderPass(command, &gbufferPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline);
+        m_activeCustomFormat = 0;  // stale across render passes
 
         // Set viewport and scissor
         VkViewport viewport{};

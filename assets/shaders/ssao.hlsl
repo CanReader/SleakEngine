@@ -105,7 +105,7 @@ float4 PS_Main(VS_OUTPUT input) : SV_Target
         // Range check and accumulate
         float rangeCheck = smoothstep(0.0, 1.0,
             ssaoRadius / abs(fragPos.z - sampleViewPos.z));
-        occlusion += (sampleViewPos.z >= samplePos.z + ssaoBias ? 1.0 : 0.0)
+        occlusion += (sampleViewPos.z <= samplePos.z - ssaoBias ? 1.0 : 0.0)
                    * rangeCheck;
     }
 

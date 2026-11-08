@@ -110,10 +110,9 @@ void main() {
         float rangeCheck = smoothstep(0.0, 1.0,
             Radius / max(abs(viewPos.z - sampleViewZ), 0.0001));
 
-        // In view space the camera looks down -Z — "closer to the camera"
-        // means a LESS negative Z (i.e. larger value). The occluder blocks
-        // the sample when sampleViewZ >= samplePos.z + bias.
-        occlusion += (sampleViewZ >= samplePos.z + Bias ? 1.0 : 0.0) * rangeCheck;
+        // The engine view is left-handed (+Z forward), so geometry closer to
+        // the camera than the sample point has the smaller view Z.
+        occlusion += (sampleViewZ <= samplePos.z - Bias ? 1.0 : 0.0) * rangeCheck;
     }
 
     float ao = 1.0 - (occlusion / float(kSize)) * Intensity;
