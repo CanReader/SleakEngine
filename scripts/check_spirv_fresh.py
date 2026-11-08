@@ -4,7 +4,8 @@
 A shader counts as edited when its own source or any file it #includes
 (glslc -M) is in --changed. An edited shader passes if its .spv is also in
 --changed, or if it compiles to the same SPIR-V at --base and --head, so
-comment-only edits need no new binary.
+comment-only edits need no new binary. A shader glslc cannot compile at
+either tree is reported on its own, with glslc's messages.
 """
 
 import argparse
@@ -23,23 +24,37 @@ def include_flags(root, includes):
     return flags
 
 
-def dependencies(glslc, root, includes, src):
+class GlslcError(Exception):
+    """glslc failed on a shader in one tree; carries what it printed."""
+
+    def __init__(self, src, tree, output):
+        super().__init__(f"cannot compile {src} at {tree}")
+        self.src = src
+        self.tree = tree
+        self.output = output.strip()
+
+
+def run_glslc(cmd, src, tree):
+    """Runs glslc; stdout, or GlslcError with its messages on failure."""
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise GlslcError(src, tree, result.stderr or result.stdout)
+    return result.stdout
+
+
+def dependencies(glslc, root, includes, src, tree):
     """Tree-relative paths of the source and everything it includes."""
-    out = subprocess.run(
-        [glslc, "-M"] + include_flags(root, includes) + [str(root / src)],
-        check=True, capture_output=True, text=True).stdout
+    out = run_glslc([glslc, "-M"] + include_flags(root, includes) +
+                    [str(root / src)], src, tree)
     deps = out.split(":", 1)[1].replace("\\\n", " ").split()
     real_root = os.path.realpath(root)
     return {os.path.relpath(os.path.realpath(d), real_root) for d in deps}
 
 
-def compile_spirv(glslc, root, includes, src, out):
-    """Compiles one shader; False when it does not compile."""
-    result = subprocess.run(
-        [glslc] + include_flags(root, includes) + [str(root / src), "-o",
-                                                   str(out)],
-        capture_output=True, text=True)
-    return result.returncode == 0
+def compile_spirv(glslc, root, includes, src, out, tree):
+    """Compiles one shader to out."""
+    run_glslc([glslc] + include_flags(root, includes) +
+              [str(root / src), "-o", str(out)], src, tree)
 
 
 def main():
@@ -58,29 +73,40 @@ def main():
                      for p in shader_dir.glob(ext)
                      if not p.stem.endswith("_gl"))
     stale = []
+    broken = []
     with tempfile.TemporaryDirectory() as tmp:
+        base_spv = pathlib.Path(tmp) / "base.spv"
+        head_spv = pathlib.Path(tmp) / "head.spv"
         for path in sources:
             src = f"{args.shaders}/{path.name}"
             if f"{src}.spv" in changed:
                 continue
-            deps = dependencies(args.glslc, args.head, args.include, src)
-            if not deps & changed:
+            try:
+                deps = dependencies(args.glslc, args.head, args.include, src,
+                                    "head")
+                if not deps & changed:
+                    continue
+                if not (args.base / src).is_file():
+                    stale.append(src)
+                    continue
+                compile_spirv(args.glslc, args.head, args.include, src,
+                              head_spv, "head")
+                compile_spirv(args.glslc, args.base, args.include, src,
+                              base_spv, "base")
+            except GlslcError as error:
+                broken.append(error)
                 continue
-            base_spv = pathlib.Path(tmp) / "base.spv"
-            head_spv = pathlib.Path(tmp) / "head.spv"
-            same = ((args.base / src).is_file() and
-                    compile_spirv(args.glslc, args.base, args.include, src,
-                                  base_spv) and
-                    compile_spirv(args.glslc, args.head, args.include, src,
-                                  head_spv) and
-                    base_spv.read_bytes() == head_spv.read_bytes())
-            if not same:
+            if base_spv.read_bytes() != head_spv.read_bytes():
                 stale.append(src)
+    for error in broken:
+        hint = "fix it" if error.tree == "head" else (
+            f"so it cannot be compared, commit a fresh {error.src}.spv")
+        print(f"{error} ({hint}):\n{error.output}")
     for src in stale:
         print(f"{src} or an include it uses changed but {src}.spv did not. "
               f"Recompile it with glslc -I <include dirs> (SleakCraft: "
               f"scripts/compile_shaders.sh) and commit the .spv")
-    return 1 if stale else 0
+    return 1 if stale or broken else 0
 
 
 if __name__ == "__main__":
