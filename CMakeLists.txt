@@ -166,6 +166,7 @@ set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanDeferred.cpp
     src/Graphics/Vulkan/VulkanDescriptors.cpp
     src/Graphics/Vulkan/VulkanDevice.cpp
+    src/Graphics/Vulkan/VulkanFrameData.cpp
     src/Graphics/Vulkan/VulkanIBL.cpp
     src/Graphics/Vulkan/VulkanPipelines.cpp
     src/Graphics/Vulkan/VulkanProfiler.cpp

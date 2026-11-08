@@ -50,18 +50,23 @@ bool VulkanRenderer::CreateDescriptorSetLayout() {
                                      &boneDescriptorSetLayout) != VK_SUCCESS)
         SLEAK_RETURN_ERR("Failed to create bone descriptor set layout!");
 
-    // Set 2: light/shadow UBO
-    VkDescriptorSetLayoutBinding lightUBOBinding{};
-    lightUBOBinding.binding = 0;
-    lightUBOBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    lightUBOBinding.descriptorCount = 1;
-    lightUBOBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    lightUBOBinding.pImmutableSamplers = nullptr;
+    // Set 2: light UBO, FrameData, game block, cascades, atmosphere
+    std::array<VkDescriptorSetLayoutBinding, SET2_BINDING_COUNT>
+        frameBindings{};
+    for (uint32_t b = 0; b < SET2_BINDING_COUNT; ++b) {
+        frameBindings[b].binding = b;
+        frameBindings[b].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        frameBindings[b].descriptorCount = 1;
+        frameBindings[b].stageFlags =
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        frameBindings[b].pImmutableSamplers = nullptr;
+    }
 
     VkDescriptorSetLayoutCreateInfo lightUBOLayoutInfo{};
     lightUBOLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    lightUBOLayoutInfo.bindingCount = 1;
-    lightUBOLayoutInfo.pBindings = &lightUBOBinding;
+    lightUBOLayoutInfo.bindingCount =
+        static_cast<uint32_t>(frameBindings.size());
+    lightUBOLayoutInfo.pBindings = frameBindings.data();
 
     if (vkCreateDescriptorSetLayout(device, &lightUBOLayoutInfo, nullptr,
                                      &m_lightUBODescriptorSetLayout) != VK_SUCCESS)

@@ -463,7 +463,7 @@ bool VulkanRenderer::CreateShadowLightUBOResources() {
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet = m_lightUBODescriptorSets[i];
-        write.dstBinding = 0;
+        write.dstBinding = SET2_LIGHT_BINDING;
         write.dstArrayElement = 0;
         write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         write.descriptorCount = 1;
@@ -471,6 +471,10 @@ bool VulkanRenderer::CreateShadowLightUBOResources() {
 
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
+
+    // FrameData, game block, cascades, atmosphere (set 2 bindings 1-4)
+    if (!CreateFrameDataResources()) return false;
+    WriteFrameDataDescriptors();
 
     // Allocate shadow sampler descriptor sets (set 3)
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> samplerLayouts;
@@ -577,6 +581,8 @@ void VulkanRenderer::CleanupShadowResources() {
         m_lightUBOCreated = false;
     }
 
+    CleanupFrameDataResources();
+
     if (m_lightUBODescriptorPool) {
         vkDestroyDescriptorPool(device, m_lightUBODescriptorPool, nullptr);
         m_lightUBODescriptorPool = VK_NULL_HANDLE;
@@ -601,7 +607,10 @@ void VulkanRenderer::EndShadowPass() {
 /// is replaced by the matrix the shadow map was rendered with, since the map
 /// is recorded in BeginRender before the caller stages a newer one.
 void VulkanRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
-    if (!m_lightUBOCreated || !data) return;
+    if (!data) return;
+    if (size >= sizeof(ShadowLightUBO))
+        m_frameData.SetLight(*static_cast<const ShadowLightUBO*>(data));
+    if (!m_lightUBOCreated) return;
     uint32_t copySize = std::min(size, static_cast<uint32_t>(sizeof(ShadowLightUBO)));
     memcpy(m_lightUBOMapped[currentFrame], data, copySize);
 

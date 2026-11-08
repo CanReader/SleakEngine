@@ -333,6 +333,12 @@ void VulkanRenderer::BeginRender() {
         // non-skinned casters, otherwise vkCmdDrawIndexed fires VUID-vkCmdDrawIndexed-None-08600.
         // Bind the bone UBO once at pass start so all shadow draws (skinned or static) are legal.
         BindIdentityBonePalette(pipelineLay);
+        // Set 2 for shadow shaders that read FrameData (filled before submit)
+        if (m_lightUBOCreated)
+            vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLay, FRAME_SET, 1,
+                                    &m_lightUBODescriptorSets[currentFrame], 0,
+                                    nullptr);
 
         VkViewport shadowViewport{};
         shadowViewport.x = 0.0f;

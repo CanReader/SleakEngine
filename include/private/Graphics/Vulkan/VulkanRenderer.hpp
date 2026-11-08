@@ -200,6 +200,8 @@ public:
     // Light UBO update (called by LightManager)
     /// Copies light and shadow data into the current frame's mapped UBO.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
+    /// Writes this frame's FrameData and game block into set 2 bindings 1-2.
+    void UploadFrameData() override;
     /// Stages the light view-projection matrix for commit at the next BeginRender.
     void SetLightVP(const float* lightVP) override;
 
@@ -311,6 +313,12 @@ private:
  bool CreateShadowPipeline();
  /// Creates the per-frame light and shadow UBO buffers and descriptor sets.
  bool CreateShadowLightUBOResources();
+ /// Creates the per-frame buffers behind set 2 bindings 1-4, zero-filled.
+ bool CreateFrameDataResources();
+ /// Points set 2 bindings 1-4 of every frame at that frame's ranges.
+ void WriteFrameDataDescriptors();
+ /// Destroys the buffers CreateFrameDataResources made.
+ void CleanupFrameDataResources();
  /// Destroys the shadow map image, pipeline, render pass, and light UBO
  /// resources.
  void CleanupShadowResources();
@@ -633,6 +641,16 @@ private:
  float m_shadowMapLightVP[16] = {};
  bool m_shadowMapRendered = false;
 
+ // Set 2 bindings: light UBO, FrameData, game block, cascades, atmosphere
+ // (sleak/binding.glsl SLEAK_*_VK)
+ static constexpr uint32_t FRAME_SET = 2;
+ static constexpr uint32_t SET2_LIGHT_BINDING = 0;
+ static constexpr uint32_t SET2_FRAME_BINDING = 1;
+ static constexpr uint32_t SET2_USER_BINDING = 2;
+ static constexpr uint32_t SET2_CASCADE_BINDING = 3;
+ static constexpr uint32_t SET2_ATMOSPHERE_BINDING = 4;
+ static constexpr uint32_t SET2_BINDING_COUNT = SET2_ATMOSPHERE_BINDING + 1;
+
  // Light/Shadow UBO (set 2, binding 0)
  VkDescriptorSetLayout m_lightUBODescriptorSetLayout = VK_NULL_HANDLE;
  VkDescriptorPool m_lightUBODescriptorPool = VK_NULL_HANDLE;
@@ -648,6 +666,15 @@ private:
  std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>
      m_shadowSamplerDescriptorSets = {};
  bool m_lightUBOCreated = false;
+
+ // FrameData, game block, cascades, atmosphere (set 2 bindings 1-4): one
+ // buffer per frame in flight, split into ranges indexed by binding
+ std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_frameUBOBuffers = {};
+ std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_frameUBOMemory = {};
+ std::array<void*, MAX_FRAMES_IN_FLIGHT> m_frameUBOMapped = {};
+ std::array<VkDeviceSize, SET2_BINDING_COUNT> m_frameUBOOffsets = {};
+ std::array<VkDeviceSize, SET2_BINDING_COUNT> m_frameUBORanges = {};
+ VkDeviceSize m_frameUBOSize = 0;
 
  // Async buffer transfer (zero-CPU-blocking GPU uploads)
  std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_transferSemaphores = {};
@@ -1162,8 +1189,9 @@ private:
     static constexpr uint32_t SET3_SAMPLER_COUNT = SET3_BINDING_COUNT - 1;
     static constexpr uint32_t SCENE_READ_IMAGE_COUNT =
         SCENE_UBO_BINDING - SCENE_COLOR_BINDING;
-    // Light pool uniform buffers per frame: set 2 light UBO, set 3 SceneReadUBO
-    static constexpr uint32_t LIGHT_POOL_UBOS_PER_FRAME = 2;
+    // Light pool uniform buffers per frame: all of set 2 plus SceneReadUBO
+    static constexpr uint32_t LIGHT_POOL_UBOS_PER_FRAME =
+        SET2_BINDING_COUNT + 1;
     // Snapshots of the HDR scene and depth taken mid forward pass
     VkImage m_sceneColorCopyImage = VK_NULL_HANDLE;
     VkDeviceMemory m_sceneColorCopyMemory = VK_NULL_HANDLE;
