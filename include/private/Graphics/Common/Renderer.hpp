@@ -232,6 +232,7 @@ public:
         m_gbufferAlbedoSRGB = enabled;
         m_gbufferFormatChangeRequested = true;
     }
+    /// True while GBuffer albedo is stored sRGB-encoded.
     bool IsGBufferAlbedoSRGB() const { return m_gbufferAlbedoSRGB; }
 
     // Post-process: SSAO
