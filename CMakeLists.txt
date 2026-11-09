@@ -41,8 +41,6 @@ option(SLEAK_ENGINE_INSTALL "Generate install and package export rules"
 # --- Vendor build options ---
 set(SDL_TEST OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(FREEGLUT_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-set(FREEGLUT_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(YAML_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
@@ -74,7 +72,6 @@ if(MSVC)
 endif()
 
 # --- Build all vendor dependencies ---
-add_subdirectory(vendors/freeglut)
 add_subdirectory(vendors/SDL3)
 add_subdirectory(vendors/spdlog)
 add_subdirectory(vendors/json)
@@ -344,7 +341,6 @@ target_link_libraries(Engine PRIVATE
     SDL3::SDL3
     ${Vulkan_LIBRARIES}
     ${OPENGL_LIBRARIES}
-    freeglut
     assimp::assimp
 )
 target_link_libraries(Engine PUBLIC

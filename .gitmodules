@@ -6,21 +6,9 @@
 	path = vendors/imgui
 	url = https://github.com/ocornut/imgui
 
-[submodule "Engine/vendors/glm"]
-	path = vendors/glm
-	url = https://github.com/g-truc/glm
-
 [submodule "Engine/vendors/SDL3"]
 	path = vendors/SDL3
 	url = https://github.com/libsdl-org/SDL
-
-[submodule "Engine/vendors/fmt"]
-	path = vendors/fmt
-	url = https://github.com/fmtlib/fmt
-
-[submodule "Engine/vendors/freeglut"]
-	path = vendors/freeglut
-	url = https://github.com/freeglut/freeglut
 
 [submodule "Engine/vendors/json"]
 	path = vendors/json
