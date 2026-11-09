@@ -608,11 +608,14 @@ void VulkanRenderer::RenderBloomPass() {
     // but keep the buffer well-defined for consistency).
     m_bloomFallbackPrimed = false;
 
-    // Per-frame transition set index layout:
+    // Per-frame transition set index layout for L = BloomLevelCount():
     //   [0]              : threshold  (sceneHDR -> bloomMip0)
-    //   [1..MIP-1]       : downsamples (bloomMip[i-1] -> bloomMip[i])
-    //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
-    // BLOOM_TRANSITION_COUNT = 1 + (MIP-1) + (MIP-1) = 11 for MIP=6.
+    //   [1..L-1]         : downsamples (bloomMip[i-1] -> bloomMip[i])
+    //   [L..L*2-2]       : upsamples  (bloomMip[L-1-k] -> bloomMip[L-2-k])
+    // Additive runs today's 6 levels; Blend all BLOOM_MIP_COUNT with a
+    // pass-through prefilter, no Karis and BLOOM_BLEND_LEVEL_RATIO weights.
+    const bool blend = m_bloomMode == BloomMode::Blend;
+    const uint32_t levels = BloomLevelCount();
     auto& setArray = m_bloomFilterSets[currentFrame];
     BeginGpuPass(GpuPass::Bloom);
 
@@ -636,7 +639,10 @@ void VulkanRenderer::RenderBloomPass() {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomThresholdPipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_bloomFilterPipelineLayout, 0, 1, &setArray[0], 0, nullptr);
-        struct { float threshold, knee, p0, p1; } thresh{ 1.0f, 0.5f, 0.0f, 0.0f };
+        struct {
+            float threshold, knee, p0, p1;
+        } thresh{blend ? 0.0f : BLOOM_THRESHOLD, blend ? 0.0f : BLOOM_KNEE,
+                 0.0f, 0.0f};
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(thresh), &thresh);
         vkCmdDraw(command, 3, 1, 0, 0);
@@ -644,8 +650,8 @@ void VulkanRenderer::RenderBloomPass() {
     }
 
     // ---------- 2. Downsample chain ----------
-    for (uint32_t m = 1; m < BLOOM_MIP_COUNT; ++m) {
-        uint32_t setIdx = m; // [1..MIP-1]
+    for (uint32_t m = 1; m < levels; ++m) {
+        uint32_t setIdx = m;  // [1..L-1]
         WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m - 1], m_bloomSampler,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -665,7 +671,8 @@ void VulkanRenderer::RenderBloomPass() {
         struct { float tsx, tsy, karis, p; } pc;
         pc.tsx   = 1.0f / float(m_bloomMipExtents[m - 1].width);
         pc.tsy   = 1.0f / float(m_bloomMipExtents[m - 1].height);
-        pc.karis = (m == 1) ? 1.0f : 0.0f;   // Karis only on first downsample (firefly kill).
+        // Karis only on the first additive downsample (firefly kill)
+        pc.karis = (!blend && m == 1) ? 1.0f : 0.0f;
         pc.p     = 0.0f;
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
@@ -674,8 +681,8 @@ void VulkanRenderer::RenderBloomPass() {
     }
 
     // ---------- 3. Upsample chain (additive blend onto next-larger mip) ----------
-    for (uint32_t m = BLOOM_MIP_COUNT - 1; m > 0; --m) {
-        uint32_t setIdx = BLOOM_MIP_COUNT + (BLOOM_MIP_COUNT - 1 - m); // [MIP..MIP*2-2]
+    for (uint32_t m = levels - 1; m > 0; --m) {
+        uint32_t setIdx = levels + (levels - 1 - m);  // [L..L*2-2]
         WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m], m_bloomSampler,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -696,7 +703,7 @@ void VulkanRenderer::RenderBloomPass() {
         pc.tsx       = 1.0f / float(m_bloomMipExtents[m].width);
         pc.tsy       = 1.0f / float(m_bloomMipExtents[m].height);
         pc.radius = m_bloomRadius;
-        pc.intensity = m_bloomIntensity;
+        pc.intensity = blend ? BLOOM_BLEND_LEVEL_RATIO : m_bloomIntensity;
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(command, 3, 1, 0, 0);

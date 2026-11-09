@@ -1074,7 +1074,32 @@ private:
     // We render the lighting pass into an HDR scene-color image (not the
     // swapchain). Then we run the bloom pyramid and a final composite that
     // tonemaps + combines bloom into the swapchain.
-    static constexpr uint32_t BLOOM_MIP_COUNT = 6;
+    // 7 levels for BloomMode::Blend; Additive runs the first 6, as before
+    static constexpr uint32_t BLOOM_MIP_COUNT = 7;
+    static constexpr uint32_t BLOOM_ADDITIVE_LEVELS = 6;
+    // Additive prefilter and strength
+    static constexpr float BLOOM_THRESHOLD = 1.0f;
+    static constexpr float BLOOM_KNEE = 0.5f;
+    static constexpr float BLOOM_ADDITIVE_STRENGTH = 0.06f;
+    // Blend: weight of each coarser level, 2^(-1/3)
+    static constexpr float BLOOM_BLEND_LEVEL_RATIO = 0.79370053f;
+
+    /// Levels the bloom chain runs in the current mode.
+    uint32_t BloomLevelCount() const {
+        return m_bloomMode == BloomMode::Blend ? BLOOM_MIP_COUNT
+                                               : BLOOM_ADDITIVE_LEVELS;
+    }
+    /// Sum of the Blend level weights, the composite's normalizer.
+    static constexpr float BloomBlendWeightSum() {
+        float sum = 0.0f;
+        float weight = 1.0f;
+        for (uint32_t k = 0; k < BLOOM_MIP_COUNT; ++k) {
+            sum += weight;
+            weight *= BLOOM_BLEND_LEVEL_RATIO;
+        }
+        return sum;
+    }
+
     bool       m_bloomResourcesCreated     = false;
     VkFormat   m_hdrSceneFormat            = VK_FORMAT_R16G16B16A16_SFLOAT;
 
@@ -1117,9 +1142,9 @@ private:
     VkDescriptorSetLayout m_bloomCompositeDSL = VK_NULL_HANDLE;  // 2 samplers
     VkDescriptorPool      m_bloomDescriptorPool = VK_NULL_HANDLE;
 
-    // Pre-allocated descriptor sets (per frame slot, per transition)
-    //   transitions = 1 (threshold -> mip0) + (BLOOM_MIP_COUNT-1) downsample
-    //               + (BLOOM_MIP_COUNT-1) upsample
+    // Pre-allocated descriptor sets (per frame slot, per transition), sized
+    // for the longest chain: 1 threshold + (BLOOM_MIP_COUNT-1) downsamples
+    // + (BLOOM_MIP_COUNT-1) upsamples
     static constexpr uint32_t BLOOM_TRANSITION_COUNT = 1 + (BLOOM_MIP_COUNT - 1) + (BLOOM_MIP_COUNT - 1);
     std::array<std::array<VkDescriptorSet, BLOOM_TRANSITION_COUNT>, MAX_FRAMES_IN_FLIGHT> m_bloomFilterSets = {};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_bloomCompositeSets = {};
