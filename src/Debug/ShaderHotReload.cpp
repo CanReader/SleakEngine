@@ -155,13 +155,17 @@ std::string VariantFor(const std::string& stem,
     return stem;
 }
 
-/// True when a later source folder has a file at the same relative path.
+/// True when another folder's copy wins: a later folder's for shaders, an
+/// earlier one's for includes (glslc -I order).
 bool IsOverridden(const fs::path& file, const State& state) {
     const size_t root = RootIndexOf(file, state);
     const fs::path rel = RelativeToRoot(file, state);
-    for (size_t later = root + 1; later < state.directories.size(); ++later) {
+    const bool include = IsShaderInclude(file);
+    const size_t first = include ? 0 : root + 1;
+    const size_t last = include ? root : state.directories.size();
+    for (size_t other = first; other < last; ++other) {
         std::error_code ec;
-        if (fs::exists(state.directories[later] / rel, ec)) return true;
+        if (fs::exists(state.directories[other] / rel, ec)) return true;
     }
     return false;
 }
@@ -238,8 +242,8 @@ std::string ProcessFile(const fs::path& file, const State& state) {
     if (!fs::exists(file, ec)) return {};
     if (IsOverridden(file, state)) {
         SLEAK_WARN(
-            "Hot reload: {} is overridden by a later shader folder, "
-            "edit that copy instead",
+            "Hot reload: {} is overridden by another shader folder's copy, "
+            "edit that one instead",
             file.filename().string());
         return {};
     }

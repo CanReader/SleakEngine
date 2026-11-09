@@ -12,7 +12,8 @@ namespace Debug {
 /// @ingroup debug
 class ENGINE_API ShaderHotReload {
    public:
-    /// Watches a shader source folder. Later folders override earlier ones.
+    /// Watches a shader source folder. Shaders in later folders override
+    /// earlier ones; includes resolve from the first folder, like glslc -I.
     static void AddSourceDirectory(const std::string& dir);
 
     /// Rebuilds changed shaders. Called once per frame by Application.
