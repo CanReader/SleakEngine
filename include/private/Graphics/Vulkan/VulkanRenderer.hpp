@@ -703,7 +703,7 @@ private:
 
  // ---- Deferred GBuffer ----
  // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
- // RT3=MotionModel (written only by custom-format GBuffer stems).
+ // RT3=MotionModel (custom-format GBuffer stems; 0 for engine materials).
  // World position is reconstructed from the depth buffer + InvViewProj in
  // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
  // bandwidth on a fill-bound renderer.

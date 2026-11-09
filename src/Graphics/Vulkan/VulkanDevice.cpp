@@ -312,9 +312,9 @@ bool VulkanRenderer::CreateDevice() {
     features.independentBlend = supported.independentBlend;
     m_independentBlend = supported.independentBlend == VK_TRUE;
     if (!m_independentBlend)
-        SLEAK_WARN(
-            "Vulkan: no independentBlend, engine materials leave GBuffer "
-            "RT3 undefined");
+        SLEAK_INFO(
+            "Vulkan: no independentBlend, engine GBuffer pipelines write RT3 "
+            "as zero instead of masking it");
     if (CommandLine::HasFlag("--validate"))
         features.robustBufferAccess = supported.robustBufferAccess;
 
