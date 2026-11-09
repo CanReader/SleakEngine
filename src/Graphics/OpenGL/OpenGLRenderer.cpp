@@ -13,6 +13,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <vector>
 
 #include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
@@ -62,6 +65,20 @@ constexpr GLenum GBUFFER_DRAW_BUFFERS[GBUFFER_COLOR_COUNT] = {
     GL_COLOR_ATTACHMENT3};
 // Lighting pass unit of RT3 (sleak/lighting_inputs.glsl SLEAK_MOTION_MODEL_GL)
 constexpr GLenum GBUFFER_MOTION_MODEL_TEXTURE_UNIT = GL_TEXTURE12;
+
+// Shader files; custom-format stems resolve to <stem>_gl.vert/.frag
+constexpr const char* SHADER_DIR = "assets/shaders/";
+constexpr const char* GL_VERTEX_SUFFIX = "_gl.vert";
+constexpr const char* GL_FRAGMENT_SUFFIX = "_gl.frag";
+constexpr const char* ENGINE_GBUFFER_FRAGMENT_STEM = "gbuffer";
+constexpr const char* ENGINE_SHADOW_FRAGMENT_STEM = "shadow_depth";
+constexpr const char* FORMAT_PASS_NAMES[] = {"GBuffer", "shadow",
+                                             "transparent"};
+
+/// Path of a stem's OpenGL stage file.
+std::string GLShaderPath(const std::string& stem, const char* suffix) {
+    return SHADER_DIR + stem + suffix;
+}
 
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
@@ -283,6 +300,7 @@ void OpenGLRenderer::BeginRender() {
         // Geometry pass must NOT blend — each pixel writes final GBuffer values
         glDisable(GL_BLEND);
         m_inGeometryPass = true;
+        ResetFormatPassState();
     } else {
         // Forward path: bind MSAA FBO if active, else default FBO
         if (m_msaaFBO != 0)
@@ -374,6 +392,7 @@ void OpenGLRenderer::Cleanup() {
         CleanupSceneRead();
         CleanupGBufferResources();
         CleanupFrameUBOs();
+        DestroyFormatPrograms();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -425,6 +444,14 @@ bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
             SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
                        stem);
     }
+    // Format programs that failed get another try
+    for (FormatPrograms& entry : m_formatPrograms) {
+        for (size_t pass = 0; pass < FORMAT_PASS_COUNT; ++pass) {
+            if (!entry.failed[pass]) continue;
+            entry.failed[pass] = false;
+            entry.resolved[pass] = false;
+        }
+    }
     return true;
 }
 #endif
@@ -446,6 +473,7 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
 void OpenGLRenderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
 
 void OpenGLRenderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArrays(mode, static_cast<GLint>(firstVertex), vertexCount);
     DrawnVertices += vertexCount;
@@ -458,6 +486,7 @@ void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                  int32_t baseVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     const void* offset = reinterpret_cast<const void*>(
         static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
@@ -469,6 +498,7 @@ void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
 
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArraysInstanced(mode, 0, vertexPerInstance,
                           instanceCount);
@@ -485,6 +515,7 @@ void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                          uint32_t indexPerInstance,
                                          uint32_t firstIndex,
                                          int32_t baseVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     const void* offset = reinterpret_cast<const void*>(
         static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
@@ -593,6 +624,7 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
     if (desc && desc->transparentReadsScene && m_inForwardTransparentPass)
         PrepareSceneRead();
+    SelectFormatProgram(desc ? format : DEFAULT_VERTEX_LAYOUT);
 
     const GLsizei stride = desc ? static_cast<GLsizei>(desc->stride)
                                 : static_cast<GLsizei>(sizeof(Vertex));
@@ -1308,7 +1340,9 @@ void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
 
 void OpenGLRenderer::ExecuteDeferredLightingPass() {
     // Geometry pass state back to its defaults
+    RestorePassCull();
     SetMotionModelWrites(true);
+    ResetFormatPassState();
     m_inGeometryPass = false;
 
     if (!m_gbufferCreated || !m_lightingShader) return;
@@ -1399,6 +1433,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
 
 void OpenGLRenderer::BeginForwardTransparentPass() {
     m_inForwardTransparentPass = true;
+    ResetFormatPassState();
     // Transparent objects need alpha blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1406,6 +1441,172 @@ void OpenGLRenderer::BeginForwardTransparentPass() {
 
 void OpenGLRenderer::EndForwardTransparentPass() {
     m_inForwardTransparentPass = false;
+    m_formatDrawsSuppressed = false;
+}
+
+// ============================================================
+// Custom vertex format programs
+// ============================================================
+
+/// Pass the next custom-format draw resolves a program for.
+OpenGLRenderer::FormatPass OpenGLRenderer::CurrentFormatPass() const {
+    if (m_inGeometryPass) return FormatPass::GBuffer;
+    if (m_inForwardTransparentPass) return FormatPass::Transparent;
+    return FormatPass::Count;
+}
+
+/// A format's program for a pass, built on first use.
+OpenGLShader* OpenGLRenderer::GetFormatProgram(VertexFormatHandle format,
+                                               FormatPass pass, bool& skip) {
+    skip = false;
+    if (format > m_formatPrograms.size()) {
+        if (!VertexFormatRegistry::Get(format)) return nullptr;
+        m_formatPrograms.resize(format);
+    }
+    FormatPrograms& entry = m_formatPrograms[format - 1];
+    const size_t slot = static_cast<size_t>(pass);
+    if (entry.failed[slot]) {
+        skip = true;
+        return nullptr;
+    }
+    if (entry.resolved[slot]) return entry.programs[slot];
+    entry.resolved[slot] = true;
+
+    const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
+    if (!desc) return nullptr;
+    entry.writesMotionModel = !desc->gbufferFragmentStem.empty();
+    entry.shadowSamples = !desc->shadowFragmentStem.empty();
+    entry.cullMode = desc->cullMode;
+    entry.shadowCullMode = desc->shadowCullMode;
+
+    std::string vertStem = desc->transparentShaderStem;
+    std::string fragStem = desc->transparentShaderStem;
+    if (pass == FormatPass::GBuffer) {
+        vertStem = desc->gbufferShaderStem;
+        fragStem = entry.writesMotionModel ? desc->gbufferFragmentStem
+                                           : ENGINE_GBUFFER_FRAGMENT_STEM;
+    } else if (pass == FormatPass::Shadow) {
+        vertStem = desc->shadowShaderStem;
+        fragStem = entry.shadowSamples ? desc->shadowFragmentStem
+                                       : ENGINE_SHADOW_FRAGMENT_STEM;
+    }
+
+    // No GL stage: the pass keeps the program it used before stems
+    const std::string vertPath = GLShaderPath(vertStem, GL_VERTEX_SUFFIX);
+    std::error_code ec;
+    if (vertStem.empty() || !std::filesystem::exists(vertPath, ec)) {
+        if (!vertStem.empty())
+            SLEAK_INFO(
+                "OpenGL: vertex format {} has no {}, its {} pass keeps "
+                "the engine program",
+                format, vertPath, FORMAT_PASS_NAMES[slot]);
+        return nullptr;
+    }
+
+    auto* program = new OpenGLShader();
+    if (!program->compile(vertPath,
+                          GLShaderPath(fragStem, GL_FRAGMENT_SUFFIX))) {
+        SLEAK_ERROR(
+            "OpenGL: vertex format {} {} program failed, its draws "
+            "are skipped",
+            format, FORMAT_PASS_NAMES[slot]);
+        delete program;
+        entry.failed[slot] = true;
+        skip = true;
+        return nullptr;
+    }
+    entry.programs[slot] = program;
+    return program;
+}
+
+/// Binds the format's program or puts the pass program back.
+void OpenGLRenderer::SelectFormatProgram(VertexFormatHandle format) {
+    const FormatPass pass = CurrentFormatPass();
+    const GLuint bound = OpenGLShader::BoundProgram();
+    if (bound != m_formatProgram) {
+        // A material or pass program was bound since the last switch
+        m_formatProgram = 0;
+        m_passProgram = bound;
+    }
+    m_formatDrawsSuppressed = false;
+    if (pass == FormatPass::Count) return;
+
+    bool skip = false;
+    OpenGLShader* program = format != DEFAULT_VERTEX_LAYOUT
+                                ? GetFormatProgram(format, pass, skip)
+                                : nullptr;
+    if (skip) {
+        m_formatDrawsSuppressed = true;
+        return;
+    }
+    if (program && program->GetProgram() != 0) {
+        if (program->GetProgram() != bound) program->bind();
+        m_formatProgram = program->GetProgram();
+        const FormatPrograms& entry = m_formatPrograms[format - 1];
+        if (pass == FormatPass::GBuffer) {
+            ApplyFormatCull(entry.cullMode);
+            SetMotionModelWrites(entry.writesMotionModel);
+        }
+        return;
+    }
+
+    // Default layout or a format without GL stages: the pass program draws
+    if (m_formatProgram != 0) {
+        OpenGLShader::BindProgram(m_passProgram);
+        m_formatProgram = 0;
+    }
+    RestorePassCull();
+    if (pass == FormatPass::GBuffer) SetMotionModelWrites(false);
+}
+
+/// Applies a format's cull mode, saving the pass state first.
+void OpenGLRenderer::ApplyFormatCull(VertexCullMode mode) {
+    if (mode == VertexCullMode::Default) {
+        RestorePassCull();
+        return;
+    }
+    if (!m_formatCullApplied) {
+        m_savedCullEnabled = glIsEnabled(GL_CULL_FACE);
+        glGetIntegerv(GL_CULL_FACE_MODE, &m_savedCullFace);
+        m_formatCullApplied = true;
+    }
+    if (mode == VertexCullMode::None) {
+        glDisable(GL_CULL_FACE);
+        return;
+    }
+    glEnable(GL_CULL_FACE);
+    glCullFace(mode == VertexCullMode::Front ? GL_FRONT : GL_BACK);
+}
+
+/// Restores the cull state a format changed.
+void OpenGLRenderer::RestorePassCull() {
+    if (!m_formatCullApplied) return;
+    if (m_savedCullEnabled)
+        glEnable(GL_CULL_FACE);
+    else
+        glDisable(GL_CULL_FACE);
+    glCullFace(static_cast<GLenum>(m_savedCullFace));
+    m_formatCullApplied = false;
+}
+
+/// Forgets the switches of the previous pass.
+void OpenGLRenderer::ResetFormatPassState() {
+    m_formatProgram = 0;
+    m_passProgram = 0;
+    m_formatDrawsSuppressed = false;
+    m_formatCullApplied = false;
+}
+
+/// Deletes every custom-format program.
+void OpenGLRenderer::DestroyFormatPrograms() {
+    for (FormatPrograms& entry : m_formatPrograms) {
+        for (OpenGLShader*& program : entry.programs) {
+            delete program;
+            program = nullptr;
+        }
+    }
+    m_formatPrograms.clear();
+    m_formatProgram = 0;
 }
 
 /// Enables or masks writes to GBuffer RT3.

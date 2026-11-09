@@ -34,8 +34,8 @@ enum class VertexCullMode : uint8_t {
 
 /// A complete custom vertex layout plus the shader stems that consume it.
 /// Register once at startup; the handle keys pipelines and mesh creation.
-/// Shader stems are consumed by the Vulkan backend; OpenGL instead binds
-/// the layout's attributes to its own fixed shader programs.
+/// Vulkan loads the stems as SPIR-V; OpenGL loads them with a `_gl` suffix
+/// where those files exist (see below).
 ///
 /// Fill one of these when your geometry does not fit the engine's built-in
 /// vertex type: packed voxel vertices, extra UV sets, per-vertex instance
@@ -120,6 +120,11 @@ enum class VertexCullMode : uint8_t {
 /// shadow variant; transparent variants draw both sides. `Default` keeps the
 /// backend's choice. Vulkan shadow shaders do not flip Y, so there `Back`
 /// culls the faces turned toward the light; OpenGL culls those turned away.
+///
+/// OpenGL builds `<stem>_gl.vert` and `.frag` for the GBuffer and
+/// transparent passes, with the engine `gbuffer_gl` fragment for an empty
+/// fragment stem. A pass without its `_gl.vert` keeps the engine program;
+/// the deferred-off main pass uses the material's.
 ///
 /// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat,
 /// VertexCullMode, MeshBatch

@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../../Core/Window.hpp"
 #include "../Common/RenderContext.hpp"
@@ -215,8 +216,53 @@ private:
     bool m_inGeometryPass          = false;
     bool m_inForwardTransparentPass = false;
 
+    // ---- Custom vertex format programs ----
+    /// Pass a custom-format program is resolved for.
+    enum class FormatPass : uint8_t { GBuffer, Shadow, Transparent, Count };
+    static constexpr size_t FORMAT_PASS_COUNT =
+        static_cast<size_t>(FormatPass::Count);
+    /// One registered layout's programs per pass. A resolved pass without a
+    /// program has no _gl.vert and keeps the pass program; failed skips draws.
+    struct FormatPrograms {
+        std::array<OpenGLShader*, FORMAT_PASS_COUNT> programs{};
+        std::array<bool, FORMAT_PASS_COUNT> resolved{};
+        std::array<bool, FORMAT_PASS_COUNT> failed{};
+        bool writesMotionModel = false;  // has a gbufferFragmentStem
+        bool shadowSamples = false;      // has a shadowFragmentStem
+        VertexCullMode cullMode = VertexCullMode::Default;
+        VertexCullMode shadowCullMode = VertexCullMode::Default;
+    };
+    // Indexed by handle - 1 (handles are dense and start at 1)
+    std::vector<FormatPrograms> m_formatPrograms;
+    // Program the last format switch bound, 0 while the pass program is
+    GLuint m_formatProgram = 0;
+    // Material or pass program that default-layout draws go back to
+    GLuint m_passProgram = 0;
+    bool m_formatDrawsSuppressed = false;
+    // Cull state a format replaced in this pass, restored when it ends
+    bool m_formatCullApplied = false;
+    GLboolean m_savedCullEnabled = GL_FALSE;
+    GLint m_savedCullFace = GL_BACK;
     // glColorMaski state of GBuffer RT3
     bool m_motionModelWrites = true;
+    /// Pass the next custom-format draw resolves a program for; Count
+    /// outside the GBuffer and forward transparent passes.
+    FormatPass CurrentFormatPass() const;
+    /// A format's program for a pass, built on first use; null keeps the
+    /// pass program, and skip is set when the format's program failed.
+    OpenGLShader* GetFormatProgram(VertexFormatHandle format, FormatPass pass,
+                                   bool& skip);
+    /// Binds what the next draw needs: the format's program in the GBuffer
+    /// and transparent passes, or the pass program back.
+    void SelectFormatProgram(VertexFormatHandle format);
+    /// Applies a format's cull mode; Default puts the pass state back.
+    void ApplyFormatCull(VertexCullMode mode);
+    /// Restores the cull state a format changed in this pass.
+    void RestorePassCull();
+    /// Forgets the program and cull switches of the last pass.
+    void ResetFormatPassState();
+    /// Deletes every custom-format program.
+    void DestroyFormatPrograms();
     /// Enables or masks writes to GBuffer RT3.
     void SetMotionModelWrites(bool enabled);
 
