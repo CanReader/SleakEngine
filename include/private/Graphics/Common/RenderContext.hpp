@@ -114,6 +114,11 @@ enum class DepthCompare {
             virtual void BeginShadowPass() {}
             virtual void EndShadowPass() {}
             virtual bool IsShadowPassActive() const { return false; }
+            /// Material of the next shadow casters; alpha-tested shadow
+            /// variants sample its diffuse, others ignore it.
+            virtual void BindShadowMaterial(Sleak::Material* material) {
+                (void)material;
+            }
 
             // Deferred rendering support
             // Returns true when a geometry pass (GBuffer) is active this frame.
