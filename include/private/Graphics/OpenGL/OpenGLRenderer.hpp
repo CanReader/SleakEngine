@@ -98,6 +98,10 @@ public:
     virtual void BeginDebugLinePass() override;
     virtual void EndDebugLinePass() override;
 
+    /// Records the caster material; alpha-tested shadow programs sample its
+    /// diffuse at texture unit 0.
+    virtual void BindShadowMaterial(Sleak::Material* material) override;
+
     virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size,
                                      void* data) override;
     virtual Shader* CreateShader(const std::string& shaderSource) override;
@@ -181,6 +185,12 @@ private:
     bool CreateShadowUBO();
     /// Replays cached shadow-caster draws into the depth-only shadow FBO.
     void RenderShadowPass();
+    // Engine shadow programs: default layout, position-only for formats
+    class OpenGLShader* m_shadowDepthShader = nullptr;
+    class OpenGLShader* m_shadowPositionShader = nullptr;
+    bool m_shadowProgramsCreated = false;
+    /// Compiles the engine shadow depth programs once.
+    void CreateShadowPrograms();
 
     // ---- Deferred rendering (GBuffer) ----
     // Deferred mode overrides
@@ -252,26 +262,33 @@ private:
     GLint m_savedCullFace = GL_BACK;
     // glColorMaski state of GBuffer RT3
     bool m_motionModelWrites = true;
+    // Caster material for alpha-tested shadow programs
+    Sleak::Material* m_shadowMaterial = nullptr;
+    bool m_shadowMaterialDirty = true;
+    bool m_shadowProgramSamples = false;
     /// Pass the next custom-format draw resolves a program for; Count
-    /// outside the GBuffer and forward transparent passes.
+    /// outside the shadow, GBuffer and forward transparent passes.
     FormatPass CurrentFormatPass() const;
     /// A format's program for a pass, built on first use; null keeps the
     /// pass program, and skip is set when the format's program failed.
     OpenGLShader* GetFormatProgram(VertexFormatHandle format, FormatPass pass,
                                    bool& skip);
-    /// Binds what the next draw needs: the format's program in the GBuffer
-    /// and transparent passes, or the pass program back.
+    /// Binds what the next draw needs: the format's program in the shadow,
+    /// GBuffer and transparent passes, or the pass program back.
     void SelectFormatProgram(VertexFormatHandle format);
     /// Applies a format's cull mode; Default puts the pass state back.
     void ApplyFormatCull(VertexCullMode mode);
     /// Restores the cull state a format changed in this pass.
     void RestorePassCull();
-    /// Forgets the program and cull switches of the last pass.
+    /// Forgets the program, cull and material switches of the last pass.
     void ResetFormatPassState();
     /// Deletes every custom-format program.
     void DestroyFormatPrograms();
     /// Enables or masks writes to GBuffer RT3.
     void SetMotionModelWrites(bool enabled);
+    /// Binds the shadow material's diffuse at unit 0 when the bound shadow
+    /// program samples it.
+    void FlushShadowMaterial();
 
     /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
     bool CreateGBufferResources();

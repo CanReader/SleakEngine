@@ -65,6 +65,8 @@ constexpr GLenum GBUFFER_DRAW_BUFFERS[GBUFFER_COLOR_COUNT] = {
     GL_COLOR_ATTACHMENT3};
 // Lighting pass unit of RT3 (sleak/lighting_inputs.glsl SLEAK_MOTION_MODEL_GL)
 constexpr GLenum GBUFFER_MOTION_MODEL_TEXTURE_UNIT = GL_TEXTURE12;
+// Unit alpha-tested shadow programs read the caster diffuse from
+constexpr GLuint SHADOW_MATERIAL_UNIT = 0;
 
 // Shader files; custom-format stems resolve to <stem>_gl.vert/.frag
 constexpr const char* SHADER_DIR = "assets/shaders/";
@@ -72,6 +74,12 @@ constexpr const char* GL_VERTEX_SUFFIX = "_gl.vert";
 constexpr const char* GL_FRAGMENT_SUFFIX = "_gl.frag";
 constexpr const char* ENGINE_GBUFFER_FRAGMENT_STEM = "gbuffer";
 constexpr const char* ENGINE_SHADOW_FRAGMENT_STEM = "shadow_depth";
+constexpr const char* SHADOW_DEPTH_VERTEX =
+    "assets/shaders/shadow_depth_gl.vert";
+constexpr const char* SHADOW_POSITION_VERTEX =
+    "assets/shaders/shadow_position_gl.vert";
+constexpr const char* SHADOW_DEPTH_FRAGMENT =
+    "assets/shaders/shadow_depth_gl.frag";
 constexpr const char* LIGHTING_VERTEX = "assets/shaders/lighting_pass_gl.vert";
 constexpr const char* FORMAT_PASS_NAMES[] = {"GBuffer", "shadow",
                                              "transparent"};
@@ -395,6 +403,11 @@ void OpenGLRenderer::Cleanup() {
         CleanupGBufferResources();
         CleanupFrameUBOs();
         DestroyFormatPrograms();
+        delete m_shadowDepthShader;
+        m_shadowDepthShader = nullptr;
+        delete m_shadowPositionShader;
+        m_shadowPositionShader = nullptr;
+        m_shadowProgramsCreated = false;
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -1055,12 +1068,19 @@ void OpenGLRenderer::RenderShadowPass() {
     // Ensure VAO is bound for shadow pass draws
     glBindVertexArray(m_VAO);
 
+    // Engine depth program for default-layout casters; formats swap theirs in
+    CreateShadowPrograms();
+    if (m_shadowDepthShader) m_shadowDepthShader->bind();
+
     // Execute shadow draw commands
     m_inShadowPass = true;
     m_shadowTransformCacheValid = false;
+    ResetFormatPassState();
     if (queue) {
         queue->ExecuteShadowPass(this);
     }
+    RestorePassCull();
+    m_formatDrawsSuppressed = false;
     m_inShadowPass = false;
     memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
     m_shadowMapRendered = true;
@@ -1486,8 +1506,49 @@ void OpenGLRenderer::ApplyLightingShaderChange() {
 // Custom vertex format programs
 // ============================================================
 
+/// Compiles the engine shadow depth programs once.
+void OpenGLRenderer::CreateShadowPrograms() {
+    if (m_shadowProgramsCreated) return;
+    m_shadowProgramsCreated = true;
+    m_shadowDepthShader = new OpenGLShader();
+    if (!m_shadowDepthShader->compile(SHADOW_DEPTH_VERTEX,
+                                      SHADOW_DEPTH_FRAGMENT)) {
+        SLEAK_ERROR("OpenGL: shadow depth program failed to build");
+        delete m_shadowDepthShader;
+        m_shadowDepthShader = nullptr;
+    }
+    m_shadowPositionShader = new OpenGLShader();
+    if (!m_shadowPositionShader->compile(SHADOW_POSITION_VERTEX,
+                                         SHADOW_DEPTH_FRAGMENT)) {
+        SLEAK_ERROR("OpenGL: shadow position program failed to build");
+        delete m_shadowPositionShader;
+        m_shadowPositionShader = nullptr;
+    }
+}
+
+/// Records the caster material for alpha-tested shadow programs.
+void OpenGLRenderer::BindShadowMaterial(Sleak::Material* material) {
+    m_shadowMaterial = material;
+    m_shadowMaterialDirty = true;
+    FlushShadowMaterial();
+}
+
+/// Binds the caster diffuse at unit 0 for a sampling shadow program.
+void OpenGLRenderer::FlushShadowMaterial() {
+    if (!m_inShadowPass || !m_shadowProgramSamples || !m_shadowMaterialDirty)
+        return;
+    Sleak::Texture* diffuse =
+        m_shadowMaterial ? m_shadowMaterial->GetDiffuseTexture() : nullptr;
+    if (diffuse)
+        diffuse->Bind(SHADOW_MATERIAL_UNIT);
+    else
+        glBindTextureUnit(SHADOW_MATERIAL_UNIT, 0);
+    m_shadowMaterialDirty = false;
+}
+
 /// Pass the next custom-format draw resolves a program for.
 OpenGLRenderer::FormatPass OpenGLRenderer::CurrentFormatPass() const {
+    if (m_inShadowPass) return FormatPass::Shadow;
     if (m_inGeometryPass) return FormatPass::GBuffer;
     if (m_inForwardTransparentPass) return FormatPass::Transparent;
     return FormatPass::Count;
@@ -1577,13 +1638,27 @@ void OpenGLRenderer::SelectFormatProgram(VertexFormatHandle format) {
         m_formatDrawsSuppressed = true;
         return;
     }
+    // Formats without a GL shadow stage cast through the position program
+    const bool legacyCaster = !program && pass == FormatPass::Shadow &&
+                              format != DEFAULT_VERTEX_LAYOUT;
+    if (legacyCaster) program = m_shadowPositionShader;
+
     if (program && program->GetProgram() != 0) {
         if (program->GetProgram() != bound) program->bind();
         m_formatProgram = program->GetProgram();
+        if (legacyCaster) {
+            RestorePassCull();
+            m_shadowProgramSamples = false;
+            return;
+        }
         const FormatPrograms& entry = m_formatPrograms[format - 1];
         if (pass == FormatPass::GBuffer) {
             ApplyFormatCull(entry.cullMode);
             SetMotionModelWrites(entry.writesMotionModel);
+        } else if (pass == FormatPass::Shadow) {
+            ApplyFormatCull(entry.shadowCullMode);
+            m_shadowProgramSamples = entry.shadowSamples;
+            FlushShadowMaterial();
         }
         return;
     }
@@ -1595,6 +1670,7 @@ void OpenGLRenderer::SelectFormatProgram(VertexFormatHandle format) {
     }
     RestorePassCull();
     if (pass == FormatPass::GBuffer) SetMotionModelWrites(false);
+    m_shadowProgramSamples = false;
 }
 
 /// Applies a format's cull mode, saving the pass state first.
@@ -1633,6 +1709,9 @@ void OpenGLRenderer::ResetFormatPassState() {
     m_passProgram = 0;
     m_formatDrawsSuppressed = false;
     m_formatCullApplied = false;
+    m_shadowMaterial = nullptr;
+    m_shadowMaterialDirty = true;
+    m_shadowProgramSamples = false;
 }
 
 /// Deletes every custom-format program.
