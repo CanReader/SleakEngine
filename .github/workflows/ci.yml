@@ -206,7 +206,9 @@ jobs:
             --header include/private/Graphics/Common/ConstantBuffer.hpp \
             --include-dir assets/shaders/include \
             --check FrameData:sleak/frame.glsl:FrameDataUBO \
-            --check ShadowLightUBO:sleak/shadow_light.glsl:ShadowLightUBO
+            --check ShadowLightUBO:sleak/shadow_light.glsl:ShadowLightUBO \
+            --constant FRAME_DATA_VERSION:sleak/frame.glsl:SLEAK_FRAME_DATA_VERSION \
+            --flags FrameFlag:sleak/frame.glsl:SLEAK_FRAME_FLAG_
 
       # The committed .spv are what a machine without glslc ships. glslc
       # releases emit different code for the same source, so instead of a
