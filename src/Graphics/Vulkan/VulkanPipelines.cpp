@@ -896,14 +896,16 @@ static VkFormat ToVkVertexFormat(VertexAttribFormat format) {
     return VK_FORMAT_R32G32B32_SFLOAT;
 }
 
-/// Vulkan cull flags of a format cull mode; Default keeps the pass's own.
+/// Vulkan cull flags of a format cull mode; Default keeps the pass's own and
+/// mirrored swaps Back and Front for a pass whose shaders do not flip Y.
 static VkCullModeFlags ToVkCullMode(VertexCullMode mode,
-                                    VkCullModeFlags passDefault) {
+                                    VkCullModeFlags passDefault,
+                                    bool mirrored) {
     switch (mode) {
         case VertexCullMode::Back:
-            return VK_CULL_MODE_BACK_BIT;
+            return mirrored ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT;
         case VertexCullMode::Front:
-            return VK_CULL_MODE_FRONT_BIT;
+            return mirrored ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
         case VertexCullMode::None:
             return VK_CULL_MODE_NONE;
         case VertexCullMode::Default:
@@ -1052,12 +1054,13 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    // Shadow shaders do not flip Y, so there Back culls light-facing faces
-    const VertexCullMode cull =
-        pass == CustomPass::Shadow ? desc.shadowCullMode : desc.cullMode;
-    rasterizer.cullMode = pass == CustomPass::Transparent
-                              ? VK_CULL_MODE_NONE
-                              : ToVkCullMode(cull, VK_CULL_MODE_BACK_BIT);
+    // Shadow shaders do not flip Y; mirroring keeps Back and Front as on GL
+    const bool shadow = pass == CustomPass::Shadow;
+    const VertexCullMode cull = shadow ? desc.shadowCullMode : desc.cullMode;
+    rasterizer.cullMode =
+        pass == CustomPass::Transparent
+            ? VK_CULL_MODE_NONE
+            : ToVkCullMode(cull, VK_CULL_MODE_BACK_BIT, shadow);
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     // Bias factors come from vkCmdSetDepthBias at shadow pass begin
     if (pass == CustomPass::Shadow) rasterizer.depthBiasEnable = VK_TRUE;

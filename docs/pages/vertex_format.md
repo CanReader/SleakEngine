@@ -232,9 +232,12 @@ caster material's diffuse at Vulkan set 0 binding 0 or OpenGL texture unit
 has to stay alive one frame after its last draw.
 
 `cullMode` and `shadowCullMode` keep each backend's existing culling while
-`Default`. Vulkan shadow shaders do not flip Y, so the light's view is
-mirrored there and `Back` culls the faces turned toward the light; OpenGL
-culls the faces turned away.
+`Default`. `Back` and `Front` cull the same faces on every backend: Vulkan
+shadow shaders do not flip Y, so the engine swaps the two for shadow
+variants there. The shadow defaults still differ: Vulkan culls the faces
+turned toward the light, OpenGL the faces turned away. OpenGL's
+deferred-off main pass draws with the material's program and ignores
+`cullMode`.
 
 Handles are process-lifetime values held by the registry. `Shutdown` clears
 it, so any `MeshHandle` still carrying a handle after that point refers to

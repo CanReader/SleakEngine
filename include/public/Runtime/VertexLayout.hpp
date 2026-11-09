@@ -117,14 +117,16 @@ enum class VertexCullMode : uint8_t {
 /// draw by one frame.
 ///
 /// `cullMode` covers the main and GBuffer variants, `shadowCullMode` the
-/// shadow variant; transparent variants draw both sides. `Default` keeps the
-/// backend's choice. Vulkan shadow shaders do not flip Y, so there `Back`
-/// culls the faces turned toward the light; OpenGL culls those turned away.
+/// shadow variant; transparent variants draw both sides. `Back` and `Front`
+/// cull the same faces on every backend, shadows included. `Default` keeps
+/// the backend's choice, which for shadows differs: Vulkan culls the faces
+/// turned toward the light, OpenGL those turned away.
 ///
 /// OpenGL builds `<stem>_gl.vert` and `.frag` for the shadow, GBuffer and
 /// transparent passes, with the engine `shadow_depth_gl` and `gbuffer_gl`
 /// fragments for empty fragment stems. A pass without its `_gl.vert` keeps
-/// the engine program; the deferred-off main pass uses the material's.
+/// the engine program; the deferred-off main pass uses the material's
+/// program and ignores `cullMode`.
 ///
 /// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat,
 /// VertexCullMode, MeshBatch
