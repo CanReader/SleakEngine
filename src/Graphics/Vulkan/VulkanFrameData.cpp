@@ -135,6 +135,7 @@ void VulkanRenderer::UploadFrameData() {
     if (deferred) target.featureFlags |= FrameFlagDeferred;
 
     FrameData data{};
+    target.output = GetOutputTransform();
     m_frameData.Build(target, data);
     auto* base = static_cast<uint8_t*>(m_frameUBOMapped[currentFrame]);
     std::memcpy(base + m_frameUBOOffsets[SET2_FRAME_BINDING], &data,

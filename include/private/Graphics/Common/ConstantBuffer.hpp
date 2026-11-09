@@ -368,7 +368,9 @@ namespace Sleak {
             "SceneReadUBO must match the std140 block without padding");
 
         /// Bumped with every FrameData append; Debug shaders compare it.
-        inline constexpr uint32_t FRAME_DATA_VERSION = 1;
+        inline constexpr uint32_t FRAME_DATA_VERSION = 2;
+        /// FrameData::Flags index holding the tonemap operator.
+        inline constexpr uint32_t FRAME_FLAGS_TONEMAP_INDEX = 2;
         /// Size of the opaque game block (set 2 binding 2, GL buffer 12).
         inline constexpr uint32_t FRAME_USER_DATA_MAX_BYTES = 1024;
         /// Reserved size of the cascade block (set 2 binding 3, GL buffer 13).
@@ -406,6 +408,10 @@ namespace Sleak {
             float LightColor[4];
             float Ambient[4];
             uint32_t Flags[4];
+            float Output[4];            // exposure, gamma, saturation, dither
+            float OutputCurve[4];       // soft curve exponent, reserved
+            float WhitePath[4];         // white-path matrix c, a, b, d
+            float WhitePathInverse[4];  // its inverse, same layout
         };
         static_assert(offsetof(FrameData, Version) == 0);
         static_assert(offsetof(FrameData, FrameIndex) == 4);
@@ -424,7 +430,11 @@ namespace Sleak {
         static_assert(offsetof(FrameData, LightColor) == 416);
         static_assert(offsetof(FrameData, Ambient) == 432);
         static_assert(offsetof(FrameData, Flags) == 448);
-        static_assert(sizeof(FrameData) == 464);
+        static_assert(offsetof(FrameData, Output) == 464);
+        static_assert(offsetof(FrameData, OutputCurve) == 480);
+        static_assert(offsetof(FrameData, WhitePath) == 496);
+        static_assert(offsetof(FrameData, WhitePathInverse) == 512);
+        static_assert(sizeof(FrameData) == 528);
     }
 }
 

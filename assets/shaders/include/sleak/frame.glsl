@@ -4,7 +4,7 @@
 #include "sleak/binding.glsl"
 
 // FRAME_DATA_VERSION in ConstantBuffer.hpp; bump both on every append
-#define SLEAK_FRAME_DATA_VERSION 1u
+#define SLEAK_FRAME_DATA_VERSION 2u
 
 // Flags.x bits (FrameFlagBits in ConstantBuffer.hpp)
 #define SLEAK_FRAME_FLAG_SSAO (1u << 0)
@@ -35,7 +35,12 @@ layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_FRAME_DATA_VK,
     vec4  LightDir;         // xyz toward the light, w intensity
     vec4  LightColor;       // rgb, w shadow strength
     vec4  Ambient;          // rgb, w intensity
-    uvec4 Flags;            // x SLEAK_FRAME_FLAG_* bits, y cascade count
+    uvec4 Flags;            // x SLEAK_FRAME_FLAG_* bits, y cascade count,
+                            // z tonemap operator (SLEAK_TONEMAP_*)
+    vec4  Output;           // exposure, gamma (1 = none), saturation, dither
+    vec4  OutputCurve;      // x soft curve exponent, yzw reserved
+    vec4  WhitePath;        // white-path matrix c, a, b, d
+    vec4  WhitePathInverse; // its inverse, same layout
 } uFrame;
 
 // Game block: SLEAK_FRAME_USER_BLOCK Name { ... } instance;

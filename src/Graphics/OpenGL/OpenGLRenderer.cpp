@@ -992,6 +992,7 @@ void OpenGLRenderer::UploadFrameData() {
         target.featureFlags |= RenderEngine::FrameFlagDeferred;
 
     RenderEngine::FrameData data{};
+    target.output = GetOutputTransform();
     m_frameData.Build(target, data);
     glNamedBufferSubData(m_frameDataUBO, 0, sizeof(data), &data);
     glNamedBufferSubData(m_frameUserUBO, 0,

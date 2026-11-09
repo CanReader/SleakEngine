@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "ConstantBuffer.hpp"
+#include "OutputTransform.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -16,6 +17,7 @@ struct FrameTargetInfo {
     float jitter[2] = {};  // NDC after the backend's Y flip
     uint32_t featureFlags = 0;
     uint32_t cascadeCount = 0;
+    OutputTransformParams output;
 };
 
 /// Near and far plane of the active scene camera, or the engine fallbacks.
