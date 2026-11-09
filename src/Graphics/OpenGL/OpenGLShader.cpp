@@ -41,6 +41,9 @@ std::string ReadInfoLog(GLuint object, PFNGLGETSHADERIVPROC getParam,
     return log;
 }
 
+// Program made current through OpenGLShader
+GLuint g_boundProgram = 0;
+
 #ifdef SLEAK_HOT_RELOAD
 /// Returns the live shader registry, leaked to survive static teardown.
 std::unordered_set<OpenGLShader*>& LiveShaders() {
@@ -148,7 +151,17 @@ bool OpenGLShader::BuildProgram() {
 void OpenGLShader::bind() {
     if (m_program != 0) {
         glUseProgram(m_program);
+        g_boundProgram = m_program;
     }
+}
+
+/// Program the last bind() or BindProgram() made current.
+GLuint OpenGLShader::BoundProgram() { return g_boundProgram; }
+
+/// Makes a program current and records it.
+void OpenGLShader::BindProgram(GLuint program) {
+    glUseProgram(program);
+    g_boundProgram = program;
 }
 
 bool OpenGLShader::CompileShaderSource(const std::string& source, GLenum type,
