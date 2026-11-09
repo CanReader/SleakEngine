@@ -520,4 +520,18 @@ namespace Sleak {
         return renderer->GetFeatureCaps();
     }
 
+    void Application::SetLightingShader(const std::string& stem) {
+        renderer->SetLightingShader(stem);
+        static bool warned = false;
+        if (stem.empty() || warned ||
+            (renderer->GetFeatureCaps() & RenderEngine::CapDeferred))
+            return;
+        SLEAK_WARN("SetLightingShader: {} has no deferred pass, '{}' is unused",
+                   renderer->GetTypeStr(), stem);
+        warned = true;
+    }
+
+    const std::string& Application::GetLightingShader() const {
+        return renderer->GetLightingShader();
+    }
 }

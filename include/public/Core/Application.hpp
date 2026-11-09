@@ -216,6 +216,14 @@ class ENGINE_API Application {
     /// scene activation. False when larger than MAX_FRAME_USER_DATA_BYTES.
     bool SetFrameUserData(const void* data, uint32_t size);
 
+    // Deferred lighting shader
+    /// Lights the deferred pass with a game fragment stem from the next frame
+    /// (Vulkan <stem>.frag.spv, OpenGL <stem>_gl.frag); empty restores the
+    /// engine shader. Inputs: shaders/include/sleak/lighting_inputs.glsl.
+    void SetLightingShader(const std::string& stem);
+    /// Stem last passed to SetLightingShader(), empty for the engine shader.
+    const std::string& GetLightingShader() const;
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     /// Stashes the new size; the resize is applied at the start of the next frame.
