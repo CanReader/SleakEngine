@@ -1,28 +1,68 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLRenderer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
-#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
-#include <Runtime/MeshData.hpp>
-#include <Runtime/VertexLayout.hpp>
-#include "Graphics/Common/ResourceManager.hpp"
-#include "Graphics/Common/ConstantBuffer.hpp"
-#include "Graphics/Common/RenderCommandQueue.hpp"
-#include "Graphics/Common/SSAOKernel.hpp"
+
+#include <SDL3/SDL.h>
+
 #include <Camera/Camera.hpp>
 #include <Core/Application.hpp>
-#include <Core/SceneBase.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Runtime/Material.hpp>
 #include <Core/GameBase.hpp>
-#include <SDL3/SDL.h>
-#include <vector>
+#include <Core/SceneBase.hpp>
+#include <Runtime/Material.hpp>
+#include <Runtime/MeshData.hpp>
+#include <Runtime/Skybox.hpp>
+#include <Runtime/VertexLayout.hpp>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <vector>
+
+#include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLCubemapTexture.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLIBL.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
+#include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
+#include "Graphics/Common/ConstantBuffer.hpp"
+#include "Graphics/Common/RenderCommandQueue.hpp"
+#include "Graphics/Common/ResourceManager.hpp"
+#include "Graphics/Common/SSAOKernel.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
+
+namespace {
+
+constexpr GLuint VERTEX_BUFFER_BINDING = 0;
+constexpr uint32_t DEFAULT_VERTEX_LAYOUT = 0;
+constexpr uint32_t ATTRIB_MASK_BITS = 32;
+
+// Default Vertex attribute locations
+constexpr GLuint ATTRIB_POSITION = 0;
+constexpr GLuint ATTRIB_NORMAL = 1;
+constexpr GLuint ATTRIB_TANGENT = 2;
+constexpr GLuint ATTRIB_COLOR = 3;
+constexpr GLuint ATTRIB_UV = 4;
+constexpr GLuint ATTRIB_BONE_IDS = 5;
+constexpr GLuint ATTRIB_BONE_WEIGHTS = 6;
+
+// Transform CB layout read by the shadow pass: [WVP][World]
+constexpr int MAT4_DIM = 4;
+constexpr size_t MAT4_FLOATS = MAT4_DIM * MAT4_DIM;
+constexpr size_t MAT4_BYTES = MAT4_FLOATS * sizeof(float);
+constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
+
+/// Sets one attribute's format on vao and routes it to the shared binding.
+void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
+                     bool integer, size_t offset) {
+    const GLuint relativeOffset = static_cast<GLuint>(offset);
+    if (integer)
+        glVertexArrayAttribIFormat(vao, location, components, type,
+                                   relativeOffset);
+    else
+        glVertexArrayAttribFormat(vao, location, components, type, GL_FALSE,
+                                  relativeOffset);
+    glVertexArrayAttribBinding(vao, location, VERTEX_BUFFER_BINDING);
+}
+
+}  // namespace
 
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
 OpenGLRenderer::OpenGLRenderer(Window* window)
@@ -77,7 +117,7 @@ bool OpenGLRenderer::Initialize() {
 
     int width, height;
     SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
-    glViewport(0, 0, width, height);
+    ApplyViewport(0, 0, width, height);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -113,10 +153,87 @@ bool OpenGLRenderer::Initialize() {
 }
 
 void OpenGLRenderer::SetupVertexLayout() {
-    glGenVertexArrays(1, &m_VAO);
+    glCreateVertexArrays(1, &m_VAO);
+    m_configuredLayout = NO_CONFIGURED_LAYOUT;
+    m_configuredLayoutDesc = nullptr;
+    m_enabledAttribMask = 0;
+}
+
+void OpenGLRenderer::ConfigureVertexLayout(uint32_t layout,
+                                           const VertexLayoutDesc* desc) {
+    if (layout == m_configuredLayout) return;
+    m_configuredLayout = layout;
+    m_configuredLayoutDesc = desc;
+
+    uint32_t enabledMask = 0;
+    if (desc) {
+        for (const auto& attr : desc->attributes) {
+            switch (attr.format) {
+                case VertexAttribFormat::Float1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float2:
+                    SetAttribFormat(m_VAO, attr.location, 2, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float3:
+                    SetAttribFormat(m_VAO, attr.location, 3, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::Float4:
+                    SetAttribFormat(m_VAO, attr.location, 4, GL_FLOAT, false,
+                                    attr.offset);
+                    break;
+                case VertexAttribFormat::UInt1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_UNSIGNED_INT,
+                                    true, attr.offset);
+                    break;
+                case VertexAttribFormat::Int1:
+                    SetAttribFormat(m_VAO, attr.location, 1, GL_INT, true,
+                                    attr.offset);
+                    break;
+            }
+            if (attr.location < ATTRIB_MASK_BITS)
+                enabledMask |= (1u << attr.location);
+            else
+                glEnableVertexArrayAttrib(m_VAO, attr.location);
+        }
+    } else {
+        // Standard 96-byte Vertex layout: 7 attributes
+        SetAttribFormat(m_VAO, ATTRIB_POSITION, 3, GL_FLOAT, false,
+                        offsetof(Vertex, px));
+        SetAttribFormat(m_VAO, ATTRIB_NORMAL, 3, GL_FLOAT, false,
+                        offsetof(Vertex, nx));
+        SetAttribFormat(m_VAO, ATTRIB_TANGENT, 4, GL_FLOAT, false,
+                        offsetof(Vertex, tx));
+        SetAttribFormat(m_VAO, ATTRIB_COLOR, 4, GL_FLOAT, false,
+                        offsetof(Vertex, r));
+        SetAttribFormat(m_VAO, ATTRIB_UV, 2, GL_FLOAT, false,
+                        offsetof(Vertex, u));
+        SetAttribFormat(m_VAO, ATTRIB_BONE_IDS, 4, GL_INT, true,
+                        offsetof(Vertex, boneIDs));
+        SetAttribFormat(m_VAO, ATTRIB_BONE_WEIGHTS, 4, GL_FLOAT, false,
+                        offsetof(Vertex, boneWeights));
+        for (GLuint loc = ATTRIB_POSITION; loc <= ATTRIB_BONE_WEIGHTS; ++loc)
+            enabledMask |= (1u << loc);
+    }
+
+    // Toggle only the slots whose enable state differs from the last layout
+    const uint32_t changed = enabledMask ^ m_enabledAttribMask;
+    for (uint32_t loc = 0; loc < ATTRIB_MASK_BITS; ++loc) {
+        const uint32_t bit = 1u << loc;
+        if (!(changed & bit)) continue;
+        if (enabledMask & bit)
+            glEnableVertexArrayAttrib(m_VAO, loc);
+        else
+            glDisableVertexArrayAttrib(m_VAO, loc);
+    }
+    m_enabledAttribMask = enabledMask;
 }
 
 void OpenGLRenderer::BeginRender() {
+    m_sceneReadPrepared = false;
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
@@ -189,12 +306,14 @@ void OpenGLRenderer::EndRender() {
 
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
+        CleanupSceneRead();
         CleanupGBufferResources();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
         if (m_shadowFBO) { glDeleteFramebuffers(1, &m_shadowFBO); m_shadowFBO = 0; }
         m_shadowMapCreated = false;
+        m_shadowMapRendered = false;
         m_shadowUBOCreated = false;
         CleanupMSAAFramebuffer();
         if (bImInitialized) {
@@ -215,8 +334,38 @@ void OpenGLRenderer::Cleanup() {
     }
 }
 
+#ifdef SLEAK_HOT_RELOAD
+bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
+    for (OpenGLShader* shader : OpenGLShader::GetLiveShaders()) {
+        const bool changed =
+            std::ranges::any_of(stems, [shader](const std::string& stem) {
+                return shader->UsesStem(stem);
+            });
+        if (!changed) continue;
+        if (shader->Reload()) {
+            SLEAK_INFO("Reloaded OpenGL shader '{}'", shader->GetStem());
+        } else {
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old program",
+                       shader->GetStem());
+        }
+    }
+    for (const std::string& stem : stems) {
+        const bool used =
+            std::ranges::any_of(OpenGLShader::GetLiveShaders(),
+                                [&stem](const OpenGLShader* shader) {
+                                    return shader->UsesStem(stem);
+                                });
+        if (!used)
+            SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
+                       stem);
+    }
+    return true;
+}
+#endif
+
 void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
-    glViewport(0, 0, width, height);
+    ApplyViewport(0, 0, static_cast<GLsizei>(width),
+                  static_cast<GLsizei>(height));
     // Recreate MSAA FBO at new size
     if (m_msaaFBO != 0) {
         CleanupMSAAFramebuffer();
@@ -300,10 +449,16 @@ void OpenGLRenderer::SetRenderMode(RenderMode mode) {
 void OpenGLRenderer::SetViewport(float x, float y, float width,
                                   float height, float minDepth,
                                   float maxDepth) {
-    glViewport(static_cast<GLint>(x), static_cast<GLint>(y),
-               static_cast<GLsizei>(width),
-               static_cast<GLsizei>(height));
+    ApplyViewport(static_cast<GLint>(x), static_cast<GLint>(y),
+                  static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     glDepthRangef(minDepth, maxDepth);
+}
+
+void OpenGLRenderer::ApplyViewport(GLint x, GLint y, GLsizei width,
+                                   GLsizei height) {
+    glViewport(x, y, width, height);
+    // GL rejects negative sizes and keeps the previous viewport
+    if (width >= 0 && height >= 0) m_viewport = {x, y, width, height};
 }
 
 void OpenGLRenderer::ClearRenderTarget(float r, float g, float b,
@@ -362,85 +517,21 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
     auto* glBuf = dynamic_cast<OpenGLBuffer*>(buffer.get());
     if (!glBuf) return;
 
-    glBindBuffer(GL_ARRAY_BUFFER, glBuf->GetGLBuffer());
-
-    // A registered layout drives the attribute pointers; 0 means default Vertex
-    const uint32_t customFormat = buffer->GetVertexFormat();
-    const VertexLayoutDesc* customDesc =
-        customFormat != 0 ? VertexFormatRegistry::Get(customFormat) : nullptr;
-
-    if (customDesc) {
-        // One attribute pointer per registry entry, tracking which slots stay live
-        const GLsizei stride = static_cast<GLsizei>(customDesc->stride);
-        uint32_t enabledMask = 0;
-        for (const auto& attr : customDesc->attributes) {
-            const void* off = reinterpret_cast<const void*>(
-                static_cast<uintptr_t>(attr.offset));
-            glEnableVertexAttribArray(attr.location);
-            switch (attr.format) {
-                case VertexAttribFormat::Float1:
-                    glVertexAttribPointer(attr.location, 1, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float2:
-                    glVertexAttribPointer(attr.location, 2, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float3:
-                    glVertexAttribPointer(attr.location, 3, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::Float4:
-                    glVertexAttribPointer(attr.location, 4, GL_FLOAT, GL_FALSE, stride, off);
-                    break;
-                case VertexAttribFormat::UInt1:
-                    glVertexAttribIPointer(attr.location, 1, GL_UNSIGNED_INT, stride, off);
-                    break;
-                case VertexAttribFormat::Int1:
-                    glVertexAttribIPointer(attr.location, 1, GL_INT, stride, off);
-                    break;
-            }
-            if (attr.location < 32) enabledMask |= (1u << attr.location);
-        }
-        // Disable attribute slots left enabled by a previous bind
-        constexpr uint32_t TRACKED_ATTRIB_SLOTS = 8;
-        for (uint32_t loc = 0; loc < TRACKED_ATTRIB_SLOTS; ++loc) {
-            if (!(enabledMask & (1u << loc))) glDisableVertexAttribArray(loc);
-        }
-    } else {
-        // Standard 96-byte Vertex layout: 7 attributes
-        // Position: 3 floats at offset 0
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, px));
-
-        // Normal: 3 floats at offset 12
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, nx));
-
-        // Tangent: 4 floats at offset 24
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, tx));
-
-        // Color: 4 floats at offset 40
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, r));
-
-        // UV: 2 floats at offset 56
-        glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, u));
-
-        // BoneIDs: 4 ints (must use IPointer for integer attributes)
-        glEnableVertexAttribArray(5);
-        glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
-                               (void*)offsetof(Vertex, boneIDs));
-
-        // BoneWeights: 4 floats
-        glEnableVertexAttribArray(6);
-        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                              (void*)offsetof(Vertex, boneWeights));
+    // A registered layout drives the attribute formats; 0 means default Vertex
+    const uint32_t format = buffer->GetVertexFormat();
+    const VertexLayoutDesc* desc = m_configuredLayoutDesc;
+    if (format != m_configuredLayout) {
+        desc = format != 0 ? VertexFormatRegistry::Get(format) : nullptr;
+        ConfigureVertexLayout(desc ? format : DEFAULT_VERTEX_LAYOUT, desc);
     }
+
+    if (desc && desc->transparentReadsScene && m_inForwardTransparentPass)
+        PrepareSceneRead();
+
+    const GLsizei stride = desc ? static_cast<GLsizei>(desc->stride)
+                                : static_cast<GLsizei>(sizeof(Vertex));
+    glVertexArrayVertexBuffer(m_VAO, VERTEX_BUFFER_BINDING,
+                              glBuf->GetGLBuffer(), 0, stride);
 }
 
 void OpenGLRenderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
@@ -457,33 +548,42 @@ void OpenGLRenderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
     if (!glBuf) return;
 
     // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
-    if (m_inShadowPass && slot == 0 && glBuf->GetCPUShadowCopySize() >= 128) {
+    if (m_inShadowPass && slot == 0 &&
+        glBuf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
         const float* srcWorld = reinterpret_cast<const float*>(
-            static_cast<const char*>(glBuf->GetCPUShadowCopy()) + 64);
-
-        float shadowPC[32];
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                float sum = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                }
-                shadowPC[r * 4 + c] = sum;
-            }
-        }
-        memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
+            static_cast<const char*>(glBuf->GetCPUShadowCopy()) + MAT4_BYTES);
 
         // Create dedicated shadow transform UBO on first use
         if (m_shadowTransformUBO == 0) {
-            glGenBuffers(1, &m_shadowTransformUBO);
-            glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
-            glBufferData(GL_UNIFORM_BUFFER, 128, nullptr, GL_DYNAMIC_DRAW);
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            glCreateBuffers(1, &m_shadowTransformUBO);
+            glNamedBufferData(m_shadowTransformUBO, TRANSFORM_CB_BYTES, nullptr,
+                              GL_DYNAMIC_DRAW);
+            m_shadowTransformCacheValid = false;
         }
 
-        glBindBuffer(GL_UNIFORM_BUFFER, m_shadowTransformUBO);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(shadowPC), shadowPC);
-        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        // LightVP is fixed for the pass, so only a new World needs an upload
+        static_assert(sizeof(m_shadowTransformCache) == TRANSFORM_CB_BYTES);
+        static_assert(sizeof(m_shadowWorldCache) == MAT4_BYTES);
+        if (!m_shadowTransformCacheValid ||
+            memcmp(srcWorld, m_shadowWorldCache, MAT4_BYTES) != 0) {
+            for (int r = 0; r < MAT4_DIM; ++r) {
+                for (int c = 0; c < MAT4_DIM; ++c) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < MAT4_DIM; ++k) {
+                        sum += srcWorld[r * MAT4_DIM + k] *
+                               m_lightVP[k * MAT4_DIM + c];
+                    }
+                    m_shadowTransformCache[r * MAT4_DIM + c] = sum;
+                }
+            }
+            memcpy(&m_shadowTransformCache[MAT4_FLOATS], srcWorld, MAT4_BYTES);
+            memcpy(m_shadowWorldCache, srcWorld, MAT4_BYTES);
+            m_shadowTransformCacheValid = true;
+            glNamedBufferSubData(m_shadowTransformUBO, 0,
+                                 sizeof(m_shadowTransformCache),
+                                 m_shadowTransformCache);
+        }
+
         glBindBufferBase(GL_UNIFORM_BUFFER, slot, m_shadowTransformUBO);
         return;
     }
@@ -688,7 +788,10 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     const auto* ubo = static_cast<const RenderEngine::ShadowLightUBO*>(data);
 
     RenderEngine::PCSSShadowGPUData shadowData{};
-    memcpy(shadowData.LightVP, ubo->LightVP, sizeof(float) * 16);
+    // Sample with the map's own matrix
+    memcpy(shadowData.LightVP,
+           m_shadowMapRendered ? m_shadowMapLightVP : ubo->LightVP,
+           sizeof(shadowData.LightVP));
     memcpy(shadowData.NdcToShadow, ubo->NdcToShadow, sizeof(float) * 16);
     shadowData.ShadowBias = ubo->ShadowBias;
     shadowData.ShadowStrength = ubo->ShadowStrength;
@@ -752,9 +855,7 @@ void OpenGLRenderer::RenderShadowPass() {
         if (!CreateShadowMapResources()) return;
     }
 
-    // Save current viewport
-    GLint savedViewport[4];
-    glGetIntegerv(GL_VIEWPORT, savedViewport);
+    const std::array<GLint, 4> savedViewport = m_viewport;
 
     // Bind shadow FBO
     glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
@@ -776,10 +877,13 @@ void OpenGLRenderer::RenderShadowPass() {
 
     // Execute shadow draw commands
     m_inShadowPass = true;
+    m_shadowTransformCacheValid = false;
     if (queue) {
         queue->ExecuteShadowPass(this);
     }
     m_inShadowPass = false;
+    memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
+    m_shadowMapRendered = true;
 
     // Restore state
     glDisable(GL_POLYGON_OFFSET_FILL);
@@ -792,7 +896,8 @@ void OpenGLRenderer::RenderShadowPass() {
     else
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    ApplyViewport(savedViewport[0], savedViewport[1], savedViewport[2],
+                  savedViewport[3]);
 
     // Bind shadow map texture at unit 3
     glActiveTexture(GL_TEXTURE3);
@@ -933,20 +1038,7 @@ void OpenGLRenderer::CleanupGBufferResources() {
 // IBL — lazy bake from active scene's skybox cubemap.
 // First call (or when the skybox cubemap changes) reruns the precompute.
 void OpenGLRenderer::EnsureIBL() {
-    auto* app = Application::GetInstance();
-    if (!app) return;
-    auto* game = app->GetGame();
-    if (!game) return;
-    auto* scene = game->GetActiveScene();
-    if (!scene) return;
-    auto* skybox = scene->GetSkybox();
-    if (!skybox || !skybox->IsInitialized()) return;
-    auto* cube = skybox->GetCubemapTexture();
-    if (!cube) return;
-    auto* glCube = dynamic_cast<OpenGLCubemapTexture*>(cube);
-    if (!glCube) return;
-
-    GLuint cubeHandle = glCube->GetGLTexture();
+    GLuint cubeHandle = FindSkyboxCubemap();
     if (cubeHandle == 0) return;
 
     if (!m_ibl) m_ibl = new OpenGLIBL();
@@ -1048,6 +1140,13 @@ void OpenGLRenderer::BindPBRMaterial(Sleak::Material* material) {
 
 void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
     if (!m_deferredCBCreated) return;
+    if (data && size >= sizeof(DeferredCBData)) {
+        const auto* cb = static_cast<const DeferredCBData*>(data);
+        memcpy(m_cachedInvViewProj, cb->InvViewProj,
+               sizeof(m_cachedInvViewProj));
+        m_cachedNearPlane = cb->NearPlane;
+        m_cachedFarPlane = cb->FarPlane;
+    }
     glBindBuffer(GL_UNIFORM_BUFFER, m_deferredCBUBO);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -1364,7 +1463,7 @@ void OpenGLRenderer::ExecuteSSAOPass() {
 
     // ---- Pass 1: SSAO ----
     glBindFramebuffer(GL_FRAMEBUFFER, m_ssaoFBO);
-    glViewport(0, 0, m_gbufferWidth, m_gbufferHeight);
+    ApplyViewport(0, 0, m_gbufferWidth, m_gbufferHeight);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_BLEND);

@@ -1,25 +1,126 @@
 #include "../../include/private/Graphics/DirectX11/DirectX11Renderer.hpp"
 #ifdef PLATFORM_WIN
 
-#include <Core/Window.hpp>
 #include <SDL3/SDL.h>
+#include <d3dcompiler.h>
 #include <dxgidebug.h>
+#include <imgui_internal.h>
+#include <psapi.h>
+#include <windows.h>
+#include <wrl/client.h>
+
+#include <Core/Window.hpp>
+#include <Graphics/Common/ConstantBuffer.hpp>
 #include <Graphics/DirectX11/DirectX11Buffer.hpp>
 #include <Graphics/DirectX11/DirectX11Shader.hpp>
-#include "Graphics/DirectX11/DirectX11Texture.hpp"
-#include "Graphics/DirectX11/DirectX11CubemapTexture.hpp"
 #include <Runtime/MeshData.hpp>
-#include <Graphics/Common/ConstantBuffer.hpp>
-#include <imgui_internal.h>
-#include <windows.h>
-#include <psapi.h>
-#include <d3dcompiler.h>
+#include <algorithm>
 #include <cstring>
+#include <string>
+#include <thread>
+#include <vector>
+
 #include "Graphics/Common/RenderCommandQueue.hpp"
+#include "Graphics/DirectX11/DirectX11CubemapTexture.hpp"
+#include "Graphics/DirectX11/DirectX11Texture.hpp"
 
 namespace Sleak {
     namespace RenderEngine {
-        
+
+    namespace {
+
+    constexpr const char* TONEMAP_SHADER_PATH = "assets/shaders/tonemap.hlsl";
+#ifdef SLEAK_HOT_RELOAD
+    constexpr const char* TONEMAP_STEM = "tonemap";
+#endif
+
+    // Transform CB layout: [WVP][World]; shadow CB: [LightVP*World][World]
+    constexpr int MATRIX_DIM = 4;
+    constexpr int MATRIX_FLOATS = MATRIX_DIM * MATRIX_DIM;
+    constexpr int TRANSFORM_CB_FLOATS = 2 * MATRIX_FLOATS;
+    constexpr UINT TRANSFORM_CB_BYTES = TRANSFORM_CB_FLOATS * sizeof(float);
+    constexpr size_t TRANSFORM_WORLD_OFFSET = MATRIX_FLOATS * sizeof(float);
+
+    /// Writes World * LightVP (row-major) followed by World into out.
+    void BuildShadowTransform(const float* world, const float* lightVP,
+                              float* out) {
+        for (int r = 0; r < MATRIX_DIM; ++r) {
+            for (int c = 0; c < MATRIX_DIM; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < MATRIX_DIM; ++k) {
+                    sum +=
+                        world[r * MATRIX_DIM + k] * lightVP[k * MATRIX_DIM + c];
+                }
+                out[r * MATRIX_DIM + c] = sum;
+            }
+        }
+        std::memcpy(out + MATRIX_FLOATS, world, MATRIX_FLOATS * sizeof(float));
+    }
+
+    /// Logs a failed D3DCompileFromFile call with the compiler output.
+    void LogCompileError(const char* path, const char* entry, HRESULT hr,
+                         ID3DBlob* errors) {
+        if (errors) {
+            SLEAK_ERROR("{} ({}) compile error: {}", path, entry,
+                        static_cast<const char*>(errors->GetBufferPointer()));
+        } else {
+            SLEAK_ERROR("{} ({}) compile error: 0x{:08X}", path, entry,
+                        static_cast<unsigned int>(hr));
+        }
+    }
+
+    /// Compares two rasterizer descriptions field by field.
+    bool SameDesc(const D3D11_RASTERIZER_DESC& a,
+                  const D3D11_RASTERIZER_DESC& b) {
+        return a.FillMode == b.FillMode && a.CullMode == b.CullMode &&
+               a.FrontCounterClockwise == b.FrontCounterClockwise &&
+               a.DepthBias == b.DepthBias &&
+               a.DepthBiasClamp == b.DepthBiasClamp &&
+               a.SlopeScaledDepthBias == b.SlopeScaledDepthBias &&
+               a.DepthClipEnable == b.DepthClipEnable &&
+               a.ScissorEnable == b.ScissorEnable &&
+               a.MultisampleEnable == b.MultisampleEnable &&
+               a.AntialiasedLineEnable == b.AntialiasedLineEnable;
+    }
+
+    /// Compares two stencil face descriptions field by field.
+    bool SameDesc(const D3D11_DEPTH_STENCILOP_DESC& a,
+                  const D3D11_DEPTH_STENCILOP_DESC& b) {
+        return a.StencilFailOp == b.StencilFailOp &&
+               a.StencilDepthFailOp == b.StencilDepthFailOp &&
+               a.StencilPassOp == b.StencilPassOp &&
+               a.StencilFunc == b.StencilFunc;
+    }
+
+    /// Compares two depth-stencil descriptions field by field.
+    bool SameDesc(const D3D11_DEPTH_STENCIL_DESC& a,
+                  const D3D11_DEPTH_STENCIL_DESC& b) {
+        return a.DepthEnable == b.DepthEnable &&
+               a.DepthWriteMask == b.DepthWriteMask &&
+               a.DepthFunc == b.DepthFunc &&
+               a.StencilEnable == b.StencilEnable &&
+               a.StencilReadMask == b.StencilReadMask &&
+               a.StencilWriteMask == b.StencilWriteMask &&
+               SameDesc(a.FrontFace, b.FrontFace) &&
+               SameDesc(a.BackFace, b.BackFace);
+    }
+
+    /// Finds the state cached for desc, or creates and caches it on a miss.
+    template <typename Desc, typename State, typename Create>
+    State* FindOrCreateState(
+        std::vector<std::pair<Desc, Microsoft::WRL::ComPtr<State>>>& cache,
+        const Desc& desc, Create create) {
+        for (const auto& [key, state] : cache) {
+            if (SameDesc(key, desc)) return state.Get();
+        }
+        Microsoft::WRL::ComPtr<State> state;
+        if (FAILED(create(&desc, state.GetAddressOf()))) return nullptr;
+        cache.emplace_back(desc, state);
+        return state.Get();
+    }
+
+    }  // namespace
+
 /// Registers this backend's buffer/shader/texture factories with ResourceManager.
 DirectX11Renderer::DirectX11Renderer(Window* window) 
     : window(window),
@@ -68,9 +169,9 @@ bool DirectX11Renderer::Initialize() {
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     UINT createDeviceFlags = 0;
-    #ifdef _DEBUG
-        createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
-    #endif
+#ifdef _DEBUG
+    createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
     D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0 };
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
@@ -88,7 +189,21 @@ bool DirectX11Renderer::Initialize() {
         &deviceContext                  // Device context
     );
 
+#ifdef _DEBUG
+    if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING) {
+        SLEAK_WARN(
+            "D3D11 debug layer is not installed, creating device without it");
+        createDeviceFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
+        hr = D3D11CreateDeviceAndSwapChain(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+            featureLevels, 1, D3D11_SDK_VERSION, &swapChainDesc, &swapChain,
+            &device, nullptr, &deviceContext);
+    }
+#endif
+
     if (FAILED(hr)) {
+        SLEAK_ERROR("Failed to create device and swap chain! HRESULT: 0x{:X}",
+                    (unsigned)hr);
         return false;
     }
 
@@ -103,46 +218,44 @@ bool DirectX11Renderer::Initialize() {
 
     SLEAK_INFO("DirectX 11 has successfully created!");
 
-    #ifdef _DEBUG
-        ID3D11InfoQueue* infoQueue;
-        if (SUCCEEDED(device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&infoQueue))) {
-            // Only break on corruption (critical), not on errors — breaking on
-            // errors without a debugger attached silently drops draw calls.
-            infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
+#ifdef _DEBUG
+    ID3D11InfoQueue* infoQueue;
+    if (SUCCEEDED(device->QueryInterface(__uuidof(ID3D11InfoQueue),
+                                         (void**)&infoQueue))) {
+        // Only break on corruption (critical), not on errors — breaking on
+        // errors without a debugger attached silently drops draw calls.
+        infoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
 
-            D3D11_MESSAGE_SEVERITY severities[] = {
-                D3D11_MESSAGE_SEVERITY_INFO
-            };
+        D3D11_MESSAGE_SEVERITY severities[] = {D3D11_MESSAGE_SEVERITY_INFO};
 
-            D3D11_INFO_QUEUE_FILTER filter = {};
-            filter.DenyList.NumSeverities = _countof(severities);
-            filter.DenyList.pSeverityList = severities;
+        D3D11_INFO_QUEUE_FILTER filter = {};
+        filter.DenyList.NumSeverities = _countof(severities);
+        filter.DenyList.pSeverityList = severities;
 
-            infoQueue->AddStorageFilterEntries(&filter);
-            infoQueue->Release();
-        }
-    #endif
+        infoQueue->AddStorageFilterEntries(&filter);
+        infoQueue->Release();
+    }
+#endif
 
-        SetPerformanceCounter(true);
-        SetRenderMode(RenderMode::Fill);
-        SetRenderFace(RenderFace::Front);
+    SetPerformanceCounter(true);
+    SetRenderMode(RenderMode::Fill);
+    SetRenderFace(RenderFace::Front);
 
-        ConfigureRenderMode();
+    ConfigureRenderMode();
 
-        SetDepthStencilState(true, true);
+    SetDepthStencilState(true, true);
 
-        msaaSampleCount = 1;
+    msaaSampleCount = 1;
 
-        D3D11_QUERY_DESC queryDesc;
-        queryDesc.Query = D3D11_QUERY::D3D11_QUERY_PIPELINE_STATISTICS;
-        queryDesc.MiscFlags = 0;
-        if(FAILED(device->CreateQuery(&queryDesc,&query)))
-            SLEAK_WARN("Could not create pipeline statics object!");
-        
-            
-    if(bEnabledPerformanceCounter){
-        if(query)
-        while (deviceContext->GetData(query, nullptr, 0, 0) == S_FALSE);
+    D3D11_QUERY_DESC queryDesc;
+    queryDesc.Query = D3D11_QUERY::D3D11_QUERY_PIPELINE_STATISTICS;
+    queryDesc.MiscFlags = 0;
+    if (FAILED(device->CreateQuery(&queryDesc, &query)))
+        SLEAK_WARN("Could not create pipeline statics object!");
+
+    if (bEnabledPerformanceCounter && query) {
+        while (deviceContext->GetData(query, nullptr, 0, 0) == S_FALSE)
+            std::this_thread::yield();
         deviceContext->Begin(query);
     }
 
@@ -157,8 +270,10 @@ void DirectX11Renderer::BeginRender() {
         ApplyMSAAChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
-    if (m_hasPendingLightVP) {
+    if (m_hasPendingLightVP &&
+        std::memcmp(m_lightVP, m_pendingLightVP, sizeof(m_lightVP)) != 0) {
         std::memcpy(m_lightVP, m_pendingLightVP, sizeof(m_lightVP));
+        m_shadowCBCacheValid = false;
     }
 
     // Create tonemap resources on demand
@@ -273,6 +388,9 @@ void DirectX11Renderer::Cleanup() {
         blendState = nullptr;
     }
 
+    m_rasterStates.clear();
+    m_depthStates.clear();
+
     if(query)
     {
         query->Release();
@@ -286,16 +404,16 @@ void DirectX11Renderer::Cleanup() {
         bImInitialized = false;
     }
 
-    #ifdef _DEBUG
-        if(device) {
-            ID3D11Debug* debugDevice;
-            device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
-            if (debugDevice) {
-                debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
-                debugDevice->Release();
-            }
+#ifdef _DEBUG
+    if (device) {
+        ID3D11Debug* debugDevice;
+        device->QueryInterface(__uuidof(ID3D11Debug), (void**)&debugDevice);
+        if (debugDevice) {
+            debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+            debugDevice->Release();
         }
-    #endif
+    }
+#endif
 
     if (device) {
         device->Release();
@@ -356,12 +474,15 @@ void DirectX11Renderer::SetDepthStencilState(bool enableDepth,
     depthStencilDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
     depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 
-    HRESULT hr = device->CreateDepthStencilState(&depthStencilDesc, &depthStencilState);
+    ID3D11DepthStencilState* state = nullptr;
+    HRESULT hr = device->CreateDepthStencilState(&depthStencilDesc, &state);
     if (FAILED(hr)) {
         SLEAK_ERROR("Failed to create depth stencil state!");
         return;
     }
 
+    if (depthStencilState) depthStencilState->Release();
+    depthStencilState = state;
     deviceContext->OMSetDepthStencilState(depthStencilState, 1);
 }
 
@@ -496,95 +617,75 @@ void DirectX11Renderer::ClearDepthStencil(bool clearDepth, bool clearStencil,
 
 // Buffer binding
 void DirectX11Renderer::BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot) {
-    if (!buffer) 
-        return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
+    ID3D11Buffer* d3d11Buffer = dx11Buf->GetD3DBuffer();
     UINT stride = sizeof(Sleak::Vertex);
     UINT offset = 0;
-
-    try
-    {
-        auto d3d11Buffer = dynamic_cast<DirectX11Buffer*>
-        (buffer.get())
-        ->GetD3DBuffer();
-
-        deviceContext->IASetVertexBuffers(slot, 1, &d3d11Buffer, &stride, &offset);
-
-    }
-    catch (std::exception& e)
-    {
-        SLEAK_ERROR("Failed to cast Vertex Buffer! {}", e.what());
-    }
+    deviceContext->IASetVertexBuffers(slot, 1, &d3d11Buffer, &stride, &offset);
 }
 
 void DirectX11Renderer::BindIndexBuffer(RefPtr<BufferBase> buffer,
                              uint32_t slot) {
-    if (!buffer) return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
-    UINT offset = 0;
-
-    try {
-        auto d3d11Buffer =
-            dynamic_cast<DirectX11Buffer*>(buffer.get())->GetD3DBuffer();
-
-        deviceContext->IASetIndexBuffer(d3d11Buffer, DXGI_FORMAT_R32_UINT, 0);
-
-    } catch (std::exception& e) {
-        SLEAK_ERROR("Failed to cast Index Buffer! {}", e.what());
-    }
+    deviceContext->IASetIndexBuffer(dx11Buf->GetD3DBuffer(),
+                                    DXGI_FORMAT_R32_UINT, 0);
 }
 
 void DirectX11Renderer::BindConstantBuffer(RefPtr<BufferBase> buffer,
                                 uint32_t slot) {
-    try {
-        auto* dx11Buf = dynamic_cast<DirectX11Buffer*>(buffer.get());
-        if (!dx11Buf) return;
+    auto* dx11Buf = static_cast<DirectX11Buffer*>(buffer.get());
+    if (!dx11Buf) return;
 
-        // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
-        if (m_inShadowPass && slot == 0 && dx11Buf->GetCPUShadowCopySize() >= 128) {
-            const float* srcWorld = reinterpret_cast<const float*>(
-                static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) + 64);
+    // Shadow pass: use dedicated shadow CB with LightVP*World for slot 0
+    if (m_inShadowPass && slot == 0 &&
+        dx11Buf->GetCPUShadowCopySize() >= TRANSFORM_CB_BYTES) {
+        const float* srcWorld = reinterpret_cast<const float*>(
+            static_cast<const char*>(dx11Buf->GetCPUShadowCopy()) +
+            TRANSFORM_WORLD_OFFSET);
 
-            float shadowPC[32];
-            for (int r = 0; r < 4; ++r) {
-                for (int c = 0; c < 4; ++c) {
-                    float sum = 0.0f;
-                    for (int k = 0; k < 4; ++k) {
-                        sum += srcWorld[r * 4 + k] * m_lightVP[k * 4 + c];
-                    }
-                    shadowPC[r * 4 + c] = sum;
-                }
-            }
-            std::memcpy(&shadowPC[16], srcWorld, sizeof(float) * 16);
-
-            // Create dedicated shadow transform CB on first use
-            if (!m_shadowTransformCB) {
-                D3D11_BUFFER_DESC desc{};
-                desc.ByteWidth = 128;
-                desc.Usage = D3D11_USAGE_DYNAMIC;
-                desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB);
-            }
-
-            // Update and bind the shadow CB instead of the original
-            D3D11_MAPPED_SUBRESOURCE mapped{};
-            if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-                std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
-                deviceContext->Unmap(m_shadowTransformCB, 0);
-            }
-            deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
-            deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
-            return;
+        // Create dedicated shadow transform CB on first use
+        if (!m_shadowTransformCB) {
+            D3D11_BUFFER_DESC desc{};
+            desc.ByteWidth = TRANSFORM_CB_BYTES;
+            desc.Usage = D3D11_USAGE_DYNAMIC;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            if (FAILED(
+                    device->CreateBuffer(&desc, nullptr, &m_shadowTransformCB)))
+                return;
+            m_shadowCBCacheValid = false;
         }
 
-        auto d3d11Buffer = dx11Buf->GetD3DBuffer();
-        deviceContext->VSSetConstantBuffers(slot, 1, &d3d11Buffer);
-        deviceContext->PSSetConstantBuffers(slot, 1, &d3d11Buffer);
+        // The CB keeps its contents, so only a new World needs an upload
+        if (!m_shadowCBCacheValid ||
+            std::memcmp(srcWorld, m_shadowWorldCache,
+                        sizeof(m_shadowWorldCache)) != 0) {
+            float shadowPC[TRANSFORM_CB_FLOATS];
+            BuildShadowTransform(srcWorld, m_lightVP, shadowPC);
 
-    } catch (std::exception& e) {
-        SLEAK_ERROR("Failed to cast Constant Buffer! {}", e.what());
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(deviceContext->Map(m_shadowTransformCB, 0,
+                                             D3D11_MAP_WRITE_DISCARD, 0,
+                                             &mapped))) {
+                std::memcpy(mapped.pData, shadowPC, sizeof(shadowPC));
+                deviceContext->Unmap(m_shadowTransformCB, 0);
+                std::memcpy(m_shadowWorldCache, srcWorld,
+                            sizeof(m_shadowWorldCache));
+                m_shadowCBCacheValid = true;
+            }
+        }
+        deviceContext->VSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+        deviceContext->PSSetConstantBuffers(slot, 1, &m_shadowTransformCB);
+        return;
     }
+
+    auto d3d11Buffer = dx11Buf->GetD3DBuffer();
+    deviceContext->VSSetConstantBuffers(slot, 1, &d3d11Buffer);
+    deviceContext->PSSetConstantBuffers(slot, 1, &d3d11Buffer);
 }
 
 void DirectX11Renderer::ConfigureRenderMode() {
@@ -623,7 +724,6 @@ void DirectX11Renderer::ConfigureRenderFace() {
 }
 
 bool DirectX11Renderer::SetRasterState() {
-    ID3D11RasterizerState* rasterState;
     D3D11_RASTERIZER_DESC RasterDesc = {};
     RasterDesc.AntialiasedLineEnable = true;
     RasterDesc.MultisampleEnable = true;
@@ -636,14 +736,29 @@ bool DirectX11Renderer::SetRasterState() {
     RasterDesc.FillMode = fillMode;
     RasterDesc.FrontCounterClockwise = false;
 
-    if (FAILED(device->CreateRasterizerState(&RasterDesc, &rasterState))) {
-        return false;
-    } else {
-        deviceContext->RSSetState(rasterState);
-        rasterState->Release();
-    }
+    ID3D11RasterizerState* rasterState = GetRasterState(RasterDesc);
+    if (!rasterState) return false;
 
+    deviceContext->RSSetState(rasterState);
     return true;
+}
+
+ID3D11RasterizerState* DirectX11Renderer::GetRasterState(
+    const D3D11_RASTERIZER_DESC& desc) {
+    return FindOrCreateState(
+        m_rasterStates, desc,
+        [this](const D3D11_RASTERIZER_DESC* d, ID3D11RasterizerState** out) {
+            return device->CreateRasterizerState(d, out);
+        });
+}
+
+ID3D11DepthStencilState* DirectX11Renderer::GetDepthState(
+    const D3D11_DEPTH_STENCIL_DESC& desc) {
+    return FindOrCreateState(m_depthStates, desc,
+                             [this](const D3D11_DEPTH_STENCIL_DESC* d,
+                                    ID3D11DepthStencilState** out) {
+                                 return device->CreateDepthStencilState(d, out);
+                             });
 }
 
 void DirectX11Renderer::SetRenderMode(RenderMode mode) {
@@ -739,19 +854,19 @@ Texture* DirectX11Renderer::CreateCubemapTextureFromPanorama(
 
 void DirectX11Renderer::SetDepthWrite(bool enabled) {
     m_depthWriteEnabled = enabled;
+    ApplyDepthState();
+}
 
+void DirectX11Renderer::ApplyDepthState() {
     D3D11_DEPTH_STENCIL_DESC desc = {};
     desc.DepthEnable = TRUE;
-    desc.DepthWriteMask = enabled ? D3D11_DEPTH_WRITE_MASK_ALL
-                                  : D3D11_DEPTH_WRITE_MASK_ZERO;
+    desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
+                                              : D3D11_DEPTH_WRITE_MASK_ZERO;
     desc.DepthFunc = m_depthFunc;
     desc.StencilEnable = FALSE;
 
-    ID3D11DepthStencilState* state = nullptr;
-    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
+    if (ID3D11DepthStencilState* state = GetDepthState(desc))
         deviceContext->OMSetDepthStencilState(state, 1);
-        state->Release();
-    }
 }
 
 void DirectX11Renderer::SetDepthCompare(DepthCompare compare) {
@@ -766,18 +881,7 @@ void DirectX11Renderer::SetDepthCompare(DepthCompare compare) {
         case DepthCompare::Never:        m_depthFunc = D3D11_COMPARISON_NEVER; break;
     }
 
-    D3D11_DEPTH_STENCIL_DESC desc = {};
-    desc.DepthEnable = TRUE;
-    desc.DepthWriteMask = m_depthWriteEnabled ? D3D11_DEPTH_WRITE_MASK_ALL
-                                               : D3D11_DEPTH_WRITE_MASK_ZERO;
-    desc.DepthFunc = m_depthFunc;
-    desc.StencilEnable = FALSE;
-
-    ID3D11DepthStencilState* state = nullptr;
-    if (SUCCEEDED(device->CreateDepthStencilState(&desc, &state))) {
-        deviceContext->OMSetDepthStencilState(state, 1);
-        state->Release();
-    }
+    ApplyDepthState();
 }
 
 void DirectX11Renderer::SetCullEnabled(bool enabled) {
@@ -853,11 +957,74 @@ Shader* DirectX11Renderer::CreateShader(const std::string& shaderSource) {
         if (!bIsLayoutCreated && il) {
             layout = il;
             bIsLayoutCreated = true;
+        } else if (il) {
+            il->Release();
         }
         return static_cast<Shader*>(shader);
     }
+    delete shader;
     return nullptr;
 }
+
+#ifdef SLEAK_HOT_RELOAD
+bool DirectX11Renderer::ReloadShaders(const std::vector<std::string>& stems) {
+    const auto usesAnyStem = [&stems](const DirectX11Shader* shader) {
+        return std::ranges::any_of(stems, [shader](const std::string& stem) {
+            return shader->UsesStem(stem);
+        });
+    };
+
+    // Shaders built from the same files compile once and share the result
+    std::vector<const DirectX11Shader*> rebuilt;
+    std::vector<const DirectX11Shader*> failed;
+    for (DirectX11Shader* shader : DirectX11Shader::GetLiveShaders()) {
+        if (!usesAnyStem(shader)) continue;
+        const auto sameSources = [shader](const DirectX11Shader* other) {
+            return shader->HasSameSources(*other);
+        };
+        if (std::ranges::any_of(failed, sameSources)) continue;
+
+        ID3D11InputLayout* oldLayout = shader->getInputLayout();
+        const auto twin = std::ranges::find_if(rebuilt, sameSources);
+        if (twin != rebuilt.end()) {
+            shader->AdoptStages(**twin);
+        } else if (shader->Reload()) {
+            rebuilt.push_back(shader);
+            SLEAK_INFO("Reloaded DirectX 11 shader '{}'", shader->GetStem());
+        } else {
+            failed.push_back(shader);
+            SLEAK_WARN("Shader '{}' failed to reload, keeping the old one",
+                       shader->GetStem());
+            continue;
+        }
+
+        // The renderer holds its own reference to the first shader's layout
+        if (bIsLayoutCreated && oldLayout && oldLayout == layout) {
+            ID3D11InputLayout* fresh = shader->getInputLayout();
+            if (fresh) fresh->AddRef();
+            layout->Release();
+            layout = fresh;
+        }
+    }
+
+    if (std::find(stems.begin(), stems.end(), TONEMAP_STEM) != stems.end())
+        ReloadTonemapShaders();
+
+    for (const std::string& stem : stems) {
+        const bool used =
+            stem == TONEMAP_STEM ||
+            std::ranges::any_of(DirectX11Shader::GetLiveShaders(),
+                                [&stem](const DirectX11Shader* shader) {
+                                    return shader->UsesStem(stem);
+                                });
+        if (!used)
+            SLEAK_WARN(
+                "Hot reload: no loaded DirectX 11 shader is built from '{}'",
+                stem);
+    }
+    return true;
+}
+#endif
 
 bool DirectX11Renderer::CreateBlendState() {
     //(+) : Binary Operator
@@ -1056,6 +1223,7 @@ void DirectX11Renderer::CleanupShadowResources() {
     if (m_shadowCB) { m_shadowCB->Release(); m_shadowCB = nullptr; }
     m_shadowCBCreated = false;
     if (m_shadowTransformCB) { m_shadowTransformCB->Release(); m_shadowTransformCB = nullptr; }
+    m_shadowCBCacheValid = false;
     if (m_shadowRasterState) { m_shadowRasterState->Release(); m_shadowRasterState = nullptr; }
     if (m_shadowSampler) { m_shadowSampler->Release(); m_shadowSampler = nullptr; }
     if (m_shadowSRV) { m_shadowSRV->Release(); m_shadowSRV = nullptr; }
@@ -1308,52 +1476,72 @@ bool DirectX11Renderer::CreateTonemapResources() {
     hr = device->CreateBuffer(&cbDesc, nullptr, &m_postProcessCB);
     if (FAILED(hr)) return false;
 
-    // Compile tonemap shaders
-    ID3DBlob* vsBlob = nullptr;
-    ID3DBlob* psBlob = nullptr;
-    ID3DBlob* errorBlob = nullptr;
-
-    // Build path to shader (relative to working directory = bin/)
-    std::string narrowPath = "assets/shaders/tonemap.hlsl";
-    std::wstring shaderPath(narrowPath.begin(), narrowPath.end());
-
-    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "VS_Main", "vs_5_0", D3DCOMPILE_DEBUG, 0, &vsBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Tonemap VS compile error: {}",
-                (const char*)errorBlob->GetBufferPointer());
-            errorBlob->Release();
-        }
-        return false;
-    }
-
-    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "PS_Main", "ps_5_0", D3DCOMPILE_DEBUG, 0, &psBlob, &errorBlob);
-    if (FAILED(hr)) {
-        if (errorBlob) {
-            SLEAK_ERROR("Tonemap PS compile error: {}",
-                (const char*)errorBlob->GetBufferPointer());
-            errorBlob->Release();
-        }
-        vsBlob->Release();
-        return false;
-    }
-
-    hr = device->CreateVertexShader(vsBlob->GetBufferPointer(),
-        vsBlob->GetBufferSize(), nullptr, &m_tonemapVS);
-    vsBlob->Release();
-    if (FAILED(hr)) { psBlob->Release(); return false; }
-
-    hr = device->CreatePixelShader(psBlob->GetBufferPointer(),
-        psBlob->GetBufferSize(), nullptr, &m_tonemapPS);
-    psBlob->Release();
-    if (FAILED(hr)) return false;
+    if (!CompileTonemapShaders(&m_tonemapVS, &m_tonemapPS)) return false;
 
     m_tonemapResourcesCreated = true;
     SLEAK_INFO("Tonemapping post-process resources created successfully");
     return true;
 }
+
+bool DirectX11Renderer::CompileTonemapShaders(ID3D11VertexShader** vs,
+                                              ID3D11PixelShader** ps) {
+    // Path is relative to the working directory (bin/)
+    const std::string narrowPath = TONEMAP_SHADER_PATH;
+    const std::wstring shaderPath(narrowPath.begin(), narrowPath.end());
+
+    Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3DCompileFromFile(
+        shaderPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "VS_Main", "vs_5_0", D3DCOMPILE_DEBUG, 0, &vsBlob, &errorBlob);
+    if (FAILED(hr)) {
+        LogCompileError(TONEMAP_SHADER_PATH, "VS_Main", hr, errorBlob.Get());
+        return false;
+    }
+    hr = D3DCompileFromFile(shaderPath.c_str(), nullptr,
+                            D3D_COMPILE_STANDARD_FILE_INCLUDE, "PS_Main",
+                            "ps_5_0", D3DCOMPILE_DEBUG, 0, &psBlob, &errorBlob);
+    if (FAILED(hr)) {
+        LogCompileError(TONEMAP_SHADER_PATH, "PS_Main", hr, errorBlob.Get());
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
+    if (FAILED(device->CreateVertexShader(vsBlob->GetBufferPointer(),
+                                          vsBlob->GetBufferSize(), nullptr,
+                                          &vertexShader)) ||
+        FAILED(device->CreatePixelShader(psBlob->GetBufferPointer(),
+                                         psBlob->GetBufferSize(), nullptr,
+                                         &pixelShader))) {
+        SLEAK_ERROR("Failed to create tonemap shader objects");
+        return false;
+    }
+    *vs = vertexShader.Detach();
+    *ps = pixelShader.Detach();
+    return true;
+}
+
+#ifdef SLEAK_HOT_RELOAD
+void DirectX11Renderer::ReloadTonemapShaders() {
+    // Not built yet, the first tonemap pass compiles the new file
+    if (!m_tonemapResourcesCreated) return;
+
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11PixelShader* ps = nullptr;
+    if (!CompileTonemapShaders(&vs, &ps)) {
+        SLEAK_WARN("Shader '{}' failed to reload, keeping the old one",
+                   TONEMAP_STEM);
+        return;
+    }
+    if (m_tonemapVS) m_tonemapVS->Release();
+    if (m_tonemapPS) m_tonemapPS->Release();
+    m_tonemapVS = vs;
+    m_tonemapPS = ps;
+    SLEAK_INFO("Reloaded DirectX 11 shader '{}'", TONEMAP_STEM);
+}
+#endif
 
 void DirectX11Renderer::CleanupTonemapResources() {
     if (m_tonemapVS) { m_tonemapVS->Release(); m_tonemapVS = nullptr; }

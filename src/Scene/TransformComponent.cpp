@@ -26,18 +26,12 @@ namespace Sleak {
           scale(scale)
             {}
 
-    TransformComponent::~TransformComponent() {
-        delete Transform;
-        Transform = nullptr;
-    }
+    TransformComponent::~TransformComponent() = default;
 
     bool TransformComponent::Initialize() {
-        if (!Transform) Transform = new TransformMatrix();
-        UpdateTransform();
         if (ConstantBuffer.IsValid()) return true;
 
-        auto world = GetTransformMatrix();
-        RenderEngine::TransformBuffer tb(world,
+        RenderEngine::TransformBuffer tb(WorldMatrix(),
                                          Camera::GetMainViewMatrix(),
                                          Camera::GetMainProjectionMatrix());
         ConstantBuffer = RefPtr<RenderEngine::BufferBase>(
@@ -49,21 +43,34 @@ namespace Sleak {
     }
 
     void TransformComponent::Update(float DeltaTime) {
+        MeshComponent* mesh =
+            owner ? owner->GetComponent<MeshComponent>() : nullptr;
+        if (mesh && mesh->IsInitialized()) return;
+
+        SubmitRenderState();
+    }
+
+    void TransformComponent::SubmitRenderState() {
         UpdateConstantBuffer();
 
         RenderEngine::RenderCommandQueue::GetInstance()->SubmitBindConstantBuffer(ConstantBuffer, 0);
     }
 
-    // Transformation matrix calculation
-    Matrix4 TransformComponent::GetTransformMatrix() {
-        return Transform->CalculateTransformMatrix();
+    Matrix4 TransformComponent::GetTransformMatrix() { return WorldMatrix(); }
+
+    const Matrix4& TransformComponent::WorldMatrix() {
+        if (m_worldDirty) {
+            m_world = (Matrix4::Scale(scale) * Matrix4::Rotate(rotation)) *
+                      Matrix4::Translate(position);
+            m_worldDirty = false;
+        }
+        return m_world;
     }
 
     // Transformations
     void TransformComponent::Translate(const Vector3D& translation) {
         position += translation;
-        Transform->Translation = Matrix4::Translate(position);
-        UpdateTransform();
+        m_worldDirty = true;
     }
 
 
@@ -73,7 +80,7 @@ namespace Sleak {
 
     void TransformComponent::Rotate(const Quaternion& rotation) {
         this->rotation *= rotation;
-        UpdateTransform();
+        m_worldDirty = true;
     }
 
     void TransformComponent::Scale(float amount) {
@@ -82,20 +89,23 @@ namespace Sleak {
 
     void TransformComponent::Scale(const Vector3D& scale) {
         this->scale = scale * this->scale;
-        UpdateTransform();
+        m_worldDirty = true;
     }
 
     // Setters
     void TransformComponent::SetPosition(const Vector3D& position) {
         this->position = position;
+        m_worldDirty = true;
     }
 
     void TransformComponent::SetRotation(const Quaternion& rotation) {
         this->rotation = rotation;
+        m_worldDirty = true;
     }
 
     void TransformComponent::SetScale(const Vector3D& scale) {
         this->scale = scale;
+        m_worldDirty = true;
     }
 
     // Direction vectors
@@ -124,6 +134,7 @@ namespace Sleak {
         Vector3D direction = (target - position).Normalize();
         Vector3D Up = VECTOR_Up;
         rotation = Quaternion::LookRotation(direction, Up);
+        m_worldDirty = true;
     }
 
     // Getters
@@ -139,25 +150,13 @@ namespace Sleak {
         return scale;
     }
 
-    void TransformComponent::UpdateTransform() {
-        Transform->Translation = Matrix4::Translate(position);
-        Transform->Rotation = Matrix4::Rotate(rotation);
-        Transform->Scaling = Matrix4::Scale(scale);
-
-        Transform->CalculateTransformMatrix();
-    }
-
-
     void TransformComponent::UpdateConstantBuffer() {
         if (!ConstantBuffer) {
             SLEAK_ERROR("Constant buffer is not found to update for object {}", owner->GetName());
             return;
         }
 
-        UpdateTransform();
-
-        auto world = GetTransformMatrix();
-        RenderEngine::TransformBuffer tb(world,
+        RenderEngine::TransformBuffer tb(WorldMatrix(),
                                          Camera::GetMainViewMatrix(),
                                          Camera::GetMainProjectionMatrix());
 
@@ -166,8 +165,7 @@ namespace Sleak {
 
 
     Math::Matrix4 TransformComponent::GetMVP() {
-        auto mat = GetTransformMatrix() *
-                   Camera::GetMainViewMatrix() *
+        auto mat = WorldMatrix() * Camera::GetMainViewMatrix() *
                    Camera::GetMainProjectionMatrix();
 
         return mat;

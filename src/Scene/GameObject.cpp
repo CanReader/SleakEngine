@@ -152,6 +152,26 @@ namespace Sleak {
                 Components[i]->OnDestroy();
         }
         Components.clear();
+        RefreshComponentCache();
+    }
+
+    void GameObject::RefreshComponentCache() {
+        m_cachedTransform = nullptr;
+        m_cachedMaterial = nullptr;
+        m_cachedMesh = nullptr;
+
+        for (size_t i = 0; i < Components.GetSize(); ++i) {
+            Component* component = Components[i].get();
+            if (!component) continue;
+
+            if (!m_cachedTransform)
+                m_cachedTransform =
+                    dynamic_cast<TransformComponent*>(component);
+            if (!m_cachedMaterial)
+                m_cachedMaterial = dynamic_cast<MaterialComponent*>(component);
+            if (!m_cachedMesh)
+                m_cachedMesh = dynamic_cast<MeshComponent*>(component);
+        }
     }
 
     /// Fallback material for the primitive factories below, using the default shader.
@@ -167,9 +187,9 @@ namespace Sleak {
         MeshData meshData = GetPlaneMesh(width, height);
         object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
         object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<TransformComponent>(position);
         object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
         object->AddComponent<MeshComponent>(std::move(meshData));
-        object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
         return object;
@@ -223,9 +243,9 @@ namespace Sleak {
         MeshData meshData = GetCylinderMesh(segments, height, radius);
         object->AddComponent<ColliderComponent>(meshData, Physics::ColliderType::AABB);
         object->AddComponent<RigidbodyComponent>(BodyType::Static);
+        object->AddComponent<TransformComponent>(position);
         object->AddComponent<MaterialComponent>(CreateDefaultMaterial());
         object->AddComponent<MeshComponent>(std::move(meshData));
-        object->AddComponent<TransformComponent>(position);
         object->Initialize();
 
         return object;

@@ -1,11 +1,15 @@
 #pragma once
 
-
-#include "RenderContext.hpp"
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
+#include <string>
+#include <vector>
+
+#include "RenderContext.hpp"
 
 namespace Sleak {
+
+class Benchmark;
 
 namespace RenderEngine {
     
@@ -47,6 +51,12 @@ public:
     virtual void Cleanup() = 0;
     /// Blocks until the GPU has finished all outstanding work.
     virtual void WaitIdle() {}
+    /// Rebuilds what uses the given shader stems from the files on disk.
+    /// Returns false when the backend has no hot reload support.
+    virtual bool ReloadShaders(const std::vector<std::string>& stems) {
+        (void)stems;
+        return false;
+    }
     /// Flushes any buffered upload/staging transfers still in flight.
     virtual void FlushPendingTransfers() {}
 
@@ -62,6 +72,18 @@ public:
 
     /// Returns the backend's command-recording interface.
     virtual RenderContext* GetContext() = 0;
+
+    /// Adds the backend's GPU timing columns to a benchmark session.
+    virtual void RegisterBenchmarkMetrics(Benchmark& bench) { (void)bench; }
+
+    /// Arms a readback of the next rendered frame, UI excluded, into a
+    /// binary PPM. Returns false when the backend cannot capture.
+    virtual bool RequestFrameCapture(const std::string& path) {
+        (void)path;
+        return false;
+    }
+    /// True while an armed frame capture has not been written yet.
+    virtual bool IsFrameCapturePending() const { return false; }
 
     inline RendererType GetType() const
     {
@@ -177,6 +199,10 @@ public:
     // Post-process: TAA (Temporal Anti-Aliasing)
     void SetTAAEnabled(bool enabled) { m_taaEnabled = enabled; }
     bool IsTAAEnabled() const { return m_taaEnabled; }
+
+    /// Contrast-adaptive sharpening applied after TAA, 0 = off, 1 = strongest.
+    void SetSharpenStrength(float strength) { m_sharpenStrength = strength; }
+    float GetSharpenStrength() const { return m_sharpenStrength; }
 
     // Post-process: Bloom
     void SetBloomEnabled(bool enabled) { m_bloomEnabled = enabled; }
@@ -310,6 +336,7 @@ public:
     int m_ssrBinarySteps = 6;
     float m_ssrRoughnessThreshold = 0.9f;
     float m_taaBlendFactor = 0.1f;
+    float m_sharpenStrength = 0.0f;
     float m_bloomRadius = 1.0f;
     float m_bloomIntensity = 1.0f;
 

@@ -1,17 +1,22 @@
 #ifndef _OPENGLRENDERER_H
 #define _OPENGLRENDERER_H
 
-#include <Core/OSDef.hpp>
-#include "../Common/Renderer.hpp"
-#include "../Common/RenderContext.hpp"
-#include "../../Core/Window.hpp"
 #include <SDL3/SDL.h>
-#include <glad/glad.h>
-#include <array>
-#include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <glad/glad.h>
+#include <imgui.h>
+
+#include <Core/OSDef.hpp>
+#include <array>
+#include <cstdint>
+
+#include "../../Core/Window.hpp"
+#include "../Common/RenderContext.hpp"
+#include "../Common/Renderer.hpp"
 
 namespace Sleak {
+
+struct VertexLayoutDesc;
 
 namespace RenderEngine {
 
@@ -25,6 +30,10 @@ public:
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
+#ifdef SLEAK_HOT_RELOAD
+    /// Relinks every live shader built from one of the given stems.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
 
     virtual uint32_t GetFeatureCaps() const override {
         return CapDeferred | CapSSAO | CapIBL | CapShadows;
@@ -100,6 +109,17 @@ private:
     GLuint m_VAO = 0;
     bool m_debugLineMode = false;
 
+    // Vertex layout currently applied to m_VAO
+    static constexpr uint32_t NO_CONFIGURED_LAYOUT = UINT32_MAX;
+    uint32_t m_configuredLayout = NO_CONFIGURED_LAYOUT;
+    const VertexLayoutDesc* m_configuredLayoutDesc = nullptr;
+    uint32_t m_enabledAttribMask = 0;
+
+    // Last viewport set outside the shadow pass (x, y, width, height)
+    std::array<GLint, 4> m_viewport = {};
+    /// Sets the GL viewport and records it so passes can restore it later.
+    void ApplyViewport(GLint x, GLint y, GLsizei width, GLsizei height);
+
     // MSAA FBO resources
     GLuint m_msaaFBO = 0;
     GLuint m_msaaColorRBO = 0;
@@ -111,8 +131,11 @@ private:
     virtual void ConfigureRenderMode() override;
     virtual void ConfigureRenderFace() override;
 
-    /// Configures the shared VAO's vertex attribute layout for the standard mesh format.
+    /// Creates the shared mesh VAO and resets its cached attribute layout.
     void SetupVertexLayout();
+    /// Applies a vertex layout's attribute formats to m_VAO unless it is
+    /// already the active one; a null desc selects the default Vertex.
+    void ConfigureVertexLayout(uint32_t layout, const VertexLayoutDesc* desc);
 
     // Shadow mapping
     GLuint m_shadowFBO = 0;
@@ -123,9 +146,18 @@ private:
     float m_lightVP[16] = {};
     float m_pendingLightVP[16] = {};
     bool  m_hasPendingLightVP = false;
+    // Matrix the shadow map was last rendered with
+    float m_shadowMapLightVP[16] = {};
+    bool m_shadowMapRendered = false;
     bool m_inShadowPass = false;
     GLuint m_shadowTransformUBO = 0;
+    // Last shadow transform uploaded: [LightVP*World][World], keyed on World
+    float m_shadowTransformCache[32] = {};
+    float m_shadowWorldCache[16] = {};
+    bool m_shadowTransformCacheValid = false;
     void SetLightVP(const float* mat) override;
+    /// Uploads light and shadow data, sampling with the matrix the shadow
+    /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
@@ -201,6 +233,29 @@ private:
     /// Lazily (re)bakes IBL data when the bound skybox cubemap changes.
     void EnsureIBL();
     void CleanupIBL();
+
+    // ---- Scene read for transparent formats ----
+    static constexpr GLuint SCENE_COLOR_UNIT = 4;
+    static constexpr GLuint SCENE_DEPTH_UNIT = 5;
+    static constexpr GLuint SCENE_SKY_UNIT = 6;
+    static constexpr GLuint SCENE_READ_UBO_BINDING = 4;
+    GLuint m_sceneCopyTex = 0;  // RGBA8 snapshot of the default framebuffer
+    int m_sceneCopyWidth = 0;
+    int m_sceneCopyHeight = 0;
+    GLuint m_sceneReadUBO = 0;
+    GLuint m_sceneFallbackCube = 0;
+    GLuint m_sceneSkyCube = 0;  // skybox cubemap found this frame, 0 if none
+    bool m_sceneReadPrepared = false;  // snapshot taken this frame
+    float m_cachedInvViewProj[16] = {};
+    float m_cachedNearPlane = 0.0f;
+    float m_cachedFarPlane = 0.0f;
+    /// Returns the active scene's skybox cubemap, or 0 when there is none.
+    GLuint FindSkyboxCubemap() const;
+    /// Snapshots the scene once per frame on the first scene-reading draw
+    /// and binds the snapshot, depth, sky, and SceneReadUBO.
+    void PrepareSceneRead();
+    /// Deletes the snapshot texture, stand-in cubemap, and UBO.
+    void CleanupSceneRead();
 };
 
 }  // namespace RenderEngine

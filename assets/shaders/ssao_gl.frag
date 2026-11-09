@@ -52,6 +52,14 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
+// View-space z from depth; equals (View * ReconstructWorldPos(uv, depth)).z
+// because the projection's z and w rows depend on view z alone.
+float LinearizeViewZ(float depth) {
+    float ndcZ = depth * 2.0 - 1.0;
+    return (Projection[3][2] - Projection[3][3] * ndcZ)
+         / (Projection[2][3] * ndcZ - Projection[2][2]);
+}
+
 void main() {
     if (ssaoEnabled == 0u) {
         outColor = 1.0;
@@ -76,19 +84,18 @@ void main() {
     vec3 bitangent = cross(worldN, tangent);
     mat3 TBN       = mat3(tangent, bitangent, worldN);
 
-    // Reference view-space Z for the current fragment.
-    // View * worldPos here only needs to be consistent with itself — the
-    // comparison is self-referential, so even if the view matrix is
-    // column- vs row-major mis-interpreted, both sides of the compare are
-    // transformed the same way and the result stays meaningful.
-    float fragViewZ = (View * vec4(worldPos, 1.0)).z;
+    // Reference view-space Z for the current fragment; View's z row maps a
+    // world offset to its view-space z delta.
+    float fragViewZ = LinearizeViewZ(depth);
+    vec3  viewZAxis = vec3(View[0][2], View[1][2], View[2][2]);
 
     mat4 VP = Projection * View;
 
     float occlusion = 0.0;
 
     for (uint i = 0u; i < ssaoKernelSize; ++i) {
-        vec3 sampleWorld = worldPos + (TBN * ssaoKernel[i].xyz) * ssaoRadius;
+        vec3 sampleOffset = (TBN * ssaoKernel[i].xyz) * ssaoRadius;
+        vec3 sampleWorld  = worldPos + sampleOffset;
 
         vec4 clipSample = VP * vec4(sampleWorld, 1.0);
         if (clipSample.w <= 0.0) continue;
@@ -98,9 +105,8 @@ void main() {
 
         float sampleDepth = texture(depthTexture, uv).r;
         if (sampleDepth >= 1.0) continue;  // sky — no occluder
-        vec3  actualWorld = ReconstructWorldPos(uv, sampleDepth);
-        float actualViewZ = (View * vec4(actualWorld, 1.0)).z;
-        float sampleViewZ = (View * vec4(sampleWorld, 1.0)).z;
+        float actualViewZ = LinearizeViewZ(sampleDepth);
+        float sampleViewZ = fragViewZ + dot(viewZAxis, sampleOffset);
 
         float rangeCheck = smoothstep(0.0, 1.0,
             ssaoRadius / max(abs(fragViewZ - actualViewZ), 1e-4));

@@ -72,6 +72,12 @@ namespace Sleak {
         /// Refreshes the deferred-pass constant buffer (fog, ambient) independent of the per-light data.
         void UpdateDeferredCB();
 
+        /// Light view-projection the next shadow pass renders with (row-major,
+        /// row vectors), or nullptr when no light casts shadows.
+        const float* GetShadowLightVP() const {
+            return m_hasShadowLightVP ? m_shadowLightVP : nullptr;
+        }
+
         void SetAmbientColor(float r, float g, float b);
         void SetAmbientIntensity(float intensity) {
             m_ambientIntensity = intensity;
@@ -123,6 +129,10 @@ namespace Sleak {
         float m_ambientG = 0.1f;
         float m_ambientB = 0.1f;
         float m_ambientIntensity = 1.0f;
+
+        // Last light VP staged on the renderer
+        float m_shadowLightVP[16] = {};
+        bool m_hasShadowLightVP = false;
 
         // Fog
         bool  m_fogEnabled = true;

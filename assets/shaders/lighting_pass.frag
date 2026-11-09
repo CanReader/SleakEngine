@@ -80,12 +80,16 @@ float InterleavedGradientNoise(vec2 screenPos) {
     return fract(magic.z * fract(dot(screenPos, magic.xy)));
 }
 
-vec2 VogelDisk(int i, int count, float phi) {
-    const float goldenAngle = 2.39996323;
-    float r     = sqrt((float(i) + 0.5) / float(count));
-    float theta = float(i) * goldenAngle + phi;
-    return vec2(r * cos(theta), r * sin(theta));
-}
+// r_i * (cos, sin)(i * 2.39996323), r_i = sqrt((i + 0.5) / 16)
+const vec2 kVogel16[16] = vec2[](
+    vec2( 0.176776692,  0.000000000), vec2(-0.225772178,  0.206825846),
+    vec2( 0.034557982, -0.393771189), vec2( 0.284571416,  0.371172631),
+    vec2(-0.522223197, -0.092373738), vec2( 0.494695337, -0.314684824),
+    vec2(-0.165465304,  0.615525170), vec2(-0.315562004, -0.607594155),
+    vec2( 0.684642316,  0.250029722), vec2(-0.712255912,  0.294009357),
+    vec2( 0.343354186, -0.733728746), vec2( 0.253730458,  0.808931929),
+    vec2(-0.764746789, -0.443184328), vec2( 0.897133617, -0.197234073),
+    vec2(-0.547505567,  0.778773187), vec2(-0.126488309, -0.976089476));
 
 // Fixed-radius rotated PCF — crisp shadows like a classic forward renderer,
 // at a fraction of PCSS cost (no blocker search). Hardware comparison sampler
@@ -93,10 +97,12 @@ vec2 VogelDisk(int i, int count, float phi) {
 const int PCF_SAMPLES = 16;
 
 float PCFFilter(vec2 uv, float zRef, float filterRadius, float phi) {
+    vec2  cs     = vec2(cos(phi), sin(phi)) * filterRadius;
     float shadow = 0.0;
     for (int i = 0; i < PCF_SAMPLES; ++i) {
-        vec2 off = VogelDisk(i, PCF_SAMPLES, phi) * filterRadius;
-        shadow  += texture(gShadow, vec3(uv + off, zRef));
+        vec2 d   = kVogel16[i];
+        vec2 off = vec2(d.x * cs.x - d.y * cs.y, d.x * cs.y + d.y * cs.x);
+        shadow  += textureLod(gShadow, vec3(uv + off, zRef), 0.0);
     }
     return shadow / float(PCF_SAMPLES);
 }
@@ -209,16 +215,17 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
 // ==================================================================
 void main() {
     // Early-out for sky pixels (depth == 1.0 means nothing was drawn)
-    float depth = texture(gDepth, fragUV).r;
+    ivec2 px    = ivec2(gl_FragCoord.xy);
+    float depth = texelFetch(gDepth, px, 0).r;
     if (depth >= 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
     // Reconstruct world position from depth instead of a GBuffer RT.
     vec3  worldPos  = ReconstructWorldPos(fragUV, depth);
     vec4  ndcPos    = vec4(fragUV.x * 2.0 - 1.0, 1.0 - 2.0 * fragUV.y,
                            depth, 1.0);
-    vec4  albedoAO  = texture(gAlbedoAO,    fragUV);
-    vec4  normalRg  = texture(gNormalRough, fragUV);
-    vec4  metalEmit = texture(gMetalEmit,   fragUV); // R16G16B16A16: .r=metallic, .gba=emissive
+    vec4  albedoAO  = texelFetch(gAlbedoAO,    px, 0);
+    vec4  normalRg  = texelFetch(gNormalRough, px, 0);
+    vec4  metalEmit = texelFetch(gMetalEmit,   px, 0); // R16G16B16A16: .r=metallic, .gba=emissive
 
     vec3  albedo    = albedoAO.rgb;
     float bakedAO   = albedoAO.a;          // vertex AO baked into GBuffer — always [0.4, 1.0]
@@ -308,15 +315,18 @@ void main() {
         vec3  Ldir    = normalize(-uLightDir.xyz);
         float rawNdL  = dot(N, Ldir);
         float wrapNdL = clamp(rawNdL * 0.85 + 0.15, 0.0, 1.0);
-        float shad    = CalcShadow(worldPos, N);
-        shad         *= smoothstep(-0.15, 0.0, rawNdL);
+        float shad    = 0.0;
+        if (rawNdL > -0.15)
+            shad = CalcShadow(worldPos, N) * smoothstep(-0.15, 0.0, rawNdL);
         vec3 direct   = uLightColor.rgb * uLightColor.a * wrapNdL * shad;
         for (uint li = 0u; li < uNumExtraLights; ++li) {
             vec3  Lx   = normalize(-uExtraDir[li].xyz);
             float NdLx = max(dot(N, Lx), 0.0);
             direct += uExtraColor[li].rgb * uExtraColor[li].a * NdLx;
         }
-        ambient = albedo * mix(groundAmbient, skyAmbient, hemisphere) * bakedAO;
+        // SSAO remapped like GL
+        float aoGL = bakedAO * (0.5 + 0.5 * ssao);
+        ambient = albedo * mix(groundAmbient, skyAmbient, hemisphere) * aoGL;
         Lo      = albedo * direct;
     }
 

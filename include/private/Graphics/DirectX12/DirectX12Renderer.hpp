@@ -40,6 +40,10 @@ public:
     void EndRender() override;
     void Cleanup() override;
     void WaitIdle() override { WaitForGPU(); }
+#ifdef SLEAK_HOT_RELOAD
+    /// Rebuilds the PSOs of live shaders and fixed passes using the stems.
+    bool ReloadShaders(const std::vector<std::string>& stems) override;
+#endif
 
     virtual void Resize(uint32_t width, uint32_t height) override;
 
@@ -136,6 +140,23 @@ public:
     /// Returns the cached PSO for the key, building it on a miss.
     ID3D12PipelineState* GetPipeline(const PipelineKey& key, ID3DBlob* vs,
                                      ID3DBlob* ps);
+    /// Returns the default-state PSO for a vertex/pixel shader pair.
+    ID3D12PipelineState* GetShaderPipeline(ID3DBlob* vs, ID3DBlob* ps);
+#ifdef SLEAK_HOT_RELOAD
+    /// Recompiles live shaders using the stems, collecting their old PSOs.
+    void ReloadLiveShaders(const std::vector<std::string>& stems,
+                           std::vector<ID3D12PipelineState*>& replaced);
+    /// Rebuilds a fixed pass PSO, keeping the old one on failure.
+    void ReloadPassPipeline(ID3D12PipelineState*& pso, bool& failed,
+                            bool (DirectX12Renderer::*create)(),
+                            const char* stem,
+                            std::vector<ID3D12PipelineState*>& replaced);
+    /// Recompiles the shadow vertex shader and rebuilds the shadow PSO.
+    void ReloadShadowPassPSO(std::vector<ID3D12PipelineState*>& replaced);
+    /// Drops cached PSOs that were replaced and that nothing binds anymore.
+    void PruneReplacedPipelines(
+        const std::vector<ID3D12PipelineState*>& replaced);
+#endif
     /// Reapplies the last shader PSO after a pass override ends.
     void RestoreShaderPipeline();
     /// Copies the light/fog constants into the ring and binds them at b2.
@@ -246,6 +267,9 @@ public:
     float                                          m_lightVP[16] = {};
     float                                          m_pendingLightVP[16] = {};
     bool                                           m_hasPendingLightVP = false;
+    // Last shadow transform uploaded this pass and the World it was built from
+    float m_shadowWorldCache[16] = {};
+    D3D12_GPU_VIRTUAL_ADDRESS m_shadowCBAddress = 0;
     bool m_inShadowPass = false;
     // Depth-only PSO for shadow pass (no PS, no RTV, CULL_NONE)
     ID3D12PipelineState* m_shadowPassPSO = nullptr;

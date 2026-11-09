@@ -113,6 +113,7 @@ set(CORE_SOURCES
     src/Core/Application.cpp
     src/Core/CommandLine.cpp
     src/Core/File.cpp
+    src/Core/FileWatcher.cpp
     src/Core/Logger.cpp
     src/Core/ScopedTimer.cpp
     src/Core/Serializable.cpp
@@ -128,6 +129,7 @@ set(DEBUG_SOURCES
     src/Debug/Benchmark.cpp
     src/Debug/DebugLineRenderer.cpp
     src/Debug/DebugOverlay.cpp
+    src/Debug/ShaderHotReload.cpp
     src/Debug/SystemMetrics.cpp
 )
 
@@ -148,6 +150,7 @@ set(GRAPHICS_OPENGL_SOURCES
     src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
     src/Graphics/OpenGL/OpenGLIBL.cpp
     src/Graphics/OpenGL/OpenGLRenderer.cpp
+    src/Graphics/OpenGL/OpenGLSceneRead.cpp
     src/Graphics/OpenGL/OpenGLShader.cpp
     src/Graphics/OpenGL/OpenGLTexture.cpp
 )
@@ -155,13 +158,16 @@ set(GRAPHICS_OPENGL_SOURCES
 set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanBloom.cpp
     src/Graphics/Vulkan/VulkanBuffer.cpp
+    src/Graphics/Vulkan/VulkanCapture.cpp
     src/Graphics/Vulkan/VulkanCubemapTexture.cpp
     src/Graphics/Vulkan/VulkanDeferred.cpp
     src/Graphics/Vulkan/VulkanDescriptors.cpp
     src/Graphics/Vulkan/VulkanDevice.cpp
     src/Graphics/Vulkan/VulkanIBL.cpp
     src/Graphics/Vulkan/VulkanPipelines.cpp
+    src/Graphics/Vulkan/VulkanProfiler.cpp
     src/Graphics/Vulkan/VulkanRenderer.cpp
+    src/Graphics/Vulkan/VulkanSceneRead.cpp
     src/Graphics/Vulkan/VulkanShader.cpp
     src/Graphics/Vulkan/VulkanShadow.cpp
     src/Graphics/Vulkan/VulkanSSAO.cpp
@@ -293,6 +299,15 @@ set_target_properties(Engine PROPERTIES
 )
 target_compile_features(Engine PUBLIC cxx_std_23)
 
+# --- Release link-time optimization ---
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ENGINE_IPO_SUPPORTED LANGUAGES CXX)
+if(ENGINE_IPO_SUPPORTED)
+    set_property(TARGET Engine PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+target_compile_options(Engine PRIVATE
+    $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-fno-math-errno>)
+
 # --- Generated version header ---
 set(ENGINE_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
 configure_file(
@@ -369,6 +384,7 @@ endforeach()
 if(GLSLC)
     set(ENGINE_SPIRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     file(MAKE_DIRECTORY "${ENGINE_SPIRV_DIR}")
+    target_compile_definitions(Engine PRIVATE SLEAK_GLSLC_PATH="${GLSLC}")
     foreach(_src ${ENGINE_VULKAN_SHADERS})
         get_filename_component(_name "${_src}" NAME)
         set(_spv "${ENGINE_SPIRV_DIR}/${_name}.spv")
@@ -424,6 +440,10 @@ add_dependencies(Engine CompileShaders)
 
 set_property(GLOBAL PROPERTY ENGINE_SPIRV_FILES ${ENGINE_SPIRV_FILES})
 set_property(GLOBAL PROPERTY ENGINE_COMMITTED_SPIRV ${ENGINE_COMMITTED_SPIRV})
+
+target_compile_definitions(Engine
+    PUBLIC $<$<CONFIG:Debug>:SLEAK_HOT_RELOAD>
+    PRIVATE SLEAK_ENGINE_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
 
 function(_engine_collect_targets dir out)
     get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
