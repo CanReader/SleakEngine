@@ -1540,6 +1540,12 @@ bool VulkanRenderer::ReloadShaders(const std::vector<std::string>& stems) {
          {&m_lightingPipelineLayout},
          {&m_lightingShader},
          &VulkanRenderer::CreateLightingPipeline},
+        // After lighting_pass: builds on the layout that group recreates
+        {"lighting override",
+         {&m_lightingOverridePipeline},
+         {},
+         {&m_lightingOverrideShader},
+         &VulkanRenderer::CreateLightingOverridePipeline},
         {"ssao",
          {&m_ssaoPipeline, &m_ssaoBlurPipeline},
          {&m_ssaoPipelineLayout, &m_ssaoBlurPipelineLayout},
@@ -1565,6 +1571,12 @@ bool VulkanRenderer::ReloadShaders(const std::vector<std::string>& stems) {
     };
     for (const PipelineGroup& group : groups) ReloadPipelineGroup(group);
     ReloadCustomFormatPipelines();
+    // A lighting stem that failed before gets another try next frame
+    if (!m_lightingShaderStem.empty() &&
+        m_lightingOverridePipeline == VK_NULL_HANDLE) {
+        m_lightingOverrideFailedStem.clear();
+        m_lightingShaderDirty = true;
+    }
     return true;
 }
 

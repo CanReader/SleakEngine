@@ -210,6 +210,7 @@ void VulkanRenderer::BeginRender() {
         ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
+    if (m_lightingShaderDirty) ApplyLightingShaderChange();
     PrebuildCustomFormatPipelines();
 
     VkResult result;
@@ -1223,6 +1224,8 @@ void VulkanRenderer::Cleanup() {
     // so these are no-ops when already freed — delete(nullptr) is safe.
     delete m_gbufferShader;         m_gbufferShader         = nullptr;
     delete m_lightingShader;        m_lightingShader        = nullptr;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
     delete m_ssaoShader;            m_ssaoShader            = nullptr;
     delete m_ssaoBlurShader;        m_ssaoBlurShader        = nullptr;
     delete m_ssrShader;             m_ssrShader             = nullptr;

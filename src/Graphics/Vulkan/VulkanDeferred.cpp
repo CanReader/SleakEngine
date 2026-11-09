@@ -14,6 +14,18 @@
 namespace Sleak {
     namespace RenderEngine {
 
+namespace {
+
+// Engine lighting stages; a lighting stem replaces only the fragment stage
+constexpr const char* LIGHTING_VERTEX_SPIRV =
+    "assets/shaders/lighting_pass.vert.spv";
+constexpr const char* LIGHTING_FRAGMENT_SPIRV =
+    "assets/shaders/lighting_pass.frag.spv";
+constexpr const char* SHADER_DIR = "assets/shaders/";
+constexpr const char* FRAGMENT_SPIRV_SUFFIX = ".frag.spv";
+
+}  // namespace
+
 /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
 /// RT3 MotionModel.
 const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] = {
@@ -446,21 +458,11 @@ bool VulkanRenderer::CreateLightingFramebuffers() {
     return true;
 }
 
-/// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
-bool VulkanRenderer::CreateLightingPipeline() {
-    m_lightingShader = new VulkanShader(device);
-    if (!m_lightingShader->compile("assets/shaders/lighting_pass.vert.spv",
-                                    "assets/shaders/lighting_pass.frag.spv")) {
-        SLEAK_ERROR("GBuffer: Failed to compile lighting pass shaders!");
-        delete m_lightingShader;
-        m_lightingShader = nullptr;
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {
-        m_lightingShader->GetVertexInfo(),
-        m_lightingShader->GetFragInfo()
-    };
+/// Creates a fullscreen lighting pipeline from a compiled shader pair on
+/// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
+VkPipeline VulkanRenderer::BuildLightingPipeline(VulkanShader& shader) {
+    VkPipelineShaderStageCreateInfo shaderStages[] = {shader.GetVertexInfo(),
+                                                      shader.GetFragInfo()};
 
     // No vertex input — fullscreen triangle from gl_VertexIndex
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
@@ -516,6 +518,42 @@ bool VulkanRenderer::CreateLightingPipeline() {
     colorBlendInfo.attachmentCount = 1;
     colorBlendInfo.pAttachments    = &colorBlendAtt;
 
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &msaa;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = m_lightingPipelineLayout;
+    pipelineInfo.renderPass = m_lightingRenderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    VkPipeline created = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &pipelineInfo,
+                                  nullptr, &created) != VK_SUCCESS)
+        return VK_NULL_HANDLE;
+    return created;
+}
+
+/// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
+bool VulkanRenderer::CreateLightingPipeline() {
+    m_lightingShader = new VulkanShader(device);
+    if (!m_lightingShader->compile(LIGHTING_VERTEX_SPIRV,
+                                   LIGHTING_FRAGMENT_SPIRV)) {
+        SLEAK_ERROR("GBuffer: Failed to compile lighting pass shaders!");
+        delete m_lightingShader;
+        m_lightingShader = nullptr;
+        return false;
+    }
+
     // Build lighting pipeline layout:
     // Set 0: m_gbufferSamplerDSL, GBuffer RT0-RT3, depth, shadow maps, SSAO
     // Set 1: m_deferredCBDSL, InvViewProj and screen size (1 UBO)
@@ -538,34 +576,72 @@ bool VulkanRenderer::CreateLightingPipeline() {
         return false;
     }
 
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount          = 2;
-    pipelineInfo.pStages             = shaderStages;
-    pipelineInfo.pVertexInputState   = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState      = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState   = &msaa;
-    pipelineInfo.pDepthStencilState  = &depthStencil;
-    pipelineInfo.pColorBlendState    = &colorBlendInfo;
-    pipelineInfo.pDynamicState       = &dynamicState;
-    pipelineInfo.layout              = m_lightingPipelineLayout;
-    pipelineInfo.renderPass          = m_lightingRenderPass;
-    pipelineInfo.subpass             = 0;
-    pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex   = -1;
-
-    VkResult result =
-        vkCreateGraphicsPipelines(device, m_pipelineCache, 1, &pipelineInfo,
-                                  nullptr, &m_lightingPipeline);
-    if (result != VK_SUCCESS) {
+    m_lightingPipeline = BuildLightingPipeline(*m_lightingShader);
+    if (m_lightingPipeline == VK_NULL_HANDLE) {
         SLEAK_ERROR("GBuffer: Failed to create lighting pipeline!");
         return false;
     }
 
     SLEAK_INFO("VulkanRenderer: Lighting pass pipeline created");
     return true;
+}
+
+/// Builds the lighting pipeline for m_lightingShaderStem: the engine vertex
+/// stage with the stem's fragment stage, on the engine layout.
+bool VulkanRenderer::CreateLightingOverridePipeline() {
+    if (m_lightingShaderStem.empty() ||
+        m_lightingPipelineLayout == VK_NULL_HANDLE)
+        return false;
+    auto* shader = new VulkanShader(device);
+    const std::string fragment =
+        SHADER_DIR + m_lightingShaderStem + FRAGMENT_SPIRV_SUFFIX;
+    if (!shader->compile(LIGHTING_VERTEX_SPIRV, fragment)) {
+        delete shader;
+        return false;
+    }
+    const VkPipeline created = BuildLightingPipeline(*shader);
+    if (created == VK_NULL_HANDLE) {
+        delete shader;
+        return false;
+    }
+    m_lightingOverrideShader = shader;
+    m_lightingOverridePipeline = created;
+    return true;
+}
+
+/// Destroys the lighting override pipeline and shader; the GPU must be idle.
+void VulkanRenderer::DestroyLightingOverride() {
+    if (m_lightingOverridePipeline) {
+        vkDestroyPipeline(device, m_lightingOverridePipeline, nullptr);
+        m_lightingOverridePipeline = VK_NULL_HANDLE;
+    }
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
+}
+
+/// Rebuilds or drops the lighting override after SetLightingShader, keeping
+/// the engine shader and logging once when the stem fails.
+void VulkanRenderer::ApplyLightingShaderChange() {
+    if (!m_gbufferResourcesCreated) return;  // CreateGBufferResources reapplies
+    m_lightingShaderDirty = false;
+    if (m_lightingOverridePipeline) {
+        // The replaced pipeline may still be in flight
+        vkDeviceWaitIdle(device);
+        DestroyLightingOverride();
+    }
+    if (m_lightingShaderStem.empty()) return;
+    if (CreateLightingOverridePipeline()) {
+        m_lightingOverrideFailedStem.clear();
+        SLEAK_INFO("VulkanRenderer: lighting shader '{}' active",
+                   m_lightingShaderStem);
+        return;
+    }
+    if (m_lightingOverrideFailedStem == m_lightingShaderStem) return;
+    SLEAK_ERROR(
+        "VulkanRenderer: lighting shader '{}' failed to load, keeping the "
+        "engine lighting",
+        m_lightingShaderStem);
+    m_lightingOverrideFailedStem = m_lightingShaderStem;
 }
 
 /// Creates the forward transparent render pass writing into the HDR scene image.
@@ -1005,6 +1081,9 @@ void VulkanRenderer::CleanupGBufferResources() {
     }
     delete m_lightingShader;
     m_lightingShader = nullptr;
+    // Device is idle here; rebuilt at the next BeginRender
+    DestroyLightingOverride();
+    if (!m_lightingShaderStem.empty()) m_lightingShaderDirty = true;
 
     // Lighting framebuffers
     for (auto& fb : m_lightingFramebuffers) {
@@ -1190,8 +1269,12 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     scissor.extent = scExtent;
     vkCmdSetScissor(command, 0, 1, &scissor);
 
-    // 5. Bind lighting pipeline
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline);
+    // 5. Bind lighting pipeline: the game stem when one loaded
+    const VkPipeline lightingPipeline = m_lightingOverridePipeline
+                                            ? m_lightingOverridePipeline
+                                            : m_lightingPipeline;
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      lightingPipeline);
 
     // IBL is not baked here
     static bool iblWarned = false;

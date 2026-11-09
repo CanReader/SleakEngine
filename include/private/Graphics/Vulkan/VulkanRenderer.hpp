@@ -280,6 +280,16 @@ private:
  bool CreateLightingFramebuffers();
  /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
  bool CreateLightingPipeline();
+ /// Creates a fullscreen lighting pipeline from a compiled shader pair on
+ /// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
+ VkPipeline BuildLightingPipeline(VulkanShader& shader);
+ /// Builds the lighting pipeline for m_lightingShaderStem; false on failure.
+ bool CreateLightingOverridePipeline();
+ /// Destroys the lighting override pipeline and shader; the GPU must be idle.
+ void DestroyLightingOverride();
+ /// Rebuilds or drops the lighting override after SetLightingShader, keeping
+ /// the engine shader and logging once when the stem fails.
+ void ApplyLightingShaderChange();
  /// Creates the forward transparent render pass writing into the HDR scene
  /// image.
  bool CreateForwardRenderPass();
@@ -734,6 +744,11 @@ private:
  VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
  VkPipelineLayout m_lightingPipelineLayout = VK_NULL_HANDLE;
  VulkanShader* m_lightingShader = nullptr;
+ // Game lighting stem (SetLightingShader); null keeps the engine pipeline
+ VkPipeline m_lightingOverridePipeline = VK_NULL_HANDLE;
+ VulkanShader* m_lightingOverrideShader = nullptr;
+ // Stem whose failure was already logged
+ std::string m_lightingOverrideFailedStem;
 
  // Forward transparent pass
  VkRenderPass m_forwardRenderPass = VK_NULL_HANDLE;
