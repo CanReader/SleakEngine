@@ -119,18 +119,20 @@ void VulkanRenderer::CleanupFrameDataResources() {
 void VulkanRenderer::UploadFrameData() {
     if (!bFrameStarted || !m_frameUBOMapped[currentFrame]) return;
 
-    const bool taa = m_taaEnabled && m_taaResourcesCreated;
+    // Jitter and SSAO only run in the GBuffer path
+    const bool deferred = IsDeferredEnabled();
+    const bool taa = m_taaEnabled && m_taaResourcesCreated && deferred;
     FrameTargetInfo target;
     target.width = scExtent.width;
     target.height = scExtent.height;
     target.jitter[0] = taa ? m_taaJitter[0] * UV_TO_NDC : 0.0f;
     target.jitter[1] = taa ? m_taaJitter[1] * UV_TO_NDC : 0.0f;
-    if (m_ssaoEnabled && IsDeferredEnabled())
+    if (m_ssaoEnabled && m_ssaoResourcesCreated && deferred)
         target.featureFlags |= FrameFlagSSAO;
-    if (taa && IsDeferredEnabled()) target.featureFlags |= FrameFlagTAA;
+    if (taa) target.featureFlags |= FrameFlagTAA;
     if (m_shadowResourcesCreated && m_shadowPassEnabled)
         target.featureFlags |= FrameFlagShadows;
-    if (IsDeferredEnabled()) target.featureFlags |= FrameFlagDeferred;
+    if (deferred) target.featureFlags |= FrameFlagDeferred;
 
     FrameData data{};
     m_frameData.Build(target, data);
