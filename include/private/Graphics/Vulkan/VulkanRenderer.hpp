@@ -20,8 +20,9 @@
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 
-// Shadow caster depth bias
+// Shadow caster depth bias, set per shadow pass (dynamic state)
 #define SHADOW_DEPTH_BIAS_CONSTANT 1.25f
+#define SHADOW_DEPTH_BIAS_CLAMP 0.0f
 #define SHADOW_DEPTH_BIAS_SLOPE 1.75f
 // WVP + World matrices
 #define PUSH_CONSTANT_BYTES (sizeof(float) * 16 * 2)
@@ -191,7 +192,7 @@ public:
     virtual void EndDebugLinePass() override;
 
     // Shadow pass support
-    /// Marks the shadow pass active and invalidates the push constant cache.
+    /// Marks the shadow pass active and resets its per-pass caches.
     virtual void BeginShadowPass() override;
     /// Marks the shadow pass inactive.
     virtual void EndShadowPass() override;
@@ -322,6 +323,8 @@ private:
  /// Destroys the shadow map image, pipeline, render pass, and light UBO
  /// resources.
  void CleanupShadowResources();
+ /// Forgets every per-pass shadow cache; runs at each shadow pass begin.
+ void ResetShadowPassState();
  /// Creates the Vulkan instance. The validation layer is on in Debug builds
  /// or with --validate, and --syncval adds synchronization validation.
  bool InitVulkan();

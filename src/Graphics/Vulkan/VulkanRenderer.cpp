@@ -327,6 +327,9 @@ void VulkanRenderer::BeginRender() {
         BeginGpuPass(GpuPass::Shadow);
         vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+        // Every shadow pipeline takes its depth bias from the pass
+        vkCmdSetDepthBias(command, SHADOW_DEPTH_BIAS_CONSTANT,
+                          SHADOW_DEPTH_BIAS_CLAMP, SHADOW_DEPTH_BIAS_SLOPE);
 
         // shadow_depth.vert statically declares `layout(set = 1, binding = 0) uniform BoneUBO`
         // (skinning conditioned on boneWeights). The shader must have set 1 bound even for
@@ -355,8 +358,7 @@ void VulkanRenderer::BeginRender() {
         vkCmdSetScissor(command, 0, 1, &shadowScissor);
 
         m_shadowPassActive = true;
-        m_shadowPCCacheValid = false;
-        m_shadowPCPushedLayout = VK_NULL_HANDLE;
+        ResetShadowPassState();
         memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
         m_shadowMapRendered = true;
         auto* queue = RenderCommandQueue::GetInstance();

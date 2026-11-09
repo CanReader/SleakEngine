@@ -278,8 +278,10 @@ bool VulkanRenderer::CreateShadowPipeline() {
     // Vertex-only pipeline (no fragment shader)
     VkPipelineShaderStageCreateInfo shaderStage = m_shadowShader->GetVertexInfo();
 
-    std::vector<VkDynamicState> dynamicStates = {
-        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    // Depth bias is dynamic in every shadow pipeline: BeginRender sets it
+    std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                 VK_DYNAMIC_STATE_SCISSOR,
+                                                 VK_DYNAMIC_STATE_DEPTH_BIAS};
 
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -325,12 +327,10 @@ bool VulkanRenderer::CreateShadowPipeline() {
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; // same winding as main pass
+    // No Y flip in shadow_depth.vert: BACK culls the light-facing faces
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = SHADOW_DEPTH_BIAS_CONSTANT;
-    rasterizer.depthBiasSlopeFactor = SHADOW_DEPTH_BIAS_SLOPE;
-    rasterizer.depthBiasClamp = 0.0f;
 
     VkPipelineMultisampleStateCreateInfo msaa{};
     msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -591,11 +591,18 @@ void VulkanRenderer::CleanupShadowResources() {
     m_shadowResourcesCreated = false;
 }
 
-/// Marks the shadow pass active and invalidates the push constant cache.
+/// Marks the shadow pass active and resets its per-pass caches.
 void VulkanRenderer::BeginShadowPass() {
     m_shadowPassActive = true;
+    ResetShadowPassState();
+}
+
+/// Forgets every per-pass shadow cache; runs at each shadow pass begin.
+void VulkanRenderer::ResetShadowPassState() {
     m_shadowPCCacheValid = false;
     m_shadowPCPushedLayout = VK_NULL_HANDLE;
+    m_activeCustomFormat = 0;
+    m_customFormatUnbound = false;
 }
 
 /// Marks the shadow pass inactive.

@@ -25,6 +25,9 @@ namespace Sleak {
         "cache/vulkan_pipelines.bin.tmp";
     constexpr size_t kPipelineCacheHeaderSize =
         sizeof(VkPipelineCacheHeaderVersionOne);
+    // Viewport and scissor, plus depth bias in the shadow pass
+    constexpr uint32_t kCustomDynamicStateCount = 2;
+    constexpr uint32_t kShadowDynamicStateCount = 3;
 #define FNV1A_OFFSET_BASIS 14695981039346656037ull
 #define FNV1A_PRIME 1099511628211ull
 
@@ -1008,10 +1011,13 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
     viewportState.scissorCount = 1;
 
     const VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT,
-                                            VK_DYNAMIC_STATE_SCISSOR};
+                                            VK_DYNAMIC_STATE_SCISSOR,
+                                            VK_DYNAMIC_STATE_DEPTH_BIAS};
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = 2;
+    dynamicState.dynamicStateCount = pass == CustomPass::Shadow
+                                         ? kShadowDynamicStateCount
+                                         : kCustomDynamicStateCount;
     dynamicState.pDynamicStates = dynamicStates;
 
     // Rasterization
@@ -1024,11 +1030,8 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
                               ? VK_CULL_MODE_NONE
                               : VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    if (pass == CustomPass::Shadow) {
-        rasterizer.depthBiasEnable = VK_TRUE;
-        rasterizer.depthBiasConstantFactor = SHADOW_DEPTH_BIAS_CONSTANT;
-        rasterizer.depthBiasSlopeFactor = SHADOW_DEPTH_BIAS_SLOPE;
-    }
+    // Bias factors come from vkCmdSetDepthBias at shadow pass begin
+    if (pass == CustomPass::Shadow) rasterizer.depthBiasEnable = VK_TRUE;
 
     // Multisampling
     const bool forwardTarget =
