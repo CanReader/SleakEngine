@@ -241,8 +241,9 @@ the lit result so transparent surfaces, skinned meshes, and debug geometry
 composite over it.
 
 `EndRender` runs the post chain in a fixed order: TAA, then SSR, then
-bloom, then the bloom composite, which also applies ACES tonemapping and
-gamma and draws the ImGui layer straight into the swapchain image. TAA
+bloom, then the bloom composite, which also applies the output transform
+(the `GraphicsConfig` tone map operator, exposure, gamma, saturation and
+dither) and draws the ImGui layer straight into the swapchain image. TAA
 running ahead of SSR is deliberate; TAA also issues the depth barrier SSR
 would otherwise need. The command buffer closes, submits, and presents.
 

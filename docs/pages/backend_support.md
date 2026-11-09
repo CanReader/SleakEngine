@@ -121,7 +121,8 @@ DX11 and DX12 ignore the operator, saturation, dither, bloom mode and sRGB
 albedo fields.
 
 SSAO and SSR both run at full swapchain resolution. Bloom starts at half
-resolution and mips down six levels (`Additive`) or seven (`Blend`).
+resolution and mips down six levels (`Additive`) or seven (`Blend`), fewer
+when the window is too small for the full chain.
 
 Two Vulkan-specific gaps are worth planning around. `SetRenderDrawMode` and
 `SetRenderCullFace` are no-ops, since changing polygon or cull mode requires

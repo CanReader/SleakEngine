@@ -290,6 +290,11 @@ geometry to keep it out of the shadow pass. `BeginBatch` binds the material
 and a shared identity-transform buffer once, so every `Draw` in the batch
 shares them.
 
+For geometry that moves, build a `MeshComponent` from the handle instead,
+`MeshComponent(object, mesh)`: the component draws the handle's buffers,
+custom vertex format included, with the owner's `TransformComponent`, so a
+moving object never rebuilds its buffers.
+
 **There is no `DestroyMesh`.** A `MeshHandle` holds `RefPtr`s to its buffers,
 and the GPU memory is freed when the last copy of the handle goes away. Drop
 the handle, or overwrite it, and the buffers follow. `MeshBatch` does not
