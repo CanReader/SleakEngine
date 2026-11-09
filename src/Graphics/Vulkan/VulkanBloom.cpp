@@ -87,10 +87,14 @@ bool VulkanRenderer::CreateHDRSceneResources() {
 
 /// Creates the multi-mip bloom image and a per-mip image view.
 bool VulkanRenderer::CreateBloomImages() {
-    // Single image with BLOOM_MIP_COUNT mip levels, each starting at
+    // Single image with up to BLOOM_MIP_COUNT mip levels, each starting at
     // (scExtent / 2) and halving. HDR float format preserves bloom energy.
     uint32_t w = std::max(1u, scExtent.width  / 2);
     uint32_t h = std::max(1u, scExtent.height / 2);
+    // A full chain halves the larger side down to 1
+    uint32_t fullChain = 1;
+    for (uint32_t side = std::max(w, h); side > 1; side >>= 1) ++fullChain;
+    m_bloomMipCount = std::min(BLOOM_MIP_COUNT, fullChain);
 
     VkImageCreateInfo info{};
     info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -98,7 +102,7 @@ bool VulkanRenderer::CreateBloomImages() {
     info.extent.width  = w;
     info.extent.height = h;
     info.extent.depth  = 1;
-    info.mipLevels     = BLOOM_MIP_COUNT;
+    info.mipLevels = m_bloomMipCount;
     info.arrayLayers   = 1;
     info.format        = m_hdrSceneFormat;
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
@@ -121,7 +125,7 @@ bool VulkanRenderer::CreateBloomImages() {
     vkBindImageMemory(device, m_bloomImage, m_bloomMemory, 0);
 
     // Per-mip views — each is a single-mip view so framebuffers can target it.
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
+    for (uint32_t m = 0; m < m_bloomMipCount; ++m) {
         m_bloomMipExtents[m].width  = std::max(1u, w >> m);
         m_bloomMipExtents[m].height = std::max(1u, h >> m);
 
@@ -212,7 +216,7 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
 /// Creates the per-mip bloom framebuffers and one composite framebuffer per swapchain image.
 bool VulkanRenderer::CreateBloomFramebuffers() {
     // One framebuffer per bloom mip (reused between threshold/downsample/upsample).
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
+    for (uint32_t m = 0; m < m_bloomMipCount; ++m) {
         VkFramebufferCreateInfo fb{};
         fb.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fb.renderPass      = m_bloomRenderPass;
@@ -486,7 +490,7 @@ bool VulkanRenderer::CreateBloomResources() {
 
     m_bloomResourcesCreated = true;
     SLEAK_INFO("Bloom + HDR scene resources created ({}x{}, {} mips)",
-               scExtent.width, scExtent.height, BLOOM_MIP_COUNT);
+               scExtent.width, scExtent.height, m_bloomMipCount);
     return true;
 }
 
@@ -613,7 +617,8 @@ void VulkanRenderer::RenderBloomPass() {
     //   [1..L-1]         : downsamples (bloomMip[i-1] -> bloomMip[i])
     //   [L..L*2-2]       : upsamples  (bloomMip[L-1-k] -> bloomMip[L-2-k])
     // Additive runs today's 6 levels; Blend all BLOOM_MIP_COUNT with a
-    // pass-through prefilter, no Karis and BLOOM_BLEND_LEVEL_RATIO weights.
+    // pass-through prefilter, no Karis and BLOOM_BLEND_LEVEL_RATIO weights;
+    // both stop at the mips a tiny swapchain leaves the image.
     const bool blend = m_bloomMode == BloomMode::Blend;
     const uint32_t levels = BloomLevelCount();
     auto& setArray = m_bloomFilterSets[currentFrame];
@@ -790,7 +795,7 @@ void VulkanRenderer::RenderBloomCompositePass() {
     pc.saturation = out.saturation;
     pc.whiteCurve = out.curve;
     pc.dither = out.dither;
-    pc.bloomNormalize = 1.0f / BloomBlendWeightSum();
+    pc.bloomNormalize = 1.0f / BloomBlendWeightSum(BloomLevelCount());
     std::copy_n(out.white, std::size(pc.whitePath), pc.whitePath);
     std::copy_n(out.whiteInverse, std::size(pc.whitePathInverse),
                 pc.whitePathInverse);

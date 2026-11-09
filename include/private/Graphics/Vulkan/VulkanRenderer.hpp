@@ -7,6 +7,7 @@
 
 #include <Runtime/Material.hpp>
 #include <Runtime/Skeleton.hpp>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -1115,16 +1116,19 @@ private:
     static_assert(offsetof(BloomCompositePushConstants, whitePath) == 48);
     static_assert(sizeof(BloomCompositePushConstants) == 80);
 
-    /// Levels the bloom chain runs in the current mode.
+    /// Levels the bloom chain runs in the current mode, at most the mips
+    /// the bloom image has.
     uint32_t BloomLevelCount() const {
-        return m_bloomMode == BloomMode::Blend ? BLOOM_MIP_COUNT
-                                               : BLOOM_ADDITIVE_LEVELS;
+        return std::min(m_bloomMode == BloomMode::Blend ? BLOOM_MIP_COUNT
+                                                        : BLOOM_ADDITIVE_LEVELS,
+                        m_bloomMipCount);
     }
-    /// Sum of the Blend level weights, the composite's normalizer.
-    static constexpr float BloomBlendWeightSum() {
+    /// Sum of the Blend weights of the first levels, the composite's
+    /// normalizer.
+    static constexpr float BloomBlendWeightSum(uint32_t levels) {
         float sum = 0.0f;
         float weight = 1.0f;
-        for (uint32_t k = 0; k < BLOOM_MIP_COUNT; ++k) {
+        for (uint32_t k = 0; k < levels; ++k) {
             sum += weight;
             weight *= BLOOM_BLEND_LEVEL_RATIO;
         }
@@ -1148,6 +1152,8 @@ private:
     std::array<VkImageView, BLOOM_MIP_COUNT> m_bloomMipViews = {};
     std::array<VkFramebuffer, BLOOM_MIP_COUNT> m_bloomMipFramebuffers = {};
     std::array<VkExtent2D, BLOOM_MIP_COUNT> m_bloomMipExtents = {};
+    // Mips the bloom image has: BLOOM_MIP_COUNT, fewer for tiny swapchains
+    uint32_t m_bloomMipCount = BLOOM_MIP_COUNT;
 
     VkRenderPass   m_bloomRenderPass       = VK_NULL_HANDLE;   // shared, loadOp=DONT_CARE, color output
     VkRenderPass   m_bloomAddRenderPass    = VK_NULL_HANDLE;   // LOAD, blend-add
