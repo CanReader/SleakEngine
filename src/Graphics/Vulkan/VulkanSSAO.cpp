@@ -807,7 +807,7 @@ void VulkanRenderer::RenderSSAOPasses() {
     if (!m_ssaoResourcesCreated) return;
 
     // SSAO disabled: clear the blur target (sampled by the lighting pass at
-    // binding 7) to white = no occlusion, and leave it SHADER_READ_ONLY so the
+    // binding 6) to white = no occlusion, and leave it SHADER_READ_ONLY so the
     // lighting pass never samples an UNDEFINED image. Mirrors the SSR fallback.
     if (!m_ssaoEnabled) {
         // Already primed to white SHADER_READ_ONLY — the content is static, so

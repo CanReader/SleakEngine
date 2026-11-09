@@ -33,7 +33,7 @@ bool VulkanRenderer::CreateGBufferRenderPass() {
         colorRefs[i].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
 
-    // Attachment 3: Depth (CLEAR → DEPTH_STENCIL_READ_ONLY)
+    // Attachment 4: Depth (CLEAR → DEPTH_STENCIL_READ_ONLY)
     VkAttachmentDescription depthAtt{};
     depthAtt.format         = depthFormat;
     depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -1210,7 +1210,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     m_activeCustomFormat = 0;  // geometry pass is over; pipeline state doesn't survive across render passes
 
     // 2. Run SSAO (raw + bilateral blur) using GBuffer normal + depth.
-    //    This writes to m_ssaoBlurImage which the lighting pass binding 7 reads.
+    //    This writes to m_ssaoBlurImage; the lighting pass reads binding 6.
     RenderSSAOPasses();
 
     // 3. Update GBuffer sampler descriptor sets for current frame

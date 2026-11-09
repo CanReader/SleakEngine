@@ -1880,7 +1880,7 @@ bool VulkanRenderer::CreateGBufferResources() {
     // SSAO + bloom must be created BEFORE the lighting/forward render passes
     // and BEFORE CreateGBufferDescriptorSets — the lighting pass framebuffers
     // reference m_hdrSceneView (created by CreateBloomResources) and the
-    // GBuffer sampler set 0 binding 7 samples the SSAO blur result.
+    // GBuffer sampler set 0 binding 6 samples the SSAO blur result.
     if (!CreateSSAOResources())           { SLEAK_ERROR("GBuffer: SSAO resources failed!");        return false; }
     if (!CreateBloomResources())          { SLEAK_ERROR("GBuffer: bloom/HDR resources failed!");   return false; }
     if (!CreateSceneCopyImages())
