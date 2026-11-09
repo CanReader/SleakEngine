@@ -282,8 +282,17 @@ same file serves both. The engine library holds:
 
 Rules: a file that uses `#include` declares
 `#extension GL_GOOGLE_include_directive : require` right after `#version`;
-include files never contain `#version` or `#extension`, use
-`#ifndef SLEAK_*_GLSL` guards, and keep `#include` out of block comments.
+include files never contain `#version` or `#extension` and use
+`#ifndef SLEAK_*_GLSL` guards. Include names are relative to an include
+folder, never absolute and never through `..`. A name is looked up next to
+the including file, then in the engine folder, then in the game's, the order
+`glslc -I` uses. A game must not ship its own `include/sleak/` (SleakCraft's
+CMake refuses it), so nothing shadows the engine library.
+
+The OpenGL resolver inlines each file once per shader, as its guard would,
+reports an include cycle between unguarded files, and skips `#include` lines
+inside `//` and `/* */` comments. It does not evaluate `#if`: an `#include`
+under a false `#if` is still resolved, so the file must exist.
 
 Per-frame data sits in descriptor set 2 on Vulkan and in uniform buffers
 11-15 on OpenGL:
@@ -299,11 +308,16 @@ Per-frame data sits in descriptor set 2 on Vulkan and in uniform buffers
 `FrameData` is std140 and append-only. To add a field, append it to the C++
 struct in `ConstantBuffer.hpp` with its `static_assert`, append the member
 to `sleak/frame.glsl`, bump `FRAME_DATA_VERSION` and
-`SLEAK_FRAME_DATA_VERSION` together, and run `scripts/check_ubo_layout.py`.
-`uFrame.Time` is the engine clock (`Application::GetEngineTime`, frame / 60
-under `-capture`); `ShadowLightUBO.CameraPos.w` is a legacy copy of it.
-Debug builds set a guard flag: a fragment shader built against another
-`FrameData` version draws magenta, a vertex shader drops its geometry.
+`SLEAK_FRAME_DATA_VERSION` together, and run `scripts/check_ubo_layout.py`,
+which also compares the version and every `SLEAK_FRAME_FLAG_*` bit with its
+C++ twin. `uFrame.Time` is the engine clock (`Application::GetEngineTime`,
+frame / 60 under `-capture`). `ShadowLightUBO.CameraPos.w` is a legacy copy
+of it, so it now counts from `Application::Run()` (frame 0 under `-capture`)
+instead of from the first `LightManager` update. Activating a scene restarts
+the previous-frame fields (`PrevViewProjRel`, `PrevCameraPos`, `Jitter.zw`)
+from the new camera and clears the game block. Debug builds set a guard
+flag: a fragment shader built against another `FrameData` version draws
+magenta, a vertex shader drops its geometry.
 
 ---
 
