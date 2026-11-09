@@ -208,6 +208,7 @@ void VulkanRenderer::BeginRender() {
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
+    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
@@ -1436,6 +1437,18 @@ bool VulkanRenderer::RecreateSwapChain() {
     return true;
 }
 
+/// Rebuilds the GBuffer and everything built on it for a queued albedo
+/// format change.
+void VulkanRenderer::ApplyGBufferFormatChange() {
+    m_gbufferFormatChangeRequested = false;
+    // Not created yet: CreateGBufferResources picks the format up
+    if (!m_gbufferResourcesCreated) return;
+    vkDeviceWaitIdle(device);
+    CleanupGBufferResources();
+    if (!CreateGBufferResources())
+        SLEAK_ERROR("GBuffer rebuild for the albedo format change failed");
+}
+
 /// Rebuilds the swapchain-dependent pipelines and render pass for a queued
 /// MSAA sample count change.
 void VulkanRenderer::ApplyMSAAChange() {
@@ -1830,7 +1843,7 @@ bool VulkanRenderer::CreateGBufferResources() {
         imageInfo.extent.depth  = 1;
         imageInfo.mipLevels     = 1;
         imageInfo.arrayLayers   = 1;
-        imageInfo.format        = m_gbufferFormats[i];
+        imageInfo.format = GBufferFormat(i);
         imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
@@ -1862,7 +1875,7 @@ bool VulkanRenderer::CreateGBufferResources() {
         viewInfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image    = m_gbufferImages[i];
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format   = m_gbufferFormats[i];
+        viewInfo.format = GBufferFormat(i);
         viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel   = 0;
         viewInfo.subresourceRange.levelCount     = 1;

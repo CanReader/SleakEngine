@@ -295,6 +295,10 @@ private:
     void CleanupGBufferResources();
     /// Tears down and reallocates the GBuffer at a new swapchain size.
     void RecreateGBufferOnResize(int width, int height);
+    /// Internal format of RT0, sRGB while the albedo switch is on.
+    GLenum GBufferAlbedoFormat() const;
+    /// Reallocates RT0 for a queued albedo format change.
+    void ApplyGBufferFormatChange();
 
     // ---- SSAO ----
     GLuint m_ssaoFBO        = 0;

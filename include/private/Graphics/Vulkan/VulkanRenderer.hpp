@@ -231,6 +231,8 @@ public:
     /// Rebuilds the swapchain-dependent pipelines and render pass for a
     /// queued MSAA sample count change.
     void ApplyMSAAChange() override;
+    /// Rebuilds the GBuffer for a queued albedo format change.
+    void ApplyGBufferFormatChange();
     /// Recreates the swapchain to apply a queued VSync toggle.
     void ApplyVSyncChange() override;
     /// Recreates the extent-dependent shadow map objects at the queued resolution.
@@ -735,6 +737,14 @@ private:
      VK_FORMAT_R16G16B16A16_SFLOAT,  // RT2: MetalEmit (HDR emissive)
      VK_FORMAT_R16G16B16A16_SFLOAT,  // RT3: object motion, game, shading model
  };
+ // RT0 index, stored sRGB while m_gbufferAlbedoSRGB is set
+ static constexpr uint32_t GBUFFER_ALBEDO_INDEX = 0;
+ /// Format of GBuffer target index, honouring the sRGB albedo switch.
+ VkFormat GBufferFormat(uint32_t index) const {
+     return (index == GBUFFER_ALBEDO_INDEX && m_gbufferAlbedoSRGB)
+                ? VK_FORMAT_R8G8B8A8_SRGB
+                : m_gbufferFormats[index];
+ }
  VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
  VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;
  VkPipeline m_gbufferPipeline = VK_NULL_HANDLE;
