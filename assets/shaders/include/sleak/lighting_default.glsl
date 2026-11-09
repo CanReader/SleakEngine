@@ -126,8 +126,35 @@ vec3 SleakFresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
              * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
+/// Fog coverage of a world position: XZ distance fog and height fog.
+float SleakFogAmount(vec3 worldPos) {
+    if (uFogEnd <= 0.0) return 0.0;
+    vec3  toFrag   = worldPos - uCameraPos.xyz;
+    float dist     = length(toFrag.xz);
+    float distFog  = clamp((dist - uFogStart) /
+                           max(uFogEnd - uFogStart, SLEAK_RANGE_EPSILON),
+                           0.0, 1.0);
+    float heightFog = 0.0;
+    if (uHeightFogEnabled > 0.5) {
+        float h = max(uHeightFogTop - worldPos.y, 0.0);
+        heightFog = clamp(uHeightFogDensity *
+                              (1.0 - exp(-h * uHeightFogFalloff)),
+                          0.0, 1.0);
+    }
+    return 1.0 - (1.0 - distFog) * (1.0 - heightFog);
+}
+
+/// Fog tint toward a world position, horizon to zenith.
+vec3 SleakFogColor(vec3 worldPos) {
+    vec3  viewDir   = normalize(worldPos - uCameraPos.xyz);
+    float t         = smoothstep(0.0, 1.0,
+                                 clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0));
+    return mix(uFogColor.rgb, uFogZenithColor.rgb, t);
+}
+
 /// Distance fog on XZ combined with height fog, horizon to zenith tint.
 vec3 SleakApplyFog(vec3 color, vec3 worldPos) {
+    // Own body, not the helpers above: default output stays bit-identical
     if (uFogEnd <= 0.0) return color;
     vec3  toFrag   = worldPos - uCameraPos.xyz;
     float dist     = length(toFrag.xz);
