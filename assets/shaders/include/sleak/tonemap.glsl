@@ -18,6 +18,8 @@
 // Floors for the exposure divisor and the gamma
 #define SLEAK_TONEMAP_EPSILON 1e-4
 #define SLEAK_TONEMAP_MIN_GAMMA 0.01
+// Soft curve exponent with a closed form: x / sqrt(1 + x^2)
+#define SLEAK_TONEMAP_SOFT_SQRT_CURVE 2.0
 
 /// Output transform settings (OutputTransformParams in OutputTransform.hpp).
 struct SleakOutputParams {
@@ -51,12 +53,16 @@ vec3 SleakTonemapAcesInverse(vec3 y) {
 /// Soft shoulder x / (1 + x^p)^(1/p) per channel.
 vec3 SleakSoftCurve(vec3 x, float p) {
     x = max(x, vec3(0.0));
+    if (p == SLEAK_TONEMAP_SOFT_SQRT_CURVE)
+        return x * inversesqrt(vec3(1.0) + x * x);
     return x * pow(vec3(1.0) + pow(x, vec3(p)), vec3(-1.0 / p));
 }
 
 /// Inverse soft shoulder y / (1 - y^p)^(1/p).
 vec3 SleakSoftCurveInverse(vec3 y, float p) {
     y = clamp(y, vec3(0.0), vec3(SLEAK_TONEMAP_SOFT_INVERSE_MAX));
+    if (p == SLEAK_TONEMAP_SOFT_SQRT_CURVE)
+        return y * inversesqrt(vec3(1.0) - y * y);
     return y * pow(vec3(1.0) - pow(y, vec3(p)), vec3(-1.0 / p));
 }
 
