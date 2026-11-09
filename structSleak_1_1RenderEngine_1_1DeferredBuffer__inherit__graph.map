@@ -1,0 +1,5 @@
+<map id="Sleak::RenderEngine::DeferredBuffer" name="Sleak::RenderEngine::DeferredBuffer">
+<area shape="rect" id="Node000001" title="ConstantBuffer wrapper around DeferredCBData." alt="" coords="5,199,197,406"/>
+<area shape="rect" id="Node000002" href="$structSleak_1_1RenderEngine_1_1ConstantBuffer.html" title="Interface for a CPU&#45;side payload that can be uploaded to a GPU constant buffer." alt="" coords="11,5,191,151"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="102,163,104,200,99,199,101,169"/>
+</map>

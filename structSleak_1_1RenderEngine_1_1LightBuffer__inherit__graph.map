@@ -1,0 +1,5 @@
+<map id="Sleak::RenderEngine::LightBuffer" name="Sleak::RenderEngine::LightBuffer">
+<area shape="rect" id="Node000001" title="ConstantBuffer wrapper around LightCBData." alt="" coords="5,199,185,406"/>
+<area shape="rect" id="Node000002" href="$structSleak_1_1RenderEngine_1_1ConstantBuffer.html" title="Interface for a CPU&#45;side payload that can be uploaded to a GPU constant buffer." alt="" coords="5,5,185,151"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="96,163,98,200,93,199,95,169"/>
+</map>

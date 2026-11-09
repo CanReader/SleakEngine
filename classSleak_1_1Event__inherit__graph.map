@@ -1,0 +1,35 @@
+<map id="Sleak::Event" name="Sleak::Event">
+<area shape="rect" id="Node000001" title=" " alt="" coords="1635,5,1877,297"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1Events_1_1Input_1_1KeyEvent.html" title=" " alt="" coords="356,432,567,656"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1618,156,1431,170,1317,183,1195,201,1069,225,941,257,816,297,696,347,629,387,569,435,565,431,626,382,694,342,814,292,940,252,1068,220,1195,195,1317,177,1431,165,1623,154"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1Events_1_1Input_1_1MouseButtonEvent.html" title=" " alt="" coords="707,381,923,707"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="1618,154,1469,167,1382,180,1290,198,1197,223,1105,255,1018,296,936,347,898,384,894,380,933,343,1015,291,1103,250,1196,218,1289,193,1381,175,1469,162,1623,152"/>
+<area shape="rect" id="Node000009" href="$classSleak_1_1Events_1_1Input_1_1MouseMovedEvent.html" title=" " alt="" coords="947,370,1158,718"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="1618,170,1515,193,1397,228,1337,251,1279,278,1223,310,1171,347,1144,372,1141,368,1168,343,1220,305,1276,273,1335,246,1395,223,1514,188,1623,168"/>
+<area shape="rect" id="Node000010" href="$classSleak_1_1Events_1_1Input_1_1MouseScrolledEvent.html" title=" " alt="" coords="1181,345,1392,743"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="1619,206,1568,235,1511,267,1456,304,1406,347,1394,359,1390,355,1402,343,1453,300,1508,262,1565,230,1624,204"/>
+<area shape="rect" id="Node000011" href="$classSleak_1_1Events_1_1RenderEvent.html" title=" " alt="" coords="1416,429,1627,659"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="1662,308,1641,346,1590,431,1586,427,1637,343,1658,311"/>
+<area shape="rect" id="Node000012" href="$classSleak_1_1Events_1_1TickEvent.html" title=" " alt="" coords="1651,429,1862,659"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="1758,309,1758,431,1754,428,1755,314"/>
+<area shape="rect" id="Node000013" href="$classSleak_1_1Events_1_1UpdateEvent.html" title=" " alt="" coords="1885,429,2096,659"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="1853,307,1876,343,1927,430,1922,429,1871,346,1851,312"/>
+<area shape="rect" id="Node000014" href="$classSleak_1_1Events_1_1WindowCloseEvent.html" title=" " alt="" coords="2120,412,2331,676"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="1891,203,1947,230,2004,262,2060,300,2110,343,2139,375,2164,413,2159,411,2135,378,2106,347,2056,304,2001,267,1945,235,1891,208"/>
+<area shape="rect" id="Node000015" href="$classSleak_1_1Events_1_1WindowFullScreen.html" title=" " alt="" coords="2355,392,2566,696"/>
+<area shape="poly" id="edge14_Node000001_Node000015" title=" " alt="" coords="1892,166,1999,188,2117,223,2177,246,2236,273,2292,305,2345,343,2369,365,2390,393,2385,392,2365,369,2341,347,2290,310,2234,278,2175,251,2115,228,1997,193,1892,172"/>
+<area shape="rect" id="Node000016" href="$classSleak_1_1Events_1_1WindowOpenEvent.html" title=" " alt="" coords="2589,412,2800,676"/>
+<area shape="poly" id="edge15_Node000001_Node000016" title=" " alt="" coords="1892,150,2044,162,2132,174,2224,192,2317,217,2409,250,2498,291,2579,343,2613,374,2641,413,2636,411,2609,377,2576,347,2495,296,2407,254,2316,222,2223,197,2131,179,2044,167,1892,155"/>
+<area shape="rect" id="Node000017" href="$classSleak_1_1Events_1_1WindowResizeEvent.html" title=" " alt="" coords="2824,345,3035,743"/>
+<area shape="poly" id="edge16_Node000001_Node000017" title=" " alt="" coords="1892,160,2121,184,2391,221,2523,245,2642,274,2742,306,2782,324,2814,342,2827,354,2821,353,2811,347,2779,328,2740,311,2641,279,2522,251,2390,226,2120,189,1892,166"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Events_1_1Input_1_1KeyPressedEvent.html" title=" " alt="" coords="5,791,216,1094"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="345,664,230,793,218,807,214,804,226,790,348,660"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1Events_1_1Input_1_1KeyReleasedEvent.html" title=" " alt="" coords="240,811,451,1075"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="427,668,386,812,381,810,423,672"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1Events_1_1Input_1_1KeyTypedEvent.html" title=" " alt="" coords="475,811,686,1075"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="500,668,544,812,538,811,498,672"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1Events_1_1Input_1_1MouseButtonPressedEvent.html" title=" " alt="" coords="709,822,920,1064"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="817,719,817,824,813,821,813,724"/>
+<area shape="rect" id="Node000008" href="$classSleak_1_1Events_1_1Input_1_1MouseButtonReleasedEvent.html" title=" " alt="" coords="944,822,1155,1064"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="919,717,982,823,976,822,917,722"/>
+</map>

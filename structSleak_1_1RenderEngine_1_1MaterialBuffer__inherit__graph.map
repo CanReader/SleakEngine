@@ -1,0 +1,5 @@
+<map id="Sleak::RenderEngine::MaterialBuffer" name="Sleak::RenderEngine::MaterialBuffer">
+<area shape="rect" id="Node000001" title="ConstantBuffer wrapper around MaterialGPUData." alt="" coords="5,199,204,406"/>
+<area shape="rect" id="Node000002" href="$structSleak_1_1RenderEngine_1_1ConstantBuffer.html" title="Interface for a CPU&#45;side payload that can be uploaded to a GPU constant buffer." alt="" coords="15,5,195,151"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="106,163,107,200,102,199,104,169"/>
+</map>

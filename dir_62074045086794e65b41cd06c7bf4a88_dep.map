@@ -1,0 +1,13 @@
+<map id="include/public/Camera" name="include/public/Camera">
+<area shape="rect" id="node1" href="dir_120cd978e97f344fd276e23c0a38e378.html" title="Math" alt="" coords="26,130,80,158"/>
+<area shape="rect" id="node2" href="dir_47c5d5be1dd542f457b3ffa7b7f7964e.html" title="Utility" alt="" coords="104,130,165,158"/>
+<area shape="rect" id="node3" href="dir_7f62125b4bc6aedf69d660042aee0152.html" title="Core" alt="" coords="189,130,240,158"/>
+<area shape="rect" id="node4" href="dir_62074045086794e65b41cd06c7bf4a88.html" title="Camera" alt="" coords="98,54,171,82"/>
+<area shape="poly" id="edge1" href="dir_000003_000029.html" alt="" coords="122,81,81,122,77,118,118,84"/>
+<area shape="rect" id="edge1-headlabel" href="dir_000003_000029.html" title="4" alt="" coords="83,115,91,132"/>
+<area shape="poly" id="edge2" href="dir_000003_000044.html" alt="" coords="136,80,137,115,132,113,133,85"/>
+<area shape="rect" id="edge2-headlabel" href="dir_000003_000044.html" title="1" alt="" coords="139,103,147,120"/>
+<area shape="poly" id="edge3" href="dir_000003_000009.html" alt="" coords="150,80,192,119,187,119,148,85"/>
+<area shape="rect" id="edge3-headlabel" href="dir_000003_000009.html" title="1" alt="" coords="189,103,197,120"/>
+<area shape="rect" id="clust1" href="dir_fee577f973e9836fa6472c276e533c82.html" title="public" alt="" coords="16,16,251,168"/>
+</map>

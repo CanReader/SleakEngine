@@ -1,0 +1,15 @@
+<map id="Sleak::Light" name="Sleak::Light">
+<area shape="rect" id="Node000001" title=" " alt="" coords="392,1293,617,1932"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1AreaLight.html" title=" " alt="" coords="5,2070,235,2468"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="382,1774,315,1874,249,1981,203,2072,198,2069,245,1979,311,1871,384,1769"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1DirectionalLight.html" title=" " alt="" coords="259,1980,494,2558"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="440,1944,435,1981,430,1979,438,1949"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1PointLight.html" title=" " alt="" coords="517,2115,747,2423"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="571,1944,605,2116,600,2114,568,1949"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1SpotLight.html" title=" " alt="" coords="772,1997,1002,2541"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="626,1771,696,1873,761,1979,775,2005,770,2004,757,1981,692,1876,625,1777"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1GameObject.html" title=" " alt="" coords="378,322,630,1245"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="505,1257,507,1294,502,1293,504,1262"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1Object.html" title=" " alt="" coords="404,5,604,274"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="505,286,507,323,502,322,504,292"/>
+</map>

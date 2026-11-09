@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::VulkanRenderer" name="Sleak::RenderEngine::VulkanRenderer">
+<area shape="rect" id="Node000001" title=" " alt="" coords="137,798,378,1280"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1Renderer.html" title="Abstract render backend: swapchain, frame lifecycle, and post&#45;effect toggles." alt="" coords="5,5,246,750"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="203,762,212,798,207,798,203,767"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1RenderContext.html" title="Abstract interface for high&#45;level graphics command execution and resource management." alt="" coords="271,111,512,644"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="336,657,309,799,304,797,333,661"/>
+</map>

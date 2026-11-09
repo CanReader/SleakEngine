@@ -1,0 +1,5 @@
+<map id="Sleak::YamlSerializationContext" name="Sleak::YamlSerializationContext">
+<area shape="rect" id="Node000001" title="ISerializationContext backed by a YAML::Node." alt="" coords="28,334,224,626"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1ISerializationContext.html" title="Interface for serialization contexts." alt="" coords="5,5,246,286"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="126,298,128,335,123,334,125,303"/>
+</map>

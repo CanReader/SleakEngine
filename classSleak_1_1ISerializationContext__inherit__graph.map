@@ -1,0 +1,9 @@
+<map id="Sleak::ISerializationContext" name="Sleak::ISerializationContext">
+<area shape="rect" id="Node000001" title="Interface for serialization contexts." alt="" coords="203,5,444,286"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1BinarySerializationContext.html" title=" " alt="" coords="5,334,201,660"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="226,301,203,342,199,339,229,296"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1JsonSerializationContext.html" title="ISerializationContext backed by nlohmann::json." alt="" coords="225,351,421,643"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="324,299,326,352,321,350,322,303"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1YamlSerializationContext.html" title="ISerializationContext backed by a YAML::Node." alt="" coords="445,351,641,643"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="420,296,455,351,449,351,418,301"/>
+</map>

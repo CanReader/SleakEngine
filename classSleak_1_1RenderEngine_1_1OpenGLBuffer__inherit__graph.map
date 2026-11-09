@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::OpenGLBuffer" name="Sleak::RenderEngine::OpenGLBuffer">
+<area shape="rect" id="Node000001" title="OpenGL VBO/EBO/UBO wrapper; target is derived from BufferType at construction." alt="" coords="25,991,221,1389"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1BufferBase.html" title="Backend&#45;agnostic GPU buffer: vertex, index, constant, or resource view target." alt="" coords="5,249,241,943"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="124,956,126,992,121,991,123,961"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1ResourceBase.html" title="Common lifecycle contract for GPU&#45;backed resources: init, per&#45;frame update, teardown." alt="" coords="30,5,217,201"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="123,213,126,249,121,249,123,219"/>
+</map>

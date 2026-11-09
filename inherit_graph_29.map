@@ -1,0 +1,9 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" href="$classSleak_1_1IDelegate.html" title=" " alt="" coords="5,32,134,60"/>
+<area shape="rect" id="Node000001" href="$classSleak_1_1Delegate.html" title=" " alt="" coords="187,5,370,33"/>
+<area shape="poly" id="edge17_Node000000_Node000001" title=" " alt="" coords="148,33,189,30,184,32,150,38"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1EventDelegateBase.html" title=" " alt="" coords="182,57,375,85"/>
+<area shape="poly" id="edge18_Node000000_Node000002" title=" " alt="" coords="149,53,184,59,179,60,149,58"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1EventDelegate.html" title=" " alt="" coords="423,49,584,94"/>
+<area shape="poly" id="edge19_Node000002_Node000003" title=" " alt="" coords="390,69,425,71,420,71,391,74"/>
+</map>

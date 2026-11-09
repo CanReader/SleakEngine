@@ -1,0 +1,15 @@
+<map id="Sleak::Texture" name="Sleak::Texture">
+<area shape="rect" id="Node000001" title=" " alt="" coords="614,5,860,640"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1DirectX11CubemapTexture.html" title="D3D11 cubemap texture, loadable from six face images or a single equirectangular panorama." alt="" coords="5,688,241,1391"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="599,399,516,454,423,522,333,601,292,644,255,690,243,706,239,703,251,686,288,640,329,597,420,517,513,449,603,395"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1DirectX11Texture.html" title="D3D11 2D texture, loadable from disk or an in&#45;memory pixel buffer." alt="" coords="265,694,501,1385"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="607,519,559,605,515,689,504,713,499,711,510,687,555,602,604,523"/>
+<area shape="rect" id="Node000004" href="$classSleak_1_1RenderEngine_1_1OpenGLCubemapTexture.html" title="OpenGL cubemap texture, loadable from six face images, a panorama, or a procedural gradient." alt="" coords="525,790,724,1289"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="686,652,666,791,661,789,683,657"/>
+<area shape="rect" id="Node000005" href="$classSleak_1_1RenderEngine_1_1OpenGLTexture.html" title="OpenGL 2D texture, loadable from disk or an in&#45;memory pixel buffer." alt="" coords="748,815,952,1264"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="790,652,817,816,812,815,788,657"/>
+<area shape="rect" id="Node000006" href="$classSleak_1_1RenderEngine_1_1VulkanCubemapTexture.html" title="Vulkan cubemap texture, loadable from six face images or a single equirectangular panorama." alt="" coords="976,772,1300,1306"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="868,522,967,687,1013,773,1008,772,962,689,867,527"/>
+<area shape="rect" id="Node000007" href="$classSleak_1_1RenderEngine_1_1VulkanTexture.html" title="Vulkan 2D texture: image + view + sampler, with per&#45;swapchain&#45;image descriptor sets." alt="" coords="1324,730,1621,1348"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="873,379,980,433,1096,503,1155,543,1212,588,1266,635,1315,686,1348,731,1343,730,1311,690,1262,639,1209,592,1152,548,1093,507,977,438,873,385"/>
+</map>

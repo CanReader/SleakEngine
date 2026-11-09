@@ -1,0 +1,7 @@
+<map id="Sleak::RenderEngine::RenderContext" name="Sleak::RenderEngine::RenderContext">
+<area shape="rect" id="Node000001" title="Abstract interface for high&#45;level graphics command execution and resource management." alt="" coords="122,5,362,539"/>
+<area shape="rect" id="Node000002" href="$classSleak_1_1RenderEngine_1_1OpenGLRenderer.html" title="OpenGL 3.3+ backend: deferred GBuffer pipeline, SSAO, shadow mapping, and baked IBL." alt="" coords="5,587,225,1155"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,551,178,588,173,586,182,556"/>
+<area shape="rect" id="Node000003" href="$classSleak_1_1RenderEngine_1_1VulkanRenderer.html" title=" " alt="" coords="250,630,490,1112"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="303,551,321,630,316,630,302,556"/>
+</map>
