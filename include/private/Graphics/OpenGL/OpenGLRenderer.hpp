@@ -114,8 +114,7 @@ private:
     SDL_GLContext m_GLContext = nullptr;
     bool m_Initialized = false;
 
-    // Frame capture (-capture): set by RequestFrameCapture, cleared once
-    // written
+    // -capture target, empty once written
     std::string m_capturePath;
     /// Reads the finished back buffer into the armed PPM and disarms it.
     void WriteFrameCapture();

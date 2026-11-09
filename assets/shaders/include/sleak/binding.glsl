@@ -1,9 +1,7 @@
 #ifndef SLEAK_BINDING_GLSL
 #define SLEAK_BINDING_GLSL
 
-// Slots shared with the C++ backends: Vulkan descriptor set 2 bindings
-// (VulkanRenderer SET2_*) and OpenGL uniform buffer bindings
-// (OpenGLRenderer *_UBO_BINDING)
+// Slots: VulkanRenderer SET2_*, OpenGLRenderer *_UBO_BINDING
 #define SLEAK_FRAME_SET 2
 #define SLEAK_SHADOW_LIGHT_VK 0
 #define SLEAK_FRAME_DATA_VK 1

@@ -641,8 +641,7 @@ private:
  float m_shadowMapLightVP[16] = {};
  bool m_shadowMapRendered = false;
 
- // Set 2 bindings: light UBO, FrameData, game block, cascades, atmosphere
- // (sleak/binding.glsl SLEAK_*_VK)
+ // Set 2 bindings (sleak/binding.glsl SLEAK_*_VK)
  static constexpr uint32_t FRAME_SET = 2;
  static constexpr uint32_t SET2_LIGHT_BINDING = 0;
  static constexpr uint32_t SET2_FRAME_BINDING = 1;
@@ -667,8 +666,7 @@ private:
      m_shadowSamplerDescriptorSets = {};
  bool m_lightUBOCreated = false;
 
- // FrameData, game block, cascades, atmosphere (set 2 bindings 1-4): one
- // buffer per frame in flight, split into ranges indexed by binding
+ // Set 2 bindings 1-4: one buffer per frame, one range per binding
  std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_frameUBOBuffers = {};
  std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_frameUBOMemory = {};
  std::array<void*, MAX_FRAMES_IN_FLIGHT> m_frameUBOMapped = {};

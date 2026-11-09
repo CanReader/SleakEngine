@@ -511,10 +511,10 @@ bool VulkanRenderer::CreateLightingPipeline() {
     colorBlendInfo.pAttachments    = &colorBlendAtt;
 
     // Build lighting pipeline layout:
-    // Set 0: m_gbufferSamplerDSL  (7 combined image samplers: GBuffer RTs + shadow maps)
-    // Set 1: m_deferredCBDSL      (1 UBO: InvViewProj + screen size)
-    // Set 2: m_lightUBODescriptorSetLayout  (1 UBO: directional light + shadow + fog)
-    // Set 3: m_iblDSL             (3 samplerCubes + 1 sampler2D + 1 UBO: IBL)
+    // Set 0: m_gbufferSamplerDSL, GBuffer RTs and shadow maps (7 samplers)
+    // Set 1: m_deferredCBDSL, InvViewProj and screen size (1 UBO)
+    // Set 2: m_lightUBODescriptorSetLayout, light UBO and FrameData blocks
+    // Set 3: m_iblDSL, IBL (3 samplerCubes, 1 sampler2D, 1 UBO)
     std::array<VkDescriptorSetLayout, 4> setLayouts = {
         m_gbufferSamplerDSL,
         m_deferredCBDSL,
