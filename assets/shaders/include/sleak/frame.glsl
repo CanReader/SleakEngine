@@ -11,7 +11,6 @@
 #define SLEAK_FRAME_FLAG_TAA (1u << 1)
 #define SLEAK_FRAME_FLAG_SHADOWS (1u << 2)
 #define SLEAK_FRAME_FLAG_DEFERRED (1u << 3)
-#define SLEAK_FRAME_FLAG_CAPTURE (1u << 4)
 #define SLEAK_FRAME_FLAG_GUARD (1u << 31)
 
 // Drawn by SleakFrameGuard while a shader is stale
