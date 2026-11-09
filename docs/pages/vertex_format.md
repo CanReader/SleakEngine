@@ -220,7 +220,11 @@ object motion, a game channel and a shading model id, laid out in
 `assets/shaders/include/sleak/gbuffer.glsl`; leaving it unwritten writes
 undefined values. Engine GBuffer pipelines mask RT3, so engine materials
 read shading model 0, which a game lighting stem shades with the engine
-lighting (see @ref lighting).
+lighting (see @ref lighting). Masking one target alone needs the Vulkan
+`independentBlend` device feature. On a device without it the engine GBuffer
+fragment shader writes RT3 as zero instead: the same shading model 0, for one
+more RGBA16F write (8 bytes) per engine-material fragment. The engine logs
+this once at startup.
 
 A `shadowFragmentStem` makes the shadow variant alpha-tested. It samples the
 caster material's diffuse at Vulkan set 0 binding 0 or OpenGL texture unit
