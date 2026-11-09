@@ -131,7 +131,10 @@ topping out at 80 units. All of it is configurable on
 ## 4. Deferred Lighting
 
 On the Vulkan deferred path, geometry writes albedo and AO, normal and
-roughness, and metallic and emissive into a three-target GBuffer plus depth.
+roughness, metallic and emissive, and a fourth target (RT3: object motion, a
+game channel and a shading model id) into a four-target GBuffer plus depth.
+Only custom vertex formats with a `gbufferFragmentStem` write RT3; every
+other pixel reads shading model 0.
 `assets/shaders/lighting_pass.frag` then shades the whole screen with a
 single fullscreen triangle, sampling the GBuffer, the shadow map, the SSAO
 result, and the IBL cubemaps.
@@ -146,6 +149,24 @@ flicker on camera rotation, not as a subtle offset.
 `UpdateShadowData` also composes an `NdcToShadow` matrix on the CPU by
 inverting the camera view-projection and multiplying by the light's, so the
 lighting pass can go from screen space to shadow space in one transform.
+
+### Replacing the lighting shader
+
+`Application::SetLightingShader("my_lighting")` lights the deferred pass
+with a game fragment shader from the next frame: `my_lighting.frag.spv` on
+Vulkan and `my_lighting_gl.frag` on OpenGL, each behind the engine's
+fullscreen vertex shader. `sleak/lighting_inputs.glsl` declares everything
+the pass binds (GBuffer RT0-RT3, depth, shadow map, SSAO, `DeferredCB`,
+FrameData, IBL). `sleak/lighting_default.glsl` holds the engine lighting:
+`SleakShadeDefault(px, uv, depth)` shades one pixel exactly as
+`lighting_pass` does, so a stem can branch on
+`SleakShadingModel(SleakReadMotionModel(px))` and leave shading model 0 to
+it. Vulkan output is linear HDR; on OpenGL it is display-ready, and the
+shader writes `gl_FragDepth` and discards sky like `lighting_pass_gl.frag`.
+
+A stem that fails to load logs one error and the engine lighting keeps
+running; an empty string restores it. Shader hot reload rebuilds the stem
+with the other pipelines and retries one that failed.
 
 ---
 
@@ -233,6 +254,8 @@ renderer, and `ApplyShadows` is what copies it across.
 | Automatic registration from a scene | `SceneBase::AddObject` in `src/Scene/SceneBase.cpp` |
 | GPU struct layouts and `MAX_LIGHTS` | `include/private/Graphics/Common/ConstantBuffer.hpp` |
 | Vulkan shadow resources and pipeline | `src/Graphics/Vulkan/VulkanShadow.cpp` |
-| Deferred lighting shader | `assets/shaders/lighting_pass.frag` |
+| Deferred lighting shader | `assets/shaders/lighting_pass.frag`, `lighting_pass_gl.frag` |
+| Lighting inputs and the engine lighting | `assets/shaders/include/sleak/lighting_inputs.glsl`, `lighting_default.glsl` |
+| Lighting stem selection | `Application::SetLightingShader`, `src/Graphics/Vulkan/VulkanDeferred.cpp`, `src/Graphics/OpenGL/OpenGLRenderer.cpp` |
 | Forward shading and PCSS | `assets/shaders/default_shader.frag`, `default_shader_gl.frag` |
 | Quality presets | `src/Graphics/Common/GraphicsConfig.cpp` |

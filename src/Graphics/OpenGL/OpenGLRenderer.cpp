@@ -13,6 +13,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <vector>
 
 #include "../../include/private/Graphics/OpenGL/OpenGLBuffer.hpp"
@@ -53,6 +56,38 @@ constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
 // Pixel pack alignment: tight rows for the capture, GL's default afterwards
 constexpr GLint CAPTURE_PACK_ALIGNMENT = 1;
 constexpr GLint DEFAULT_PACK_ALIGNMENT = 4;
+
+// GBuffer color targets; RT3 holds motion, game channel and shading model
+constexpr GLsizei GBUFFER_COLOR_COUNT = 4;
+constexpr GLuint GBUFFER_MOTION_MODEL_INDEX = 3;
+constexpr GLenum GBUFFER_DRAW_BUFFERS[GBUFFER_COLOR_COUNT] = {
+    GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2,
+    GL_COLOR_ATTACHMENT3};
+// Lighting pass unit of RT3 (sleak/lighting_inputs.glsl SLEAK_MOTION_MODEL_GL)
+constexpr GLenum GBUFFER_MOTION_MODEL_TEXTURE_UNIT = GL_TEXTURE12;
+// Unit alpha-tested shadow programs read the caster diffuse from
+constexpr GLuint SHADOW_MATERIAL_UNIT = 0;
+
+// Shader files; custom-format stems resolve to <stem>_gl.vert/.frag
+constexpr const char* SHADER_DIR = "assets/shaders/";
+constexpr const char* GL_VERTEX_SUFFIX = "_gl.vert";
+constexpr const char* GL_FRAGMENT_SUFFIX = "_gl.frag";
+constexpr const char* ENGINE_GBUFFER_FRAGMENT_STEM = "gbuffer";
+constexpr const char* ENGINE_SHADOW_FRAGMENT_STEM = "shadow_depth";
+constexpr const char* SHADOW_DEPTH_VERTEX =
+    "assets/shaders/shadow_depth_gl.vert";
+constexpr const char* SHADOW_POSITION_VERTEX =
+    "assets/shaders/shadow_position_gl.vert";
+constexpr const char* SHADOW_DEPTH_FRAGMENT =
+    "assets/shaders/shadow_depth_gl.frag";
+constexpr const char* LIGHTING_VERTEX = "assets/shaders/lighting_pass_gl.vert";
+constexpr const char* FORMAT_PASS_NAMES[] = {"GBuffer", "shadow",
+                                             "transparent"};
+
+/// Path of a stem's OpenGL stage file.
+std::string GLShaderPath(const std::string& stem, const char* suffix) {
+    return SHADER_DIR + stem + suffix;
+}
 
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
@@ -251,6 +286,7 @@ void OpenGLRenderer::BeginRender() {
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
+    if (m_lightingShaderDirty) ApplyLightingShaderChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
     if (m_hasPendingLightVP) {
@@ -265,13 +301,16 @@ void OpenGLRenderer::BeginRender() {
     if (m_gbufferCreated && m_deferredEnabled) {
         // Deferred path: geometry pass writes to GBuffer
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-        glDrawBuffers(3, drawBuffers);
+        glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
+        // glClear honours color masks: RT3 must take the 0 clear
+        SetMotionModelWrites(true);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        SetMotionModelWrites(false);
         // Geometry pass must NOT blend — each pixel writes final GBuffer values
         glDisable(GL_BLEND);
         m_inGeometryPass = true;
+        ResetFormatPassState();
     } else {
         // Forward path: bind MSAA FBO if active, else default FBO
         if (m_msaaFBO != 0)
@@ -363,6 +402,12 @@ void OpenGLRenderer::Cleanup() {
         CleanupSceneRead();
         CleanupGBufferResources();
         CleanupFrameUBOs();
+        DestroyFormatPrograms();
+        delete m_shadowDepthShader;
+        m_shadowDepthShader = nullptr;
+        delete m_shadowPositionShader;
+        m_shadowPositionShader = nullptr;
+        m_shadowProgramsCreated = false;
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -414,6 +459,18 @@ bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
             SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
                        stem);
     }
+    // Format programs and a lighting stem that failed get another try
+    for (FormatPrograms& entry : m_formatPrograms) {
+        for (size_t pass = 0; pass < FORMAT_PASS_COUNT; ++pass) {
+            if (!entry.failed[pass]) continue;
+            entry.failed[pass] = false;
+            entry.resolved[pass] = false;
+        }
+    }
+    if (!m_lightingShaderStem.empty() && !m_lightingOverrideShader) {
+        m_lightingOverrideFailedStem.clear();
+        m_lightingShaderDirty = true;
+    }
     return true;
 }
 #endif
@@ -435,6 +492,7 @@ void OpenGLRenderer::Resize(uint32_t width, uint32_t height) {
 void OpenGLRenderer::Draw(uint32_t vertexCount) { Draw(vertexCount, 0); }
 
 void OpenGLRenderer::Draw(uint32_t vertexCount, uint32_t firstVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArrays(mode, static_cast<GLint>(firstVertex), vertexCount);
     DrawnVertices += vertexCount;
@@ -447,6 +505,7 @@ void OpenGLRenderer::DrawIndexed(uint32_t indexCount) {
 
 void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                  int32_t baseVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     const void* offset = reinterpret_cast<const void*>(
         static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
@@ -458,6 +517,7 @@ void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
 
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     glDrawArraysInstanced(mode, 0, vertexPerInstance,
                           instanceCount);
@@ -474,6 +534,7 @@ void OpenGLRenderer::DrawIndexedInstance(uint32_t instanceCount,
                                          uint32_t indexPerInstance,
                                          uint32_t firstIndex,
                                          int32_t baseVertex) {
+    if (m_formatDrawsSuppressed) return;
     GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
     const void* offset = reinterpret_cast<const void*>(
         static_cast<uintptr_t>(firstIndex) * sizeof(uint32_t));
@@ -582,6 +643,7 @@ void OpenGLRenderer::BindVertexBuffer(RefPtr<BufferBase> buffer,
 
     if (desc && desc->transparentReadsScene && m_inForwardTransparentPass)
         PrepareSceneRead();
+    SelectFormatProgram(desc ? format : DEFAULT_VERTEX_LAYOUT);
 
     const GLsizei stride = desc ? static_cast<GLsizei>(desc->stride)
                                 : static_cast<GLsizei>(sizeof(Vertex));
@@ -1006,12 +1068,19 @@ void OpenGLRenderer::RenderShadowPass() {
     // Ensure VAO is bound for shadow pass draws
     glBindVertexArray(m_VAO);
 
+    // Engine depth program for default-layout casters; formats swap theirs in
+    CreateShadowPrograms();
+    if (m_shadowDepthShader) m_shadowDepthShader->bind();
+
     // Execute shadow draw commands
     m_inShadowPass = true;
     m_shadowTransformCacheValid = false;
+    ResetFormatPassState();
     if (queue) {
         queue->ExecuteShadowPass(this);
     }
+    RestorePassCull();
+    m_formatDrawsSuppressed = false;
     m_inShadowPass = false;
     memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
     m_shadowMapRendered = true;
@@ -1083,6 +1152,11 @@ bool OpenGLRenderer::CreateGBufferResources() {
     makeColorTex(m_gbufferMetalEmit,   GL_RGBA8,   w, h);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, m_gbufferMetalEmit, 0);
 
+    // RT3: object motion, game channel, shading model  (RGBA16F)
+    makeColorTex(m_gbufferMotionModel, GL_RGBA16F, w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D,
+                           m_gbufferMotionModel, 0);
+
     // World position is reconstructed from depth + InvViewProj in the
     // lighting/SSAO passes (no RGBA32F worldpos RT) to cut GBuffer bandwidth.
 
@@ -1097,9 +1171,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_gbufferDepth, 0);
 
-    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                              GL_COLOR_ATTACHMENT2 };
-    glDrawBuffers(3, drawBuffers);
+    glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
@@ -1143,6 +1215,8 @@ bool OpenGLRenderer::CreateGBufferResources() {
 
     m_gbufferCreated = true;
     SLEAK_INFO("OpenGL GBuffer created ({}x{}) — deferred rendering active", w, h);
+    // A lighting stem set before the GBuffer existed applies next frame
+    if (!m_lightingShaderStem.empty()) m_lightingShaderDirty = true;
 
     if (!CreateSSAOResources()) {
         SLEAK_WARN("OpenGL SSAO resources failed to initialize — SSAO disabled");
@@ -1156,12 +1230,18 @@ void OpenGLRenderer::CleanupGBufferResources() {
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
+    if (m_gbufferMotionModel) {
+        glDeleteTextures(1, &m_gbufferMotionModel);
+        m_gbufferMotionModel = 0;
+    }
     if (m_gbufferDepth)       { glDeleteTextures(1, &m_gbufferDepth);       m_gbufferDepth       = 0; }
     if (m_gbufferFBO)         { glDeleteFramebuffers(1, &m_gbufferFBO);     m_gbufferFBO         = 0; }
     if (m_lightingVAO)        { glDeleteVertexArrays(1, &m_lightingVAO);    m_lightingVAO        = 0; }
     if (m_deferredCBUBO)      { glDeleteBuffers(1, &m_deferredCBUBO);       m_deferredCBUBO      = 0; }
     delete m_gbufferShader;  m_gbufferShader  = nullptr;
     delete m_lightingShader; m_lightingShader = nullptr;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
     m_gbufferCreated    = false;
     m_deferredCBCreated = false;
 }
@@ -1219,6 +1299,11 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
+    // Resize MotionModel
+    glBindTexture(GL_TEXTURE_2D, m_gbufferMotionModel);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA,
+                 GL_FLOAT, nullptr);
+
     // Resize depth
     glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
@@ -1233,12 +1318,11 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
 
 void OpenGLRenderer::BindGBufferShader() {
     if (m_gbufferShader) {
-        // Ensure GBuffer FBO is active with all 3 color attachments
-        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit)
+        // Ensure GBuffer FBO is active with all 4 color attachments
+        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit, RT3=MotionModel)
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                                 GL_COLOR_ATTACHMENT2 };
-        glDrawBuffers(3, drawBuffers);
+        glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
+        SetMotionModelWrites(false);
         // Ensure depth writes are enabled for geometry pass
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -1285,9 +1369,16 @@ void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
 }
 
 void OpenGLRenderer::ExecuteDeferredLightingPass() {
+    // Geometry pass state back to its defaults
+    RestorePassCull();
+    SetMotionModelWrites(true);
+    ResetFormatPassState();
     m_inGeometryPass = false;
 
-    if (!m_gbufferCreated || !m_lightingShader) return;
+    // The game lighting stem when one loaded
+    OpenGLShader* lighting =
+        m_lightingOverrideShader ? m_lightingOverrideShader : m_lightingShader;
+    if (!m_gbufferCreated || !lighting) return;
 
     // SSAO must run BEFORE the lighting pass so its blurred output is
     // available for the lighting shader to multiply against vertex AO.
@@ -1316,19 +1407,21 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glDisable(GL_BLEND);
 
     // Bind lighting shader
-    m_lightingShader->bind();
+    lighting->bind();
 
-    // Bind GBuffer textures at units 8-11
+    // Bind GBuffer textures at units 8-12
     glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
     glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glActiveTexture(GBUFFER_MOTION_MODEL_TEXTURE_UNIT);
+    glBindTexture(GL_TEXTURE_2D, m_gbufferMotionModel);
     // SSAO result at unit 13 (default to 0 = "fully lit" if SSAO disabled)
     glActiveTexture(GL_TEXTURE13);
     glBindTexture(GL_TEXTURE_2D, m_ssaoCreated ? m_ssaoBlurTex : 0);
     // SSAO enable flag via plain uniform — avoids growing DeferredCBData
-    GLint ssaoLoc = glGetUniformLocation(
-        m_lightingShader->GetProgram(), "uSSAOEnabled");
+    GLint ssaoLoc =
+        glGetUniformLocation(lighting->GetProgram(), "uSSAOEnabled");
     if (ssaoLoc >= 0) {
         glUniform1i(ssaoLoc, (m_ssaoEnabled && m_ssaoCreated) ? 1 : 0);
     }
@@ -1373,6 +1466,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
 
 void OpenGLRenderer::BeginForwardTransparentPass() {
     m_inForwardTransparentPass = true;
+    ResetFormatPassState();
     // Transparent objects need alpha blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1380,6 +1474,264 @@ void OpenGLRenderer::BeginForwardTransparentPass() {
 
 void OpenGLRenderer::EndForwardTransparentPass() {
     m_inForwardTransparentPass = false;
+    m_formatDrawsSuppressed = false;
+}
+
+/// Rebuilds or drops the lighting override after SetLightingShader.
+void OpenGLRenderer::ApplyLightingShaderChange() {
+    if (!m_gbufferCreated) return;  // CreateGBufferResources reapplies
+    m_lightingShaderDirty = false;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
+    if (m_lightingShaderStem.empty()) return;
+
+    auto* shader = new OpenGLShader();
+    if (shader->compile(LIGHTING_VERTEX, GLShaderPath(m_lightingShaderStem,
+                                                      GL_FRAGMENT_SUFFIX))) {
+        m_lightingOverrideShader = shader;
+        m_lightingOverrideFailedStem.clear();
+        SLEAK_INFO("OpenGL: lighting shader '{}' active", m_lightingShaderStem);
+        return;
+    }
+    delete shader;
+    if (m_lightingOverrideFailedStem == m_lightingShaderStem) return;
+    SLEAK_ERROR(
+        "OpenGL: lighting shader '{}' failed to load, keeping the engine "
+        "lighting",
+        m_lightingShaderStem);
+    m_lightingOverrideFailedStem = m_lightingShaderStem;
+}
+
+// ============================================================
+// Custom vertex format programs
+// ============================================================
+
+/// Compiles the engine shadow depth programs once.
+void OpenGLRenderer::CreateShadowPrograms() {
+    if (m_shadowProgramsCreated) return;
+    m_shadowProgramsCreated = true;
+    m_shadowDepthShader = new OpenGLShader();
+    if (!m_shadowDepthShader->compile(SHADOW_DEPTH_VERTEX,
+                                      SHADOW_DEPTH_FRAGMENT)) {
+        SLEAK_ERROR("OpenGL: shadow depth program failed to build");
+        delete m_shadowDepthShader;
+        m_shadowDepthShader = nullptr;
+    }
+    m_shadowPositionShader = new OpenGLShader();
+    if (!m_shadowPositionShader->compile(SHADOW_POSITION_VERTEX,
+                                         SHADOW_DEPTH_FRAGMENT)) {
+        SLEAK_ERROR("OpenGL: shadow position program failed to build");
+        delete m_shadowPositionShader;
+        m_shadowPositionShader = nullptr;
+    }
+}
+
+/// Records the caster material for alpha-tested shadow programs.
+void OpenGLRenderer::BindShadowMaterial(Sleak::Material* material) {
+    m_shadowMaterial = material;
+    m_shadowMaterialDirty = true;
+    FlushShadowMaterial();
+}
+
+/// Binds the caster diffuse at unit 0 for a sampling shadow program.
+void OpenGLRenderer::FlushShadowMaterial() {
+    if (!m_inShadowPass || !m_shadowProgramSamples || !m_shadowMaterialDirty)
+        return;
+    Sleak::Texture* diffuse =
+        m_shadowMaterial ? m_shadowMaterial->GetDiffuseTexture() : nullptr;
+    if (diffuse)
+        diffuse->Bind(SHADOW_MATERIAL_UNIT);
+    else
+        glBindTextureUnit(SHADOW_MATERIAL_UNIT, 0);
+    m_shadowMaterialDirty = false;
+}
+
+/// Pass the next custom-format draw resolves a program for.
+OpenGLRenderer::FormatPass OpenGLRenderer::CurrentFormatPass() const {
+    if (m_inShadowPass) return FormatPass::Shadow;
+    if (m_inGeometryPass) return FormatPass::GBuffer;
+    if (m_inForwardTransparentPass) return FormatPass::Transparent;
+    return FormatPass::Count;
+}
+
+/// A format's program for a pass, built on first use.
+OpenGLShader* OpenGLRenderer::GetFormatProgram(VertexFormatHandle format,
+                                               FormatPass pass, bool& skip) {
+    skip = false;
+    if (format > m_formatPrograms.size()) {
+        if (!VertexFormatRegistry::Get(format)) return nullptr;
+        m_formatPrograms.resize(format);
+    }
+    FormatPrograms& entry = m_formatPrograms[format - 1];
+    const size_t slot = static_cast<size_t>(pass);
+    if (entry.failed[slot]) {
+        skip = true;
+        return nullptr;
+    }
+    if (entry.resolved[slot]) return entry.programs[slot];
+    entry.resolved[slot] = true;
+
+    const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
+    if (!desc) return nullptr;
+    entry.writesMotionModel = !desc->gbufferFragmentStem.empty();
+    entry.shadowSamples = !desc->shadowFragmentStem.empty();
+    entry.cullMode = desc->cullMode;
+    entry.shadowCullMode = desc->shadowCullMode;
+
+    std::string vertStem = desc->transparentShaderStem;
+    std::string fragStem = desc->transparentShaderStem;
+    if (pass == FormatPass::GBuffer) {
+        vertStem = desc->gbufferShaderStem;
+        fragStem = entry.writesMotionModel ? desc->gbufferFragmentStem
+                                           : ENGINE_GBUFFER_FRAGMENT_STEM;
+    } else if (pass == FormatPass::Shadow) {
+        vertStem = desc->shadowShaderStem;
+        fragStem = entry.shadowSamples ? desc->shadowFragmentStem
+                                       : ENGINE_SHADOW_FRAGMENT_STEM;
+    }
+
+    // No GL stage: the pass keeps the program it used before stems
+    const std::string vertPath = GLShaderPath(vertStem, GL_VERTEX_SUFFIX);
+    std::error_code ec;
+    if (vertStem.empty() || !std::filesystem::exists(vertPath, ec)) {
+        if (!vertStem.empty())
+            SLEAK_INFO(
+                "OpenGL: vertex format {} has no {}, its {} pass keeps "
+                "the engine program",
+                format, vertPath, FORMAT_PASS_NAMES[slot]);
+        return nullptr;
+    }
+
+    auto* program = new OpenGLShader();
+    if (!program->compile(vertPath,
+                          GLShaderPath(fragStem, GL_FRAGMENT_SUFFIX))) {
+        SLEAK_ERROR(
+            "OpenGL: vertex format {} {} program failed, its draws "
+            "are skipped",
+            format, FORMAT_PASS_NAMES[slot]);
+        delete program;
+        entry.failed[slot] = true;
+        skip = true;
+        return nullptr;
+    }
+    entry.programs[slot] = program;
+    return program;
+}
+
+/// Binds the format's program or puts the pass program back.
+void OpenGLRenderer::SelectFormatProgram(VertexFormatHandle format) {
+    const FormatPass pass = CurrentFormatPass();
+    const GLuint bound = OpenGLShader::BoundProgram();
+    if (bound != m_formatProgram) {
+        // A material or pass program was bound since the last switch
+        m_formatProgram = 0;
+        m_passProgram = bound;
+    }
+    m_formatDrawsSuppressed = false;
+    if (pass == FormatPass::Count) return;
+
+    bool skip = false;
+    OpenGLShader* program = format != DEFAULT_VERTEX_LAYOUT
+                                ? GetFormatProgram(format, pass, skip)
+                                : nullptr;
+    if (skip) {
+        m_formatDrawsSuppressed = true;
+        return;
+    }
+    // Formats without a GL shadow stage cast through the position program
+    const bool legacyCaster = !program && pass == FormatPass::Shadow &&
+                              format != DEFAULT_VERTEX_LAYOUT;
+    if (legacyCaster) program = m_shadowPositionShader;
+
+    if (program && program->GetProgram() != 0) {
+        if (program->GetProgram() != bound) program->bind();
+        m_formatProgram = program->GetProgram();
+        if (legacyCaster) {
+            RestorePassCull();
+            m_shadowProgramSamples = false;
+            return;
+        }
+        const FormatPrograms& entry = m_formatPrograms[format - 1];
+        if (pass == FormatPass::GBuffer) {
+            ApplyFormatCull(entry.cullMode);
+            SetMotionModelWrites(entry.writesMotionModel);
+        } else if (pass == FormatPass::Shadow) {
+            ApplyFormatCull(entry.shadowCullMode);
+            m_shadowProgramSamples = entry.shadowSamples;
+            FlushShadowMaterial();
+        }
+        return;
+    }
+
+    // Default layout or a format without GL stages: the pass program draws
+    if (m_formatProgram != 0) {
+        OpenGLShader::BindProgram(m_passProgram);
+        m_formatProgram = 0;
+    }
+    RestorePassCull();
+    if (pass == FormatPass::GBuffer) SetMotionModelWrites(false);
+    m_shadowProgramSamples = false;
+}
+
+/// Applies a format's cull mode, saving the pass state first.
+void OpenGLRenderer::ApplyFormatCull(VertexCullMode mode) {
+    if (mode == VertexCullMode::Default) {
+        RestorePassCull();
+        return;
+    }
+    if (!m_formatCullApplied) {
+        m_savedCullEnabled = glIsEnabled(GL_CULL_FACE);
+        glGetIntegerv(GL_CULL_FACE_MODE, &m_savedCullFace);
+        m_formatCullApplied = true;
+    }
+    if (mode == VertexCullMode::None) {
+        glDisable(GL_CULL_FACE);
+        return;
+    }
+    glEnable(GL_CULL_FACE);
+    glCullFace(mode == VertexCullMode::Front ? GL_FRONT : GL_BACK);
+}
+
+/// Restores the cull state a format changed.
+void OpenGLRenderer::RestorePassCull() {
+    if (!m_formatCullApplied) return;
+    if (m_savedCullEnabled)
+        glEnable(GL_CULL_FACE);
+    else
+        glDisable(GL_CULL_FACE);
+    glCullFace(static_cast<GLenum>(m_savedCullFace));
+    m_formatCullApplied = false;
+}
+
+/// Forgets the switches of the previous pass.
+void OpenGLRenderer::ResetFormatPassState() {
+    m_formatProgram = 0;
+    m_passProgram = 0;
+    m_formatDrawsSuppressed = false;
+    m_formatCullApplied = false;
+    m_shadowMaterial = nullptr;
+    m_shadowMaterialDirty = true;
+    m_shadowProgramSamples = false;
+}
+
+/// Deletes every custom-format program.
+void OpenGLRenderer::DestroyFormatPrograms() {
+    for (FormatPrograms& entry : m_formatPrograms) {
+        for (OpenGLShader*& program : entry.programs) {
+            delete program;
+            program = nullptr;
+        }
+    }
+    m_formatPrograms.clear();
+    m_formatProgram = 0;
+}
+
+/// Enables or masks writes to GBuffer RT3.
+void OpenGLRenderer::SetMotionModelWrites(bool enabled) {
+    if (enabled == m_motionModelWrites) return;
+    const GLboolean mask = enabled ? GL_TRUE : GL_FALSE;
+    glColorMaski(GBUFFER_MOTION_MODEL_INDEX, mask, mask, mask, mask);
+    m_motionModelWrites = enabled;
 }
 
 // ============================================================

@@ -170,6 +170,19 @@ public:
         m_frameData.SetUserData(nullptr, 0);
     }
 
+    // Deferred lighting shader
+    /// Lights the deferred pass with a game fragment stem from the next
+    /// BeginRender; empty restores the engine shader.
+    void SetLightingShader(const std::string& stem) {
+        if (stem == m_lightingShaderStem) return;
+        m_lightingShaderStem = stem;
+        m_lightingShaderDirty = true;
+    }
+    /// Stem last passed to SetLightingShader, empty for the engine shader.
+    const std::string& GetLightingShader() const {
+        return m_lightingShaderStem;
+    }
+
     // VSync
     virtual void SetVSync(bool enabled) {
         if (enabled == m_vsync) return;
@@ -310,14 +323,18 @@ public:
 
     // Renderer
     RendererType Type;
-    RenderMode Mode;
-    RenderFace Face;
+    RenderMode Mode = RenderMode::Fill;
+    RenderFace Face = RenderFace::None;
 
     // Shadow pass
     bool m_shadowPassEnabled = false;
 
     // FrameData contents, uploaded by the backends that read it
     FrameDataBuilder m_frameData;
+
+    // Deferred lighting override; backends rebuild it at BeginRender
+    std::string m_lightingShaderStem;
+    bool m_lightingShaderDirty = false;
 
     // Post-process: Tonemapping
     // Disabled by default — game renders in sRGB space, not linear HDR.

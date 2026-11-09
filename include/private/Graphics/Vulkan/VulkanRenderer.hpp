@@ -20,8 +20,9 @@
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 
-// Shadow caster depth bias
+// Shadow caster depth bias, set per shadow pass (dynamic state)
 #define SHADOW_DEPTH_BIAS_CONSTANT 1.25f
+#define SHADOW_DEPTH_BIAS_CLAMP 0.0f
 #define SHADOW_DEPTH_BIAS_SLOPE 1.75f
 // WVP + World matrices
 #define PUSH_CONSTANT_BYTES (sizeof(float) * 16 * 2)
@@ -191,11 +192,14 @@ public:
     virtual void EndDebugLinePass() override;
 
     // Shadow pass support
-    /// Marks the shadow pass active and invalidates the push constant cache.
+    /// Marks the shadow pass active and resets its per-pass caches.
     virtual void BeginShadowPass() override;
     /// Marks the shadow pass inactive.
     virtual void EndShadowPass() override;
     virtual bool IsShadowPassActive() const override { return m_shadowPassActive; }
+    /// Records the caster material; alpha-tested shadow variants sample its
+    /// diffuse at set 0.
+    void BindShadowMaterial(Sleak::Material* material) override;
 
     // Light UBO update (called by LightManager)
     /// Copies light and shadow data into the current frame's mapped UBO.
@@ -259,7 +263,7 @@ private:
  /// Creates the GBuffer color images, render passes, descriptors, and
  /// pipelines that make up the deferred lighting path.
  bool CreateGBufferResources();
- /// Creates the GBuffer render pass with its three color attachments and depth.
+ /// Creates the GBuffer render pass with its four color attachments and depth.
  bool CreateGBufferRenderPass();
  /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
  bool CreateGBufferFramebuffer();
@@ -276,6 +280,16 @@ private:
  bool CreateLightingFramebuffers();
  /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
  bool CreateLightingPipeline();
+ /// Creates a fullscreen lighting pipeline from a compiled shader pair on
+ /// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
+ VkPipeline BuildLightingPipeline(VulkanShader& shader);
+ /// Builds the lighting pipeline for m_lightingShaderStem; false on failure.
+ bool CreateLightingOverridePipeline();
+ /// Destroys the lighting override pipeline and shader; the GPU must be idle.
+ void DestroyLightingOverride();
+ /// Rebuilds or drops the lighting override after SetLightingShader, keeping
+ /// the engine shader and logging once when the stem fails.
+ void ApplyLightingShaderChange();
  /// Creates the forward transparent render pass writing into the HDR scene
  /// image.
  bool CreateForwardRenderPass();
@@ -322,6 +336,11 @@ private:
  /// Destroys the shadow map image, pipeline, render pass, and light UBO
  /// resources.
  void CleanupShadowResources();
+ /// Forgets every per-pass shadow cache; runs at each shadow pass begin.
+ void ResetShadowPassState();
+ /// Binds the recorded caster material's diffuse at set 0 when the bound
+ /// shadow variant samples it; the default white texture stands in.
+ void FlushShadowMaterial();
  /// Creates the Vulkan instance. The validation layer is on in Debug builds
  /// or with --validate, and --syncval adds synchronization validation.
  bool InitVulkan();
@@ -629,6 +648,10 @@ private:
  // Layout m_shadowPCCache was last pushed with in this shadow pass, or
  // null once anything else overwrote the push constants.
  VkPipelineLayout m_shadowPCPushedLayout = VK_NULL_HANDLE;
+ // Caster material of the next shadow draws, for alpha-tested variants
+ Sleak::Material* m_shadowMaterial = nullptr;
+ bool m_shadowMaterialDirty = true;
+ bool m_shadowVariantSamples = false;
 
  // Light VP matrix (stored as raw floats for push constant computation)
  float m_lightVP[16] = {};
@@ -679,17 +702,38 @@ private:
  std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 
  // ---- Deferred GBuffer ----
- // 3 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit.
+ // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
+ // RT3=MotionModel (custom-format GBuffer stems; 0 for engine materials).
  // World position is reconstructed from the depth buffer + InvViewProj in
  // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
  // bandwidth on a fill-bound renderer.
- static constexpr uint32_t GBUFFER_COUNT = 3;
+ static constexpr uint32_t GBUFFER_RT3 = 3;
+ static constexpr uint32_t GBUFFER_COUNT = GBUFFER_RT3 + 1;
+ // Per-attachment blend state, which masking RT3 alone needs
+ bool m_independentBlend = false;
+ // Lighting set 0 bindings after RT0-RT2 (sleak/lighting_inputs.glsl)
+ static constexpr uint32_t LIGHTING_DEPTH_BINDING = 3;
+ static constexpr uint32_t LIGHTING_SHADOW_BINDING = 4;
+ static constexpr uint32_t LIGHTING_SHADOW_RAW_BINDING = 5;
+ static constexpr uint32_t LIGHTING_SSAO_BINDING = 6;
+ static constexpr uint32_t LIGHTING_MOTION_MODEL_BINDING = 7;
+ static constexpr uint32_t LIGHTING_SET0_BINDING_COUNT =
+     LIGHTING_MOTION_MODEL_BINDING + 1;
+ /// Lighting set 0 binding of a GBuffer target.
+ static constexpr uint32_t LightingBindingOf(uint32_t target) {
+     return target == GBUFFER_RT3 ? LIGHTING_MOTION_MODEL_BINDING : target;
+ }
  VkImage m_gbufferImages[GBUFFER_COUNT] = {};
  VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT] = {};
  VkImageView m_gbufferViews[GBUFFER_COUNT] = {};
- /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit.
- /// Defined in VulkanDeferred.cpp.
- static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
+ /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
+ /// RT3 MotionModel.
+ static constexpr VkFormat m_gbufferFormats[GBUFFER_COUNT] = {
+     VK_FORMAT_R8G8B8A8_UNORM,       // RT0: AlbedoAO
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT1: NormalRough
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT2: MetalEmit (HDR emissive)
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT3: object motion, game, shading model
+ };
  VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
  VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;
  VkPipeline m_gbufferPipeline = VK_NULL_HANDLE;
@@ -705,6 +749,18 @@ private:
  VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
  VkPipelineLayout m_lightingPipelineLayout = VK_NULL_HANDLE;
  VulkanShader* m_lightingShader = nullptr;
+ // Engine lighting stages; a lighting stem replaces only the fragment stage
+ static constexpr const char* LIGHTING_VERTEX_SPIRV =
+     "assets/shaders/lighting_pass.vert.spv";
+ static constexpr const char* LIGHTING_FRAGMENT_SPIRV =
+     "assets/shaders/lighting_pass.frag.spv";
+ static constexpr const char* LIGHTING_STEM_DIR = "assets/shaders/";
+ static constexpr const char* LIGHTING_STEM_SUFFIX = ".frag.spv";
+ // Game lighting stem (SetLightingShader); null keeps the engine pipeline
+ VkPipeline m_lightingOverridePipeline = VK_NULL_HANDLE;
+ VulkanShader* m_lightingOverrideShader = nullptr;
+ // Stem whose failure was already logged
+ std::string m_lightingOverrideFailedStem;
 
  // Forward transparent pass
  VkRenderPass m_forwardRenderPass = VK_NULL_HANDLE;

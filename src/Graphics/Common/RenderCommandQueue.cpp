@@ -71,13 +71,21 @@ namespace Sleak {
             const auto& commands = CurrentArena().Commands();
 
             // Cache draw commands for shadow pass replay next frame,
-            // pairing each with the last-bound slot-0 (transform) buffer.
+            // pairing each with the last-bound slot-0 (transform) buffer
+            // and the material bound before it.
             cachedShadowDraws.clear();
             {
                 const RefPtr<BufferBase>* lastSlot0Buffer = nullptr;
                 const RefPtr<BufferBase>* lastSlot3Buffer = nullptr;
+                ::Sleak::Material* lastMaterial = nullptr;
                 for (RenderCommandBase* cmd : commands) {
                     auto type = cmd->GetType();
+                    if (type == CommandType::BindMaterial) {
+                        auto* bind = static_cast<BindMaterialCommand*>(cmd);
+                        lastMaterial = bind->GetMaterial();
+                    } else if (type == CommandType::CustomCommand) {
+                        lastMaterial = nullptr;
+                    }
                     if (type == CommandType::BindConstantBuffer) {
                         auto* bindCmd =
                             static_cast<BindConstantBufferCommand*>(cmd);
@@ -94,6 +102,7 @@ namespace Sleak {
                         ShadowDrawEntry entry;
                         entry.command = cmd;
                         entry.transformBuffer = lastSlot0Buffer;
+                        entry.material = lastMaterial;
                         // Pair bone buffer only with skinned draws so non-skinned
                         // casters don't accidentally inherit a stale bone UBO.
                         if (cmd->IsSkinned())
@@ -201,7 +210,15 @@ namespace Sleak {
         }
 
         void RenderCommandQueue::ExecuteShadowPass(RenderContext* context) {
+            // The first entry always binds, even a null material
+            bool materialBound = false;
+            ::Sleak::Material* boundMaterial = nullptr;
             for (const ShadowDrawEntry& entry : cachedShadowDraws) {
+                if (!materialBound || entry.material != boundMaterial) {
+                    context->BindShadowMaterial(entry.material);
+                    boundMaterial = entry.material;
+                    materialBound = true;
+                }
                 // Bind the transform buffer (slot 0) before drawing — shadow mode
                 // in VulkanRenderer::BindConstantBuffer computes LightVP * World
                 if (entry.transformBuffer && *entry.transformBuffer) {

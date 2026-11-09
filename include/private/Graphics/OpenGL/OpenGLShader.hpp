@@ -29,6 +29,10 @@ public:
     void bind() override;
 
     GLuint GetProgram() const { return m_program; }
+    /// Program the last bind() or BindProgram() made current.
+    static GLuint BoundProgram();
+    /// Makes a program current and records it; 0 unbinds.
+    static void BindProgram(GLuint program);
 
     /// Rebuilds the program from its files, keeping the old one on failure.
     bool Reload();

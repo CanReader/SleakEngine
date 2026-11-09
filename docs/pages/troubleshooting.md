@@ -119,15 +119,32 @@ mask alone for this one.
 
 ### OpenGL falls back to forward and SSAO stops working
 
-**Cause.** `CreateGBufferResources` compiles
-`assets/shaders/lighting_pass_gl.frag`, which the engine does not ship. The
+**Cause.** `CreateGBufferResources` could not build
+`assets/shaders/lighting_pass_gl.frag`. It includes `sleak/` files, and a
+project that does not stage `assets/shaders/include/` makes it fail. The
 pass logs `Failed to compile deferred lighting pass shader!`, tears the
 GBuffer down, and returns false. `CreateSSAOResources` then bails because it
 requires a live GBuffer.
 
-**Fix.** Supply `lighting_pass_gl.frag` in the project's own shader folder.
-Game assets are staged over engine assets, so a game-side file of that name
-is what the loader finds.
+**Fix.** Copy the engine's `assets/shaders` folder with its subfolders.
+
+### A lighting stem keeps the engine lighting
+
+**Cause.** The stem passed to `Application::SetLightingShader` did not load:
+the log has one `lighting shader '<stem>' failed to load, keeping the engine
+lighting` line. The file is `<stem>.frag.spv` on Vulkan and
+`<stem>_gl.frag` on OpenGL, under `assets/shaders/`.
+
+**Fix.** Check the file reached `bin/assets/shaders` and compiles against
+`sleak/lighting_inputs.glsl`. With hot reload on, saving it tries again.
+
+### A custom vertex format disappears on OpenGL
+
+**Cause.** One of its `<stem>_gl.vert` or `_gl.frag` files exists but did
+not build. The log names the format and the pass, and that pass skips the
+format, as Vulkan does for a stem that fails.
+
+**Fix.** Fix the GL file, or remove it to fall back to the engine program.
 
 ### `pcssEnabled` does nothing
 

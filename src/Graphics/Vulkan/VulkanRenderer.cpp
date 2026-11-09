@@ -210,6 +210,7 @@ void VulkanRenderer::BeginRender() {
         ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
+    if (m_lightingShaderDirty) ApplyLightingShaderChange();
     PrebuildCustomFormatPipelines();
 
     VkResult result;
@@ -327,6 +328,9 @@ void VulkanRenderer::BeginRender() {
         BeginGpuPass(GpuPass::Shadow);
         vkCmdBeginRenderPass(command, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+        // Every shadow pipeline takes its depth bias from the pass
+        vkCmdSetDepthBias(command, SHADOW_DEPTH_BIAS_CONSTANT,
+                          SHADOW_DEPTH_BIAS_CLAMP, SHADOW_DEPTH_BIAS_SLOPE);
 
         // shadow_depth.vert statically declares `layout(set = 1, binding = 0) uniform BoneUBO`
         // (skinning conditioned on boneWeights). The shader must have set 1 bound even for
@@ -355,8 +359,7 @@ void VulkanRenderer::BeginRender() {
         vkCmdSetScissor(command, 0, 1, &shadowScissor);
 
         m_shadowPassActive = true;
-        m_shadowPCCacheValid = false;
-        m_shadowPCPushedLayout = VK_NULL_HANDLE;
+        ResetShadowPassState();
         memcpy(m_shadowMapLightVP, m_lightVP, sizeof(m_shadowMapLightVP));
         m_shadowMapRendered = true;
         auto* queue = RenderCommandQueue::GetInstance();
@@ -371,7 +374,7 @@ void VulkanRenderer::BeginRender() {
 
     // ---- Deferred path: begin GBuffer render pass ----
     if (m_gbufferResourcesCreated && m_deferredEnabled) {
-        // 4 clear values: RT0, RT1, RT2, depth
+        // Clear values: GBuffer RT0-RT3, then depth
         VkClearValue gbufferClears[GBUFFER_COUNT + 1];
         for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
             gbufferClears[i].color = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -1221,6 +1224,8 @@ void VulkanRenderer::Cleanup() {
     // so these are no-ops when already freed — delete(nullptr) is safe.
     delete m_gbufferShader;         m_gbufferShader         = nullptr;
     delete m_lightingShader;        m_lightingShader        = nullptr;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
     delete m_ssaoShader;            m_ssaoShader            = nullptr;
     delete m_ssaoBlurShader;        m_ssaoBlurShader        = nullptr;
     delete m_ssrShader;             m_ssrShader             = nullptr;
@@ -1875,7 +1880,7 @@ bool VulkanRenderer::CreateGBufferResources() {
     // SSAO + bloom must be created BEFORE the lighting/forward render passes
     // and BEFORE CreateGBufferDescriptorSets — the lighting pass framebuffers
     // reference m_hdrSceneView (created by CreateBloomResources) and the
-    // GBuffer sampler set 0 binding 7 samples the SSAO blur result.
+    // GBuffer sampler set 0 binding 6 samples the SSAO blur result.
     if (!CreateSSAOResources())           { SLEAK_ERROR("GBuffer: SSAO resources failed!");        return false; }
     if (!CreateBloomResources())          { SLEAK_ERROR("GBuffer: bloom/HDR resources failed!");   return false; }
     if (!CreateSceneCopyImages())

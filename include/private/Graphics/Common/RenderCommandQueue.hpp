@@ -92,6 +92,8 @@ namespace Sleak {
                 nullptr;  // last-bound slot-0 buffer
             const RefPtr<BufferBase>* boneBuffer =
                 nullptr;  // slot-3 bone UBO for skinned draws
+            // Material bound before the draw, for alpha-tested casters
+            ::Sleak::Material* material = nullptr;
         };
 
         private:

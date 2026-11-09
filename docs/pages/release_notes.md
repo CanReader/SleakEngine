@@ -5,6 +5,19 @@ written against the code that shipped in them, newest first.
 
 ---
 
+## Unreleased
+
+### OpenGL changes for games that do not opt in
+
+The engine now ships `lighting_pass_gl.frag`, so OpenGL runs its default
+deferred path even for a game without its own copy of that file, where it
+used to fall back to forward rendering. OpenGL shadow passes now draw casters
+with the engine's depth programs (`shadow_depth_gl`, or `shadow_position_gl`
+for custom formats without a GL shadow stem) instead of whatever program was
+bound when the pass began.
+
+---
+
 ## 1.0
 
 The first documented release. It establishes the engine's public surface:

@@ -44,7 +44,7 @@ you draw the checkbox.
 | Feature | Vulkan | OpenGL | DirectX 11 | DirectX 12 |
 | :--- | :---: | :---: | :---: | :---: |
 | `GetFeatureCaps()` | `0x13F` | `0xA3` | `0xC0` | `0x80` |
-| Deferred rendering | Yes | Declared, needs a game-supplied shader | No | No |
+| Deferred rendering | Yes | Yes | No | No |
 | Forward rendering | Yes | Yes | Yes | Yes |
 | Shadow map (single directional) | Yes | Yes | Yes | Rendered, never sampled |
 | PCSS soft shadows | Always on, forward path | Toggleable | Toggleable | No |
@@ -94,6 +94,7 @@ resolution rather than sample count:
 | Vulkan deferred (`lighting_pass.frag`) | none, fixed radius | 16 |
 | OpenGL, PCSS on (`default_shader_gl.frag`) | 16 | 32 |
 | OpenGL, PCSS off | none | 9 |
+| OpenGL deferred (`lighting_pass_gl.frag`) | none, fixed radius | 16 |
 | DirectX 11, PCSS on (`default_shader.hlsl`) | 16 | 32 |
 | DirectX 11, PCSS off | none | 9 |
 
@@ -124,21 +125,17 @@ images, so `CapIBL` contributes nothing until real cubemaps are supplied.
 
 ### OpenGL
 
-Forward rendering is complete and solid. Deferred is a different story: the
-GBuffer, its three render targets, and the SSAO chain are all implemented,
-but `CreateGBufferResources` compiles `assets/shaders/lighting_pass_gl.frag`,
-and the engine does not ship that file. Without it the pass logs
-`Failed to compile deferred lighting pass shader!`, tears the GBuffer down,
-and falls back to forward. SSAO goes with it, since
-`CreateSSAOResources` requires a live GBuffer.
+Forward rendering is complete and solid. Deferred uses the Vulkan GBuffer
+layout (four render targets plus depth) with SSAO and IBL, lit by the
+engine's `lighting_pass_gl.frag` or a game stem from
+`Application::SetLightingShader`. The engine pass loops over every active
+light, so point lights work here, and applies ACES and fog itself because
+GL has no post chain. It includes `sleak/` files, so a project has to stage
+`assets/shaders/include/` with the rest of the engine assets.
 
-A game that wants OpenGL deferred supplies `lighting_pass_gl.frag` in its own
-shader folder, which SleakCraft does. Because a project's assets are staged
-over the engine's, a game-side file of that name is what the loader finds.
-
-Unlike Vulkan, OpenGL reads a registered `Sleak::VertexLayoutDesc` for its
-attribute pointers but ignores all four shader stem fields, binding the
-layout to its own fixed programs instead.
+OpenGL reads a registered `Sleak::VertexLayoutDesc` for its attribute
+pointers, and its shader stems where `<stem>_gl.vert` files exist; a pass
+without them keeps the engine program (see @ref vertex_format).
 
 ### DirectX 11
 
@@ -203,8 +200,9 @@ debug overlay's MSAA dropdown to have no visible effect.
 
 Games that register a `Sleak::VertexLayoutDesc` through
 `Sleak::VertexFormatRegistry` get correct attribute binding on Vulkan and
-OpenGL. Only Vulkan reads the four shader stem fields and builds a pipeline
-per pass from them. Neither DirectX backend references the registry, so
+OpenGL. Vulkan builds a pipeline per pass from the shader stems; OpenGL
+builds a program per pass from the stems that have `_gl` files. Neither
+DirectX backend references the registry, so
 custom-format geometry is bound through the built-in vertex layout and
 renders as garbage.
 

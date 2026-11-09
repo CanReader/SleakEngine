@@ -7,7 +7,8 @@ using it.
 
 | Type | Role |
 | :--- | :--- |
-| `Sleak::VertexLayoutDesc` | Stride, attribute list, and up to four shader stems describing one layout. |
+| `Sleak::VertexLayoutDesc` | Stride, attribute list, up to four shader stems, two fragment stems and two cull modes describing one layout. |
+| `Sleak::VertexCullMode` | Face culling of one pipeline variant; `Default` keeps the backend's choice. |
 | `Sleak::VertexAttribute` | One attribute: shader location, component format, byte offset. |
 | `Sleak::VertexAttribFormat` | The component types an attribute can have. |
 | `Sleak::VertexFormatRegistry` | All-static registry; `Register` returns a handle, `Get` reads a desc back. |
@@ -60,10 +61,13 @@ struct VertexAttribute {
     uint32_t           offset;
 };
 
+/// Face culling of one custom-format pipeline variant.
+enum class VertexCullMode : uint8_t { Default, Back, Front, None };
+
 /// A complete custom vertex layout plus the shader stems that consume it.
 /// Register once at startup; the handle keys pipelines and mesh creation.
-/// Shader stems are consumed by the Vulkan backend; OpenGL instead binds
-/// the layout's attributes to its own fixed shader programs.
+/// Vulkan loads the stems as SPIR-V; OpenGL loads them with a `_gl` suffix
+/// where those files exist.
 struct VertexLayoutDesc {
     uint32_t                     stride = 0;
     std::vector<VertexAttribute> attributes;
@@ -74,6 +78,15 @@ struct VertexLayoutDesc {
     std::string                  gbufferShaderStem;
     // Forward transparent variant; empty string skips the transparent pass.
     std::string                  transparentShaderStem;
+    // Transparent draws sample the opaque scene.
+    bool transparentReadsScene = false;
+    // Fragment stem of the GBuffer variant; empty runs the engine's.
+    std::string gbufferFragmentStem;
+    // Fragment stem of the shadow variant; empty keeps it depth only.
+    std::string shadowFragmentStem;
+    // Culling of the main and GBuffer variants, and of the shadow variant.
+    VertexCullMode cullMode = VertexCullMode::Default;
+    VertexCullMode shadowCullMode = VertexCullMode::Default;
 };
 
 /// 0 is reserved for the engine's default vertex layout; registered
@@ -174,11 +187,18 @@ skipped for that vertex format on every frame.
 `VertexLayoutDesc` and emits `glVertexAttribPointer` /
 `glVertexAttribIPointer` calls generically from its `attributes` and
 `stride`, falling back to the engine's hardcoded default vertex layout when
-`vertexFormat` is `0`. It never reads any of the four shader stems; shader
-program selection for OpenGL draws is entirely independent of the
-registered format and uses fixed, hardcoded programs per pass. This is why
-custom vertex formats that only add the four stems (main/shadow/gbuffer/
-transparent) do not need an OpenGL-specific shader variant.
+`vertexFormat` is `0`. `OpenGLRenderer::SelectFormatProgram` then picks the
+program for the draw. A stem is used only when its `<stem>_gl.vert` exists;
+otherwise the pass keeps the engine program it always used, logged once at
+info. A `_gl` file that exists but fails to build logs an error and the
+pass skips the format, as on Vulkan.
+
+| Pass | Vulkan | OpenGL |
+| :--- | :--- | :--- |
+| Shadow | `<shadowShaderStem>.vert.spv`, plus `<shadowFragmentStem>.frag.spv` when set | `<shadowShaderStem>_gl.vert` with `<shadowFragmentStem>_gl.frag` or `shadow_depth_gl.frag`; without the file, the position-only `shadow_position_gl` program |
+| GBuffer | `<gbufferShaderStem>.vert.spv` with `<gbufferFragmentStem>.frag.spv` or the engine `gbuffer.frag.spv` | `<gbufferShaderStem>_gl.vert` with `<gbufferFragmentStem>_gl.frag` or `gbuffer_gl.frag`; without the file, the engine GBuffer program |
+| Transparent | `<transparentShaderStem>.vert.spv` and `.frag.spv`, both sides drawn | `<transparentShaderStem>_gl.vert` and `_gl.frag`; without the file, the material's program |
+| Main, deferred off | `<shaderStem>.vert.spv` and `.frag.spv` | the material's program |
 
 ---
 
@@ -195,6 +215,30 @@ skipped for the format, with no cost and no log noise. An empty main
 `shaderStem` is different: it fails pipeline creation and every pass for
 that format goes dark.
 
+A `gbufferFragmentStem` writes all four GBuffer targets. The fourth, RT3, is
+object motion, a game channel and a shading model id, laid out in
+`assets/shaders/include/sleak/gbuffer.glsl`; leaving it unwritten writes
+undefined values. Engine GBuffer pipelines mask RT3, so engine materials
+read shading model 0, which a game lighting stem shades with the engine
+lighting (see @ref lighting). Masking one target alone needs the Vulkan
+`independentBlend` device feature. On a device without it the engine GBuffer
+fragment shader writes RT3 as zero instead: the same shading model 0, for one
+more RGBA16F write (8 bytes) per engine-material fragment. The engine logs
+this once at startup.
+
+A `shadowFragmentStem` makes the shadow variant alpha-tested. It samples the
+caster material's diffuse at Vulkan set 0 binding 0 or OpenGL texture unit
+0 and discards. Shadows replay the previous frame's draws, so that material
+has to stay alive one frame after its last draw.
+
+`cullMode` and `shadowCullMode` keep each backend's existing culling while
+`Default`. `Back` and `Front` cull the same faces on every backend: Vulkan
+shadow shaders do not flip Y, so the engine swaps the two for shadow
+variants there. The shadow defaults still differ: Vulkan culls the faces
+turned toward the light, OpenGL the faces turned away. OpenGL's
+deferred-off main pass draws with the material's program and ignores
+`cullMode`.
+
 Handles are process-lifetime values held by the registry. `Shutdown` clears
 it, so any `MeshHandle` still carrying a handle after that point refers to
 nothing.
@@ -207,7 +251,8 @@ nothing.
 | :--- | :--- |
 | The descriptor, handle, and registry API | `include/public/Runtime/VertexLayout.hpp` |
 | Mesh creation and drawing | `include/public/Runtime/MeshBatch.hpp`, `src/Graphics/Common/MeshBatch.cpp` |
-| How the four stems become Vulkan pipelines | `src/Graphics/Vulkan/VulkanPipelines.cpp` |
-| How OpenGL binds attributes generically | `src/Graphics/OpenGL/OpenGLRenderer.cpp` |
+| How the stems become Vulkan pipelines | `src/Graphics/Vulkan/VulkanPipelines.cpp` |
+| The alpha-tested shadow material binding | `src/Graphics/Vulkan/VulkanShadow.cpp`, `RenderCommandQueue::ExecuteShadowPass` |
+| How OpenGL binds attributes and picks programs | `src/Graphics/OpenGL/OpenGLRenderer.cpp`, `SelectFormatProgram` |
 | The engine's own default vertex type | `include/public/Runtime/MeshData.hpp` |
 | A real registration in a shipped game | SleakCraft, `Game/include/World/VoxelVertex.hpp` |

@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
 // GBuffer Geometry Pass — PBR Material Sampling
@@ -11,6 +12,8 @@
 // RT2 (location=2): MetalEmit   — metallic.r + emissive.gba (R16G16B16A16_SFLOAT)
 // World position is reconstructed from depth in the lighting/SSAO/SSR passes.
 // ============================================================
+
+#include "sleak/gbuffer.glsl"
 
 layout(location = 0) in vec3 fragWorldPos;
 layout(location = 1) in vec3 fragWorldNorm;
@@ -52,6 +55,8 @@ layout(set = 0, binding = 6) uniform MaterialParams {
 layout(location = 0) out vec4 outAlbedoAO;
 layout(location = 1) out vec4 outNormalRough;
 layout(location = 2) out vec4 outMetalEmit;
+// RT3: masked when independentBlend allows, else written as shading model 0
+layout(location = 3) out vec4 outMotionModel;
 
 void main() {
     vec2 uv = fragUV * vec2(tilingX, tilingY) + vec2(offsetX, offsetY);
@@ -104,4 +109,6 @@ void main() {
     outAlbedoAO    = vec4(albedoSample.rgb, ao);
     outNormalRough = vec4(N * 0.5 + 0.5, roughness);
     outMetalEmit   = vec4(metallic, emissive);  // .r=metallic, .gba=emissiveRGB (HDR)
+    outMotionModel =
+        SleakEncodeMotionModel(vec2(0.0), 0.0, SLEAK_SHADING_MODEL_ENGINE);
 }

@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../../Core/Window.hpp"
 #include "../Common/RenderContext.hpp"
@@ -97,6 +98,10 @@ public:
     virtual void BeginDebugLinePass() override;
     virtual void EndDebugLinePass() override;
 
+    /// Records the caster material; alpha-tested shadow programs sample its
+    /// diffuse at texture unit 0.
+    virtual void BindShadowMaterial(Sleak::Material* material) override;
+
     virtual BufferBase* CreateBuffer(BufferType Type, uint32_t size,
                                      void* data) override;
     virtual Shader* CreateShader(const std::string& shaderSource) override;
@@ -180,6 +185,12 @@ private:
     bool CreateShadowUBO();
     /// Replays cached shadow-caster draws into the depth-only shadow FBO.
     void RenderShadowPass();
+    // Engine shadow programs: default layout, position-only for formats
+    class OpenGLShader* m_shadowDepthShader = nullptr;
+    class OpenGLShader* m_shadowPositionShader = nullptr;
+    bool m_shadowProgramsCreated = false;
+    /// Compiles the engine shadow depth programs once.
+    void CreateShadowPrograms();
 
     // ---- Deferred rendering (GBuffer) ----
     // Deferred mode overrides
@@ -197,6 +208,7 @@ private:
     GLuint m_gbufferAlbedoAO     = 0;   // RT0: RGBA8  — Albedo + AO
     GLuint m_gbufferNormalRough  = 0;   // RT1: RGBA16F — Normal + Roughness
     GLuint m_gbufferMetalEmit    = 0;   // RT2: RGBA8  — Metallic + EmissiveScale
+    GLuint m_gbufferMotionModel = 0;    // RT3: RGBA16F motion, game, model
     GLuint m_gbufferDepth        = 0;   // Depth texture (world pos reconstructed)
     bool   m_gbufferCreated      = false;
     int    m_gbufferWidth        = 0;
@@ -205,6 +217,13 @@ private:
     // GBuffer + lighting pass shaders
     class OpenGLShader* m_gbufferShader  = nullptr;   // geometry pass shader
     class OpenGLShader* m_lightingShader = nullptr;   // lighting pass shader
+    // Game lighting stem (SetLightingShader); null keeps m_lightingShader
+    class OpenGLShader* m_lightingOverrideShader = nullptr;
+    // Stem whose failure was already logged
+    std::string m_lightingOverrideFailedStem;
+    /// Rebuilds or drops the lighting override after SetLightingShader,
+    /// keeping the engine shader and logging once when the stem fails.
+    void ApplyLightingShaderChange();
     GLuint m_lightingVAO = 0;  // empty VAO for fullscreen triangle
 
     // Deferred CB UBO (InvViewProj + screen size; bound at slot 6)
@@ -213,6 +232,63 @@ private:
 
     bool m_inGeometryPass          = false;
     bool m_inForwardTransparentPass = false;
+
+    // ---- Custom vertex format programs ----
+    /// Pass a custom-format program is resolved for.
+    enum class FormatPass : uint8_t { GBuffer, Shadow, Transparent, Count };
+    static constexpr size_t FORMAT_PASS_COUNT =
+        static_cast<size_t>(FormatPass::Count);
+    /// One registered layout's programs per pass. A resolved pass without a
+    /// program has no _gl.vert and keeps the pass program; failed skips draws.
+    struct FormatPrograms {
+        std::array<OpenGLShader*, FORMAT_PASS_COUNT> programs{};
+        std::array<bool, FORMAT_PASS_COUNT> resolved{};
+        std::array<bool, FORMAT_PASS_COUNT> failed{};
+        bool writesMotionModel = false;  // has a gbufferFragmentStem
+        bool shadowSamples = false;      // has a shadowFragmentStem
+        VertexCullMode cullMode = VertexCullMode::Default;
+        VertexCullMode shadowCullMode = VertexCullMode::Default;
+    };
+    // Indexed by handle - 1 (handles are dense and start at 1)
+    std::vector<FormatPrograms> m_formatPrograms;
+    // Program the last format switch bound, 0 while the pass program is
+    GLuint m_formatProgram = 0;
+    // Material or pass program that default-layout draws go back to
+    GLuint m_passProgram = 0;
+    bool m_formatDrawsSuppressed = false;
+    // Cull state a format replaced in this pass, restored when it ends
+    bool m_formatCullApplied = false;
+    GLboolean m_savedCullEnabled = GL_FALSE;
+    GLint m_savedCullFace = GL_BACK;
+    // glColorMaski state of GBuffer RT3
+    bool m_motionModelWrites = true;
+    // Caster material for alpha-tested shadow programs
+    Sleak::Material* m_shadowMaterial = nullptr;
+    bool m_shadowMaterialDirty = true;
+    bool m_shadowProgramSamples = false;
+    /// Pass the next custom-format draw resolves a program for; Count
+    /// outside the shadow, GBuffer and forward transparent passes.
+    FormatPass CurrentFormatPass() const;
+    /// A format's program for a pass, built on first use; null keeps the
+    /// pass program, and skip is set when the format's program failed.
+    OpenGLShader* GetFormatProgram(VertexFormatHandle format, FormatPass pass,
+                                   bool& skip);
+    /// Binds what the next draw needs: the format's program in the shadow,
+    /// GBuffer and transparent passes, or the pass program back.
+    void SelectFormatProgram(VertexFormatHandle format);
+    /// Applies a format's cull mode; Default puts the pass state back.
+    void ApplyFormatCull(VertexCullMode mode);
+    /// Restores the cull state a format changed in this pass.
+    void RestorePassCull();
+    /// Forgets the program, cull and material switches of the last pass.
+    void ResetFormatPassState();
+    /// Deletes every custom-format program.
+    void DestroyFormatPrograms();
+    /// Enables or masks writes to GBuffer RT3.
+    void SetMotionModelWrites(bool enabled);
+    /// Binds the shadow material's diffuse at unit 0 when the bound shadow
+    /// program samples it.
+    void FlushShadowMaterial();
 
     /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
     bool CreateGBufferResources();
