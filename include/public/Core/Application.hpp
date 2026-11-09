@@ -218,7 +218,7 @@ class ENGINE_API Application {
 
     // Deferred lighting shader
     /// Lights the deferred pass with a game fragment stem from the next frame
-    /// (Vulkan <stem>.frag.spv, OpenGL <stem>_gl.frag); empty restores the
+    /// (Vulkan `<stem>.frag.spv`, OpenGL `<stem>_gl.frag`); empty restores the
     /// engine shader. Inputs: shaders/include/sleak/lighting_inputs.glsl.
     void SetLightingShader(const std::string& stem);
     /// Stem last passed to SetLightingShader(), empty for the engine shader.
