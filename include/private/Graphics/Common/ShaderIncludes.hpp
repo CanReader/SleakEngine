@@ -10,25 +10,25 @@
 namespace Sleak {
 namespace RenderEngine {
 
-/// Folder under a shader root that holds the #include libraries.
+/// Folder under a shader root that holds the `#include` libraries.
 inline constexpr std::string_view SHADER_INCLUDE_DIR = "include";
-/// Deepest #include nesting accepted.
+/// Deepest `#include` nesting accepted.
 inline constexpr int MAX_SHADER_INCLUDE_DEPTH = 16;
 
-/// Target of one #include line.
+/// Target of one `#include` line.
 struct ShaderIncludeDirective {
     std::string name;
     bool quoted = true;
 };
 
-/// GLSL with its #include lines inlined, for drivers without include support.
+/// GLSL with its `#include` lines inlined, for drivers without include support.
 struct ExpandedShader {
     std::string source;
     std::vector<std::string> files;
     std::string error;
 };
 
-/// Parses an #include line with its comments already removed; empty for
+/// Parses an `#include` line with its comments already removed; empty for
 /// every other line.
 std::optional<ShaderIncludeDirective> ParseShaderInclude(std::string_view line);
 
@@ -39,9 +39,9 @@ std::optional<std::filesystem::path> ResolveShaderInclude(
     const std::filesystem::path& includerDir,
     const std::vector<std::filesystem::path>& roots);
 
-/// Inlines every #include of a GLSL file, each file once per shader as its
-/// guard would. Skips commented-out includes but resolves those under #if,
-/// keeps #version first and tags each file with #line.
+/// Inlines every `#include` of a GLSL file, each file once per shader as its
+/// guard would. Skips commented-out includes but resolves those under `#if`,
+/// keeps `#version` first and tags each file with `#line`.
 ExpandedShader ExpandShaderIncludes(
     const std::filesystem::path& file,
     const std::vector<std::filesystem::path>& roots);
