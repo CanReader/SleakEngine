@@ -431,6 +431,8 @@ private:
  /// Picks a UNORM surface format to avoid double sRGB encoding.
  VkSurfaceFormatKHR ChooseFormat(
      const std::vector<VkSurfaceFormatKHR>& formats);
+ // Set once the sRGB swapchain fallback has been reported
+ bool m_srgbFallbackWarned = false;
  /// Picks FIFO when VSync is on, otherwise MAILBOX or IMMEDIATE.
  VkPresentModeKHR ChoosePresentMode(const std::vector<VkPresentModeKHR>& modes);
  /// Clamps the window size to the surface's supported extent.

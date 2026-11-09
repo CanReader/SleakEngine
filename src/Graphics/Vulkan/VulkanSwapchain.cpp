@@ -429,10 +429,12 @@ VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
 
     // An sRGB fallback encodes on its own; the output transform must not
     m_targetEncodesSRGB = IsSrgbFormat(formats[0].format);
-    if (m_targetEncodesSRGB)
+    if (m_targetEncodesSRGB && !m_srgbFallbackWarned) {
         SLEAK_WARN(
             "Swapchain format encodes sRGB; the output transform "
             "leaves gamma to it");
+        m_srgbFallbackWarned = true;
+    }
     return formats[0];
 }
 
