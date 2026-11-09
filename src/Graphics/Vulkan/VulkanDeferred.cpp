@@ -14,16 +14,18 @@
 namespace Sleak {
     namespace RenderEngine {
 
-/// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit.
+/// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
+/// RT3 MotionModel.
 const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] = {
     VK_FORMAT_R8G8B8A8_UNORM,        // RT0: AlbedoAO
     VK_FORMAT_R16G16B16A16_SFLOAT,   // RT1: NormalRough
     VK_FORMAT_R16G16B16A16_SFLOAT,   // RT2: MetalEmit (HDR emissive needs float)
+    VK_FORMAT_R16G16B16A16_SFLOAT,   // RT3: object motion, game, shading model
 };
 
-/// Creates the GBuffer render pass with its three color attachments and depth.
+/// Creates the GBuffer render pass with its four color attachments and depth.
 bool VulkanRenderer::CreateGBufferRenderPass() {
-    // Attachment 0-2: GBuffer color RTs (CLEAR → SHADER_READ_ONLY)
+    // Attachment 0-3: GBuffer color RTs (CLEAR → SHADER_READ_ONLY)
     VkAttachmentDescription colorAtts[GBUFFER_COUNT] = {};
     VkAttachmentReference   colorRefs[GBUFFER_COUNT] = {};
 
@@ -208,6 +210,8 @@ bool VulkanRenderer::CreateGBufferPipeline() {
 
     std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> colorBlendAtts;
     colorBlendAtts.fill(opaqueBlend);
+    // Engine materials leave RT3 at its clear value: shading model 0
+    if (m_independentBlend) colorBlendAtts[GBUFFER_RT3].colorWriteMask = 0;
 
     VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
     colorBlendInfo.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -326,6 +330,8 @@ bool VulkanRenderer::CreateSkinnedGbufferPipeline() {
 
     std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> blendAtts;
     blendAtts.fill(opaqueBlend);
+    // Engine materials leave RT3 at its clear value: shading model 0
+    if (m_independentBlend) blendAtts[GBUFFER_RT3].colorWriteMask = 0;
 
     VkPipelineColorBlendStateCreateInfo cb{};
     cb.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -511,7 +517,7 @@ bool VulkanRenderer::CreateLightingPipeline() {
     colorBlendInfo.pAttachments    = &colorBlendAtt;
 
     // Build lighting pipeline layout:
-    // Set 0: m_gbufferSamplerDSL, GBuffer RTs and shadow maps (7 samplers)
+    // Set 0: m_gbufferSamplerDSL, GBuffer RT0-RT3, depth, shadow maps, SSAO
     // Set 1: m_deferredCBDSL, InvViewProj and screen size (1 UBO)
     // Set 2: m_lightUBODescriptorSetLayout, light UBO and FrameData blocks
     // Set 3: m_iblDSL, IBL (3 samplerCubes, 1 sampler2D, 1 UBO)
@@ -698,14 +704,16 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
         return false;
     }
 
-    // DSL for set 0 of lighting pass:
+    // DSL for set 0 of lighting pass (sleak/lighting_inputs.glsl):
     // binding 0: RT0, 1: RT1, 2: RT2, 3: depth,
     // binding 4: shadow compare sampler (hardware PCF),
     // binding 5: shadow raw sampler    (PCSS blocker search)
     // binding 6: screen-space AO       (R8, bilateral blurred)
+    // binding 7: RT3 motion, game channel, shading model
     // (world position is reconstructed from depth binding 3 + InvViewProj)
-    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
-    for (uint32_t b = 0; b < 7; ++b) {
+    std::array<VkDescriptorSetLayoutBinding, LIGHTING_SET0_BINDING_COUNT>
+        bindings{};
+    for (uint32_t b = 0; b < LIGHTING_SET0_BINDING_COUNT; ++b) {
         bindings[b].binding         = b;
         bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[b].descriptorCount = 1;
@@ -722,10 +730,11 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
         return false;
     }
 
-    // Pool: 7 samplers × MAX_FRAMES_IN_FLIGHT sets
+    // Pool: one sampler per binding × MAX_FRAMES_IN_FLIGHT sets
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 7 * MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount =
+        LIGHTING_SET0_BINDING_COUNT * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -771,61 +780,72 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
     // descriptor set is safe to update.  Updating other slots would
     // race with the GPU still consuming them.
     uint32_t f = currentFrame;
-    std::array<VkDescriptorImageInfo, 7> imageInfos{};
+    std::array<VkDescriptorImageInfo, LIGHTING_SET0_BINDING_COUNT> imageInfos{};
 
-    // RT0..RT2 (AlbedoAO, NormalRough, MetalEmit)
+    // RT0..RT2 at bindings 0-2, RT3 after SSAO
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
-        imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[i].imageView   = m_gbufferViews[i];
-        imageInfos[i].sampler     = m_gbufferSampler;
+        VkDescriptorImageInfo& info = imageInfos[LightingBindingOf(i)];
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        info.imageView = m_gbufferViews[i];
+        info.sampler = m_gbufferSampler;
     }
 
     // Depth (binding 3) — used to reconstruct world position
-    imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    imageInfos[3].imageView   = depthImageView;
-    imageInfos[3].sampler     = m_depthSampler;
+    VkDescriptorImageInfo& depthInfo = imageInfos[LIGHTING_DEPTH_BINDING];
+    depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depthInfo.imageView = depthImageView;
+    depthInfo.sampler = m_depthSampler;
 
     // Shadow map (binding 4) — compare sampler for hardware PCF.
     // Depth images must use DEPTH_STENCIL_READ_ONLY_OPTIMAL (not SHADER_READ_ONLY_OPTIMAL)
     // when accessed as a sampler; using the wrong layout causes VK_ERROR_DEVICE_LOST.
     // Fall back to the default 1x1 white texture when no shadow map is available.
+    VkDescriptorImageInfo& shadowInfo = imageInfos[LIGHTING_SHADOW_BINDING];
     if (m_shadowImageView) {
-        imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        imageInfos[4].imageView   = m_shadowImageView;
-        imageInfos[4].sampler     = m_shadowSampler ? m_shadowSampler
-                                                     : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+        shadowInfo.imageLayout =
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        shadowInfo.imageView = m_shadowImageView;
+        shadowInfo.sampler =
+            m_shadowSampler ? m_shadowSampler
+                            : (m_defaultTexture ? m_defaultTexture->GetSampler()
+                                                : VK_NULL_HANDLE);
     } else if (m_defaultTexture) {
-        imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[4].imageView   = m_defaultTexture->GetImageView();
-        imageInfos[4].sampler     = m_defaultTexture->GetSampler();
+        shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        shadowInfo.imageView = m_defaultTexture->GetImageView();
+        shadowInfo.sampler = m_defaultTexture->GetSampler();
     }
 
     // Shadow map raw (binding 5) — non-compare sampler for PCSS blocker search
+    VkDescriptorImageInfo& rawInfo = imageInfos[LIGHTING_SHADOW_RAW_BINDING];
     if (m_shadowImageView) {
-        imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        imageInfos[5].imageView   = m_shadowImageView;
-        imageInfos[5].sampler     = m_shadowRawSampler ? m_shadowRawSampler
-                                                        : (m_defaultTexture ? m_defaultTexture->GetSampler() : VK_NULL_HANDLE);
+        rawInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        rawInfo.imageView = m_shadowImageView;
+        rawInfo.sampler =
+            m_shadowRawSampler
+                ? m_shadowRawSampler
+                : (m_defaultTexture ? m_defaultTexture->GetSampler()
+                                    : VK_NULL_HANDLE);
     } else if (m_defaultTexture) {
-        imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[5].imageView   = m_defaultTexture->GetImageView();
-        imageInfos[5].sampler     = m_defaultTexture->GetSampler();
+        rawInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        rawInfo.imageView = m_defaultTexture->GetImageView();
+        rawInfo.sampler = m_defaultTexture->GetSampler();
     }
 
     // SSAO (binding 6) — fallback to default white texture when SSAO isn't ready,
     // so the lighting shader multiplies by 1.0 (no occlusion) as a safe default.
+    VkDescriptorImageInfo& ssaoInfo = imageInfos[LIGHTING_SSAO_BINDING];
     if (m_ssaoBlurView != VK_NULL_HANDLE && m_ssaoSampler != VK_NULL_HANDLE) {
-        imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[6].imageView   = m_ssaoBlurView;
-        imageInfos[6].sampler     = m_ssaoSampler;
+        ssaoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ssaoInfo.imageView = m_ssaoBlurView;
+        ssaoInfo.sampler = m_ssaoSampler;
     } else if (m_defaultTexture) {
-        imageInfos[6].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfos[6].imageView   = m_defaultTexture->GetImageView();
-        imageInfos[6].sampler     = m_defaultTexture->GetSampler();
+        ssaoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ssaoInfo.imageView = m_defaultTexture->GetImageView();
+        ssaoInfo.sampler = m_defaultTexture->GetSampler();
     }
 
-    std::array<VkWriteDescriptorSet, 7> writes{};
-    for (uint32_t b = 0; b < 7; ++b) {
+    std::array<VkWriteDescriptorSet, LIGHTING_SET0_BINDING_COUNT> writes{};
+    for (uint32_t b = 0; b < LIGHTING_SET0_BINDING_COUNT; ++b) {
         writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[b].dstSet          = m_gbufferSamplerSets[f];
         writes[b].dstBinding      = b;

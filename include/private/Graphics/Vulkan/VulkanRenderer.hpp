@@ -679,16 +679,32 @@ private:
  std::array<VulkanBuffer::AsyncFlushResult, MAX_FRAMES_IN_FLIGHT> m_asyncFlush;
 
  // ---- Deferred GBuffer ----
- // 3 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit.
+ // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
+ // RT3=MotionModel (written only by custom-format GBuffer stems).
  // World position is reconstructed from the depth buffer + InvViewProj in
  // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
  // bandwidth on a fill-bound renderer.
- static constexpr uint32_t GBUFFER_COUNT = 3;
+ static constexpr uint32_t GBUFFER_RT3 = 3;
+ static constexpr uint32_t GBUFFER_COUNT = GBUFFER_RT3 + 1;
+ // Per-attachment blend state, which masking RT3 alone needs
+ bool m_independentBlend = false;
+ // Lighting set 0 bindings after RT0-RT2 (sleak/lighting_inputs.glsl)
+ static constexpr uint32_t LIGHTING_DEPTH_BINDING = 3;
+ static constexpr uint32_t LIGHTING_SHADOW_BINDING = 4;
+ static constexpr uint32_t LIGHTING_SHADOW_RAW_BINDING = 5;
+ static constexpr uint32_t LIGHTING_SSAO_BINDING = 6;
+ static constexpr uint32_t LIGHTING_MOTION_MODEL_BINDING = 7;
+ static constexpr uint32_t LIGHTING_SET0_BINDING_COUNT =
+     LIGHTING_MOTION_MODEL_BINDING + 1;
+ /// Lighting set 0 binding of a GBuffer target.
+ static constexpr uint32_t LightingBindingOf(uint32_t target) {
+     return target == GBUFFER_RT3 ? LIGHTING_MOTION_MODEL_BINDING : target;
+ }
  VkImage m_gbufferImages[GBUFFER_COUNT] = {};
  VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT] = {};
  VkImageView m_gbufferViews[GBUFFER_COUNT] = {};
- /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit.
- /// Defined in VulkanDeferred.cpp.
+ /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
+ /// RT3 MotionModel. Defined in VulkanDeferred.cpp.
  static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
  VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
  VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;

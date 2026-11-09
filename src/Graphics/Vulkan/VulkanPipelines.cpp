@@ -1068,6 +1068,9 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
     }
     std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> blends;
     blends.fill(blend);
+    // The engine fragment shader leaves RT3 at shading model 0
+    if (pass == CustomPass::GBuffer && m_independentBlend)
+        blends[GBUFFER_RT3].colorWriteMask = 0;
 
     VkPipelineColorBlendStateCreateInfo colorBlend{};
     colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;

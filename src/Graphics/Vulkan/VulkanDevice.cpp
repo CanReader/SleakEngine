@@ -308,6 +308,13 @@ bool VulkanRenderer::CreateDevice() {
     VkPhysicalDeviceFeatures features{};
     features.samplerAnisotropy = supported.samplerAnisotropy;
     features.fullDrawIndexUint32 = supported.fullDrawIndexUint32;
+    // Lets engine GBuffer pipelines mask RT3 alone
+    features.independentBlend = supported.independentBlend;
+    m_independentBlend = supported.independentBlend == VK_TRUE;
+    if (!m_independentBlend)
+        SLEAK_WARN(
+            "Vulkan: no independentBlend, engine materials leave GBuffer "
+            "RT3 undefined");
     if (CommandLine::HasFlag("--validate"))
         features.robustBufferAccess = supported.robustBufferAccess;
 

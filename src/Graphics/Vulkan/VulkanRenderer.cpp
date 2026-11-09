@@ -371,7 +371,7 @@ void VulkanRenderer::BeginRender() {
 
     // ---- Deferred path: begin GBuffer render pass ----
     if (m_gbufferResourcesCreated && m_deferredEnabled) {
-        // 4 clear values: RT0, RT1, RT2, depth
+        // Clear values: GBuffer RT0-RT3, then depth
         VkClearValue gbufferClears[GBUFFER_COUNT + 1];
         for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
             gbufferClears[i].color = {0.0f, 0.0f, 0.0f, 0.0f};
