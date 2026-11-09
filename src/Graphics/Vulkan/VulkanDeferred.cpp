@@ -14,28 +14,6 @@
 namespace Sleak {
     namespace RenderEngine {
 
-namespace {
-
-// Engine lighting stages; a lighting stem replaces only the fragment stage
-constexpr const char* LIGHTING_VERTEX_SPIRV =
-    "assets/shaders/lighting_pass.vert.spv";
-constexpr const char* LIGHTING_FRAGMENT_SPIRV =
-    "assets/shaders/lighting_pass.frag.spv";
-constexpr const char* SHADER_DIR = "assets/shaders/";
-constexpr const char* FRAGMENT_SPIRV_SUFFIX = ".frag.spv";
-
-}  // namespace
-
-/// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
-/// RT3 MotionModel.
-const VkFormat VulkanRenderer::m_gbufferFormats[VulkanRenderer::GBUFFER_COUNT] = {
-    VK_FORMAT_R8G8B8A8_UNORM,        // RT0: AlbedoAO
-    VK_FORMAT_R16G16B16A16_SFLOAT,   // RT1: NormalRough
-    VK_FORMAT_R16G16B16A16_SFLOAT,   // RT2: MetalEmit (HDR emissive needs float)
-    VK_FORMAT_R16G16B16A16_SFLOAT,   // RT3: object motion, game, shading model
-};
-
-/// Creates the GBuffer render pass with its four color attachments and depth.
 bool VulkanRenderer::CreateGBufferRenderPass() {
     // Attachment 0-3: GBuffer color RTs (CLEAR → SHADER_READ_ONLY)
     VkAttachmentDescription colorAtts[GBUFFER_COUNT] = {};
@@ -594,7 +572,7 @@ bool VulkanRenderer::CreateLightingOverridePipeline() {
         return false;
     auto* shader = new VulkanShader(device);
     const std::string fragment =
-        SHADER_DIR + m_lightingShaderStem + FRAGMENT_SPIRV_SUFFIX;
+        LIGHTING_STEM_DIR + m_lightingShaderStem + LIGHTING_STEM_SUFFIX;
     if (!shader->compile(LIGHTING_VERTEX_SPIRV, fragment)) {
         delete shader;
         return false;

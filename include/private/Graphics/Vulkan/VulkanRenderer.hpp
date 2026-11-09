@@ -263,7 +263,7 @@ private:
  /// Creates the GBuffer color images, render passes, descriptors, and
  /// pipelines that make up the deferred lighting path.
  bool CreateGBufferResources();
- /// Creates the GBuffer render pass with its three color attachments and depth.
+ /// Creates the GBuffer render pass with its four color attachments and depth.
  bool CreateGBufferRenderPass();
  /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
  bool CreateGBufferFramebuffer();
@@ -727,8 +727,13 @@ private:
  VkDeviceMemory m_gbufferMemory[GBUFFER_COUNT] = {};
  VkImageView m_gbufferViews[GBUFFER_COUNT] = {};
  /// GBuffer attachment formats: RT0 AlbedoAO, RT1 NormalRough, RT2 MetalEmit,
- /// RT3 MotionModel. Defined in VulkanDeferred.cpp.
- static const VkFormat m_gbufferFormats[GBUFFER_COUNT];
+ /// RT3 MotionModel.
+ static constexpr VkFormat m_gbufferFormats[GBUFFER_COUNT] = {
+     VK_FORMAT_R8G8B8A8_UNORM,       // RT0: AlbedoAO
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT1: NormalRough
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT2: MetalEmit (HDR emissive)
+     VK_FORMAT_R16G16B16A16_SFLOAT,  // RT3: object motion, game, shading model
+ };
  VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
  VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;
  VkPipeline m_gbufferPipeline = VK_NULL_HANDLE;
@@ -744,6 +749,13 @@ private:
  VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
  VkPipelineLayout m_lightingPipelineLayout = VK_NULL_HANDLE;
  VulkanShader* m_lightingShader = nullptr;
+ // Engine lighting stages; a lighting stem replaces only the fragment stage
+ static constexpr const char* LIGHTING_VERTEX_SPIRV =
+     "assets/shaders/lighting_pass.vert.spv";
+ static constexpr const char* LIGHTING_FRAGMENT_SPIRV =
+     "assets/shaders/lighting_pass.frag.spv";
+ static constexpr const char* LIGHTING_STEM_DIR = "assets/shaders/";
+ static constexpr const char* LIGHTING_STEM_SUFFIX = ".frag.spv";
  // Game lighting stem (SetLightingShader); null keeps the engine pipeline
  VkPipeline m_lightingOverridePipeline = VK_NULL_HANDLE;
  VulkanShader* m_lightingOverrideShader = nullptr;
