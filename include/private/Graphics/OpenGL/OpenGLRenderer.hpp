@@ -197,6 +197,7 @@ private:
     GLuint m_gbufferAlbedoAO     = 0;   // RT0: RGBA8  — Albedo + AO
     GLuint m_gbufferNormalRough  = 0;   // RT1: RGBA16F — Normal + Roughness
     GLuint m_gbufferMetalEmit    = 0;   // RT2: RGBA8  — Metallic + EmissiveScale
+    GLuint m_gbufferMotionModel = 0;    // RT3: RGBA16F motion, game, model
     GLuint m_gbufferDepth        = 0;   // Depth texture (world pos reconstructed)
     bool   m_gbufferCreated      = false;
     int    m_gbufferWidth        = 0;
@@ -213,6 +214,11 @@ private:
 
     bool m_inGeometryPass          = false;
     bool m_inForwardTransparentPass = false;
+
+    // glColorMaski state of GBuffer RT3
+    bool m_motionModelWrites = true;
+    /// Enables or masks writes to GBuffer RT3.
+    void SetMotionModelWrites(bool enabled);
 
     /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
     bool CreateGBufferResources();

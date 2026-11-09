@@ -54,6 +54,15 @@ constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
 constexpr GLint CAPTURE_PACK_ALIGNMENT = 1;
 constexpr GLint DEFAULT_PACK_ALIGNMENT = 4;
 
+// GBuffer color targets; RT3 holds motion, game channel and shading model
+constexpr GLsizei GBUFFER_COLOR_COUNT = 4;
+constexpr GLuint GBUFFER_MOTION_MODEL_INDEX = 3;
+constexpr GLenum GBUFFER_DRAW_BUFFERS[GBUFFER_COLOR_COUNT] = {
+    GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2,
+    GL_COLOR_ATTACHMENT3};
+// Lighting pass unit of RT3 (sleak/lighting_inputs.glsl SLEAK_MOTION_MODEL_GL)
+constexpr GLenum GBUFFER_MOTION_MODEL_TEXTURE_UNIT = GL_TEXTURE12;
+
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
                      bool integer, size_t offset) {
@@ -265,10 +274,12 @@ void OpenGLRenderer::BeginRender() {
     if (m_gbufferCreated && m_deferredEnabled) {
         // Deferred path: geometry pass writes to GBuffer
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-        glDrawBuffers(3, drawBuffers);
+        glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
+        // glClear honours color masks: RT3 must take the 0 clear
+        SetMotionModelWrites(true);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        SetMotionModelWrites(false);
         // Geometry pass must NOT blend — each pixel writes final GBuffer values
         glDisable(GL_BLEND);
         m_inGeometryPass = true;
@@ -1083,6 +1094,11 @@ bool OpenGLRenderer::CreateGBufferResources() {
     makeColorTex(m_gbufferMetalEmit,   GL_RGBA8,   w, h);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, m_gbufferMetalEmit, 0);
 
+    // RT3: object motion, game channel, shading model  (RGBA16F)
+    makeColorTex(m_gbufferMotionModel, GL_RGBA16F, w, h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D,
+                           m_gbufferMotionModel, 0);
+
     // World position is reconstructed from depth + InvViewProj in the
     // lighting/SSAO passes (no RGBA32F worldpos RT) to cut GBuffer bandwidth.
 
@@ -1097,9 +1113,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_gbufferDepth, 0);
 
-    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                              GL_COLOR_ATTACHMENT2 };
-    glDrawBuffers(3, drawBuffers);
+    glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
@@ -1156,6 +1170,10 @@ void OpenGLRenderer::CleanupGBufferResources() {
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
+    if (m_gbufferMotionModel) {
+        glDeleteTextures(1, &m_gbufferMotionModel);
+        m_gbufferMotionModel = 0;
+    }
     if (m_gbufferDepth)       { glDeleteTextures(1, &m_gbufferDepth);       m_gbufferDepth       = 0; }
     if (m_gbufferFBO)         { glDeleteFramebuffers(1, &m_gbufferFBO);     m_gbufferFBO         = 0; }
     if (m_lightingVAO)        { glDeleteVertexArrays(1, &m_lightingVAO);    m_lightingVAO        = 0; }
@@ -1219,6 +1237,11 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
+    // Resize MotionModel
+    glBindTexture(GL_TEXTURE_2D, m_gbufferMotionModel);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA,
+                 GL_FLOAT, nullptr);
+
     // Resize depth
     glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
@@ -1233,12 +1256,11 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
 
 void OpenGLRenderer::BindGBufferShader() {
     if (m_gbufferShader) {
-        // Ensure GBuffer FBO is active with all 3 color attachments
-        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit)
+        // Ensure GBuffer FBO is active with all 4 color attachments
+        // (RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit, RT3=MotionModel)
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                                 GL_COLOR_ATTACHMENT2 };
-        glDrawBuffers(3, drawBuffers);
+        glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
+        SetMotionModelWrites(false);
         // Ensure depth writes are enabled for geometry pass
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -1285,6 +1307,8 @@ void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
 }
 
 void OpenGLRenderer::ExecuteDeferredLightingPass() {
+    // Geometry pass state back to its defaults
+    SetMotionModelWrites(true);
     m_inGeometryPass = false;
 
     if (!m_gbufferCreated || !m_lightingShader) return;
@@ -1318,11 +1342,13 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     // Bind lighting shader
     m_lightingShader->bind();
 
-    // Bind GBuffer textures at units 8-11
+    // Bind GBuffer textures at units 8-12
     glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
     glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
     glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, m_gbufferMetalEmit);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, m_gbufferDepth);
+    glActiveTexture(GBUFFER_MOTION_MODEL_TEXTURE_UNIT);
+    glBindTexture(GL_TEXTURE_2D, m_gbufferMotionModel);
     // SSAO result at unit 13 (default to 0 = "fully lit" if SSAO disabled)
     glActiveTexture(GL_TEXTURE13);
     glBindTexture(GL_TEXTURE_2D, m_ssaoCreated ? m_ssaoBlurTex : 0);
@@ -1380,6 +1406,14 @@ void OpenGLRenderer::BeginForwardTransparentPass() {
 
 void OpenGLRenderer::EndForwardTransparentPass() {
     m_inForwardTransparentPass = false;
+}
+
+/// Enables or masks writes to GBuffer RT3.
+void OpenGLRenderer::SetMotionModelWrites(bool enabled) {
+    if (enabled == m_motionModelWrites) return;
+    const GLboolean mask = enabled ? GL_TRUE : GL_FALSE;
+    glColorMaski(GBUFFER_MOTION_MODEL_INDEX, mask, mask, mask, mask);
+    m_motionModelWrites = enabled;
 }
 
 // ============================================================
