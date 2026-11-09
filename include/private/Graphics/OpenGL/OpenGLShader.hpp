@@ -4,6 +4,7 @@
 #include <glad/glad.h>
 
 #include <string>
+#include <vector>
 
 #include "../Common/Shader.hpp"
 #ifdef SLEAK_HOT_RELOAD
@@ -44,12 +45,15 @@ public:
 #endif
 
    private:
-    /// Compiles a single shader stage from source text.
+    /// Compiles one stage; files names the #line source strings in errors.
     bool CompileShaderSource(const std::string& source, GLenum type,
-                             const std::string& path, GLuint& shader);
+                             const std::vector<std::string>& files,
+                             GLuint& shader);
     /// Links a new program from the stored paths and swaps it in on success.
     bool BuildProgram();
-    std::string ReadFile(const std::string& path);
+    /// Reads a stage with its #include lines inlined; empty on failure.
+    std::string ReadFile(const std::string& path,
+                         std::vector<std::string>& files);
 
     GLuint m_program = 0;
     std::string m_vertPath;

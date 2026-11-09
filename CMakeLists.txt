@@ -134,6 +134,8 @@ set(DEBUG_SOURCES
 )
 
 set(GRAPHICS_COMMON_SOURCES
+    src/Graphics/Common/FrameCapture.cpp
+    src/Graphics/Common/FrameData.cpp
     src/Graphics/Common/GraphicsConfig.cpp
     src/Graphics/Common/Material.cpp
     src/Graphics/Common/MeshBatch.cpp
@@ -141,6 +143,7 @@ set(GRAPHICS_COMMON_SOURCES
     src/Graphics/Common/RenderCommands.cpp
     src/Graphics/Common/RendererFactory.cpp
     src/Graphics/Common/ResourceManager.cpp
+    src/Graphics/Common/ShaderIncludes.cpp
     src/Graphics/Common/Texture.cpp
     src/Graphics/Common/VertexLayout.cpp
 )
@@ -164,6 +167,7 @@ set(GRAPHICS_VULKAN_SOURCES
     src/Graphics/Vulkan/VulkanDeferred.cpp
     src/Graphics/Vulkan/VulkanDescriptors.cpp
     src/Graphics/Vulkan/VulkanDevice.cpp
+    src/Graphics/Vulkan/VulkanFrameData.cpp
     src/Graphics/Vulkan/VulkanIBL.cpp
     src/Graphics/Vulkan/VulkanPipelines.cpp
     src/Graphics/Vulkan/VulkanProfiler.cpp
@@ -366,11 +370,19 @@ endif()
 
 # --- SPIR-V shaders (committed .spv are only the fallback without glslc) ---
 set(ENGINE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders")
+set(ENGINE_SHADER_INCLUDE_DIR "${ENGINE_SHADER_DIR}/include")
 file(GLOB ENGINE_VULKAN_SHADERS CONFIGURE_DEPENDS
     "${ENGINE_SHADER_DIR}/*.vert"
     "${ENGINE_SHADER_DIR}/*.frag"
 )
 list(FILTER ENGINE_VULKAN_SHADERS EXCLUDE REGEX "_gl\\.(vert|frag)$")
+# Every shader depends on the whole library: coarse, but generator neutral
+file(GLOB_RECURSE ENGINE_SHADER_INCLUDES CONFIGURE_DEPENDS
+    "${ENGINE_SHADER_INCLUDE_DIR}/*.glsl")
+# Game shader steps compile against the same library
+set_property(GLOBAL PROPERTY ENGINE_SHADER_INCLUDE_DIR
+    "${ENGINE_SHADER_INCLUDE_DIR}")
+set_property(GLOBAL PROPERTY ENGINE_SHADER_INCLUDES ${ENGINE_SHADER_INCLUDES})
 
 find_program(GLSLC glslc
     HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin" "${VULKAN_SDK}/Bin")
@@ -391,8 +403,9 @@ if(GLSLC)
         set(_spv "${ENGINE_SPIRV_DIR}/${_name}.spv")
         add_custom_command(
             OUTPUT "${_spv}"
-            COMMAND ${GLSLC} "${_src}" -o "${_spv}"
-            DEPENDS "${_src}"
+            COMMAND ${GLSLC} -I "${ENGINE_SHADER_INCLUDE_DIR}" "${_src}"
+                    -o "${_spv}"
+            DEPENDS "${_src}" ${ENGINE_SHADER_INCLUDES}
             COMMENT "Compiling ${_name} to SPIR-V"
             VERBATIM
         )

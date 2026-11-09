@@ -108,7 +108,10 @@ read, and it is the only path that carries point, spot, and area lights.
 The second is `ShadowLightUBO`, built by `UpdateShadowData`. It carries one
 primary directional light plus up to **three** extra directional lights, the
 light view-projection matrix, shadow bias and strength, texel size, and fog
-parameters. This is what the shadow-aware paths read.
+parameters. This is what the shadow-aware paths read. Its `CameraPos.w` is a
+legacy copy of the engine clock, counted from `Application::Run()` (frame 0
+under `-capture`) rather than from the first `LightManager` update; new
+shaders read `FrameData::Time` (see @ref shader_authoring).
 
 The split matters on Vulkan. `VulkanBuffer::Update()` is empty, constant
 buffers are persistently mapped, and nothing binds the slot-2 buffer to a

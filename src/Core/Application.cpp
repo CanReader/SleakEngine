@@ -37,6 +37,8 @@
 #include "Graphics/Vulkan/VulkanRenderer.hpp"
 
 #define DEFAULT_CAPTURE_FRAME 600
+// Fixed-step rate, also the capture-mode clock rate
+#define FIXED_STEPS_PER_SECOND 60.0f
 
 using namespace Sleak;
 using namespace Sleak::Math;
@@ -159,7 +161,7 @@ namespace Sleak {
 
             float lastTime = FrameTimer.Elapsed();
             float accumulator = 0.0f;
-            const float fixedTimestep = 1.0f / 60.0f;
+            const float fixedTimestep = 1.0f / FIXED_STEPS_PER_SECOND;
 
             // Frame capture
             const std::string capturePath = CommandLine::GetValue("-capture");
@@ -178,7 +180,7 @@ namespace Sleak {
                     "Frame capture: frame {} -> {} (fixed 1/60 s step, "
                     "resizes ignored)",
                     captureFrame, capturePath);
-            uint64_t frameIndex = 0;
+            m_frameIndex = 0;
             bool captureArmed = false;
 
             Debug::ShaderHotReload::AddSourceDirectory(SLEAK_ENGINE_SHADER_DIR);
@@ -218,6 +220,9 @@ namespace Sleak {
                 float currentTime = FrameTimer.Elapsed();
                 DeltaTime =
                     captureMode ? fixedTimestep : currentTime - lastTime;
+                m_engineTime = captureMode ? static_cast<float>(m_frameIndex) /
+                                                 FIXED_STEPS_PER_SECOND
+                                           : currentTime;
                 lastTime = currentTime;
                 
                 #if defined(_DEBUG) && defined(COUNT_FRAME)
@@ -243,7 +248,7 @@ namespace Sleak {
                 }
 
                 if (captureMode && !captureArmed &&
-                    frameIndex >= captureFrame) {
+                    m_frameIndex >= captureFrame) {
                     captureArmed = true;
                     if (!renderer->RequestFrameCapture(capturePath)) {
                         SLEAK_ERROR("Frame capture unavailable on {}",
@@ -297,7 +302,7 @@ namespace Sleak {
 
                 if (captureArmed && !renderer->IsFrameCapturePending())
                     CoreWindow->Close();
-                ++frameIndex;
+                ++m_frameIndex;
             }
         } 
         else{
@@ -493,6 +498,18 @@ namespace Sleak {
         renderer->SetExposure(cfg.exposure);
         renderer->SetGamma(cfg.gamma);
         renderer->SetPCSSEnabled(cfg.pcssEnabled);
+    }
+
+    bool Application::SetFrameUserData(const void* data, uint32_t size) {
+        static_assert(MAX_FRAME_USER_DATA_BYTES ==
+                      RenderEngine::FRAME_USER_DATA_MAX_BYTES);
+        if (renderer && renderer->SetFrameUserData(data, size)) return true;
+        static bool warned = false;
+        if (!warned)
+            SLEAK_ERROR("SetFrameUserData: {} bytes rejected (limit {})", size,
+                        MAX_FRAME_USER_DATA_BYTES);
+        warned = true;
+        return false;
     }
 
     const GraphicsConfig& Application::GetGraphicsConfig() const {

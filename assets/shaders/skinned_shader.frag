@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
 // Skinned Material Shader - Vulkan Fragment Shader
@@ -17,21 +18,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D diffuseTexture;
 
-layout(set = 2, binding = 0) uniform ShadowLightUBO {
-    vec4  uLightDir;
-    vec4  uLightColor;
-    vec4  uAmbient;
-    vec4  uCameraPos;
-    mat4  uLightVP;
-    float uShadowBias;
-    float uShadowStrength;
-    float uShadowTexelSize;
-    float uLightSize;
-    vec4  uFogColor;
-    float uFogStart;
-    float uFogEnd;
-    vec2  _fogPad;
-};
+#include "sleak/shadow_light.glsl"
 
 layout(set = 3, binding = 0) uniform sampler2DShadow shadowMap;     // hardware PCF
 layout(set = 3, binding = 1) uniform sampler2D       shadowMapRaw;  // blocker search

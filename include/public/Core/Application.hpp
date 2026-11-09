@@ -200,6 +200,22 @@ class ENGINE_API Application {
     // Active backend's feature capability mask (RenderEngine::GraphicsCaps)
     uint32_t              GetGraphicsCaps() const;
 
+    // Engine clock and per-frame shader data
+    /// Frames started since Run() began.
+    uint64_t GetFrameIndex() const { return m_frameIndex; }
+    /// Engine clock in seconds, seen by shaders as FrameData::Time: frame
+    /// index / 60 under -capture, wall time otherwise.
+    float GetEngineTime() const { return m_engineTime; }
+    /// Seconds since the previous frame, a fixed 1/60 under -capture.
+    float GetDeltaTime() const { return DeltaTime; }
+
+    /// Largest block SetFrameUserData accepts, in bytes.
+    static constexpr uint32_t MAX_FRAME_USER_DATA_BYTES = 1024;
+    /// Copies an opaque block game shaders read every frame (Vulkan set 2
+    /// binding 2, OpenGL uniform buffer 12); kept until the next call or
+    /// scene activation. False when larger than MAX_FRAME_USER_DATA_BYTES.
+    bool SetFrameUserData(const void* data, uint32_t size);
+
     Benchmark* GetBenchmark() { return m_benchmark; }
 
     /// Stashes the new size; the resize is applied at the start of the next frame.
@@ -220,7 +236,9 @@ class ENGINE_API Application {
     DebugOverlay* m_DebugOverlay = nullptr;
     Benchmark* m_benchmark = nullptr;
     GraphicsConfig m_graphicsConfig;
-    float DeltaTime;
+    float DeltaTime = 0.0f;
+    uint64_t m_frameIndex = 0;
+    float m_engineTime = 0.0f;
     float m_cpuFrameMs = 0.0f;
 
     Timer FrameTimer;

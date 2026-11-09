@@ -2,9 +2,9 @@
 
 #include <Core/Logger.hpp>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string_view>
+
+#include "../../include/private/Graphics/Common/ShaderIncludes.hpp"
 
 namespace Sleak {
 namespace RenderEngine {
@@ -12,6 +12,8 @@ namespace RenderEngine {
 namespace {
 
 constexpr std::string_view GL_STEM_SUFFIX = "_gl";
+// Runtime copy of every shader root's include folder
+constexpr const char* GL_INCLUDE_ROOT = "assets/shaders/include";
 
 /// Returns the file name up to its first '.', minus a trailing _gl.
 std::string StemFromPath(const std::string& path) {
@@ -96,8 +98,10 @@ bool OpenGLShader::Reload() {
 }
 
 bool OpenGLShader::BuildProgram() {
-    const std::string vertSource = ReadFile(m_vertPath);
-    const std::string fragSource = ReadFile(m_fragPath);
+    std::vector<std::string> vertFiles;
+    std::vector<std::string> fragFiles;
+    const std::string vertSource = ReadFile(m_vertPath, vertFiles);
+    const std::string fragSource = ReadFile(m_fragPath, fragFiles);
 
     if (vertSource.empty() || fragSource.empty()) {
         SLEAK_ERROR("Failed to read shader files: {} and {}", m_vertPath,
@@ -107,11 +111,11 @@ bool OpenGLShader::BuildProgram() {
 
     GLuint vertShader = 0;
     GLuint fragShader = 0;
-    if (!CompileShaderSource(vertSource, GL_VERTEX_SHADER, m_vertPath,
+    if (!CompileShaderSource(vertSource, GL_VERTEX_SHADER, vertFiles,
                              vertShader)) {
         return false;
     }
-    if (!CompileShaderSource(fragSource, GL_FRAGMENT_SHADER, m_fragPath,
+    if (!CompileShaderSource(fragSource, GL_FRAGMENT_SHADER, fragFiles,
                              fragShader)) {
         glDeleteShader(vertShader);
         return false;
@@ -148,7 +152,7 @@ void OpenGLShader::bind() {
 }
 
 bool OpenGLShader::CompileShaderSource(const std::string& source, GLenum type,
-                                       const std::string& path,
+                                       const std::vector<std::string>& files,
                                        GLuint& shader) {
     shader = glCreateShader(type);
     const char* src = source.c_str();
@@ -158,8 +162,10 @@ bool OpenGLShader::CompileShaderSource(const std::string& source, GLenum type,
     GLint success = GL_FALSE;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (success != GL_TRUE) {
-        SLEAK_ERROR("Shader compilation failed ({}): {}", path,
-                    ReadInfoLog(shader, glGetShaderiv, glGetShaderInfoLog));
+        SLEAK_ERROR(
+            "Shader compilation failed ({}): {}", files.front(),
+            MapShaderLog(ReadInfoLog(shader, glGetShaderiv, glGetShaderInfoLog),
+                         files));
         glDeleteShader(shader);
         shader = 0;
         return false;
@@ -167,15 +173,16 @@ bool OpenGLShader::CompileShaderSource(const std::string& source, GLenum type,
     return true;
 }
 
-std::string OpenGLShader::ReadFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        SLEAK_ERROR("Cannot open shader file: {}", path);
+std::string OpenGLShader::ReadFile(const std::string& path,
+                                   std::vector<std::string>& files) {
+    ExpandedShader expanded =
+        ExpandShaderIncludes(path, {std::filesystem::path(GL_INCLUDE_ROOT)});
+    if (!expanded.error.empty()) {
+        SLEAK_ERROR("Cannot read shader {}: {}", path, expanded.error);
         return "";
     }
-    std::stringstream ss;
-    ss << file.rdbuf();
-    return ss.str();
+    files = std::move(expanded.files);
+    return std::move(expanded.source);
 }
 
 }  // namespace RenderEngine

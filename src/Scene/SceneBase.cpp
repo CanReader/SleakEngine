@@ -1,15 +1,19 @@
 #include "../../include/public/Core/SceneBase.hpp"
+
+#include <Camera/Camera.hpp>
+#include <Core/Application.hpp>
 #include <Core/GameObject.hpp>
 #include <Core/Logger.hpp>
-#include <Camera/Camera.hpp>
+#include <Debug/DebugLineRenderer.hpp>
 #include <ECS/Components/TransformComponent.hpp>
 #include <Lighting/Light.hpp>
 #include <Lighting/LightManager.hpp>
-#include <Runtime/Skybox.hpp>
-#include <Physics/PhysicsWorld.hpp>
 #include <Physics/ColliderComponent.hpp>
-#include <Debug/DebugLineRenderer.hpp>
+#include <Physics/PhysicsWorld.hpp>
+#include <Runtime/Skybox.hpp>
+
 #include "../../include/private/Graphics/Common/RenderCommandQueue.hpp"
+#include "../../include/private/Graphics/Common/Renderer.hpp"
 
 namespace Sleak {
 
@@ -114,6 +118,12 @@ void SceneBase::Activate() {
     if (state == SceneState::Active) return;
 
     if (!bInitialized) Initialize();
+
+    // A new scene starts FrameData history and the game block over
+    if (Application* app = Application::GetInstance()) {
+        if (RenderEngine::Renderer* renderer = app->GetRenderer())
+            renderer->ResetFrameData();
+    }
 
     state = SceneState::Active;
     bActive = true;

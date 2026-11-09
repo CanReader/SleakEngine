@@ -206,6 +206,30 @@ namespace Sleak {
             // through reconstructed world position shimmers under rotation.
             float NdcToShadow[16];
         };
+        static_assert(offsetof(ShadowLightUBO, LightDir) == 0);
+        static_assert(offsetof(ShadowLightUBO, LightColor) == 16);
+        static_assert(offsetof(ShadowLightUBO, Ambient) == 32);
+        static_assert(offsetof(ShadowLightUBO, CameraPos) == 48);
+        static_assert(offsetof(ShadowLightUBO, LightVP) == 64);
+        static_assert(offsetof(ShadowLightUBO, ShadowBias) == 128);
+        static_assert(offsetof(ShadowLightUBO, ShadowStrength) == 132);
+        static_assert(offsetof(ShadowLightUBO, ShadowTexelSize) == 136);
+        static_assert(offsetof(ShadowLightUBO, LightSize) == 140);
+        static_assert(offsetof(ShadowLightUBO, FogColor) == 144);
+        static_assert(offsetof(ShadowLightUBO, FogStart) == 160);
+        static_assert(offsetof(ShadowLightUBO, FogEnd) == 164);
+        static_assert(offsetof(ShadowLightUBO, _fogPad) == 168);
+        static_assert(offsetof(ShadowLightUBO, FogColorZenith) == 176);
+        static_assert(offsetof(ShadowLightUBO, HeightFogTop) == 192);
+        static_assert(offsetof(ShadowLightUBO, HeightFogDensity) == 196);
+        static_assert(offsetof(ShadowLightUBO, HeightFogFalloff) == 200);
+        static_assert(offsetof(ShadowLightUBO, HeightFogEnabled) == 204);
+        static_assert(offsetof(ShadowLightUBO, ExtraLightDir) == 208);
+        static_assert(offsetof(ShadowLightUBO, ExtraLightColor) == 256);
+        static_assert(offsetof(ShadowLightUBO, NumExtraLights) == 304);
+        static_assert(offsetof(ShadowLightUBO, _extraPad) == 308);
+        static_assert(offsetof(ShadowLightUBO, NdcToShadow) == 320);
+        static_assert(sizeof(ShadowLightUBO) == 384);
 
         // GPU-aligned POD struct for post-process settings constant buffer.
         // Total: 16 bytes (1 x 16-byte row).
@@ -342,6 +366,65 @@ namespace Sleak {
             offsetof(SceneReadUBO, _pad1) + sizeof(float) ==
                 sizeof(SceneReadUBO),
             "SceneReadUBO must match the std140 block without padding");
+
+        /// Bumped with every FrameData append; Debug shaders compare it.
+        inline constexpr uint32_t FRAME_DATA_VERSION = 1;
+        /// Size of the opaque game block (set 2 binding 2, GL buffer 12).
+        inline constexpr uint32_t FRAME_USER_DATA_MAX_BYTES = 1024;
+        /// Reserved size of the cascade block (set 2 binding 3, GL buffer 13).
+        inline constexpr uint32_t FRAME_CASCADE_BLOCK_BYTES = 1024;
+        /// Reserved size of the atmosphere block (set 2 binding 4, GL
+        /// buffer 15).
+        inline constexpr uint32_t FRAME_ATMOSPHERE_BLOCK_BYTES = 1024;
+
+        /// FrameData::Flags[0] bits, mirrored as SLEAK_FRAME_FLAG_* in GLSL.
+        enum FrameFlagBits : uint32_t {
+            FrameFlagSSAO = 1u << 0,
+            FrameFlagTAA = 1u << 1,
+            FrameFlagShadows = 1u << 2,
+            FrameFlagDeferred = 1u << 3,
+            FrameFlagGuard = 1u << 31,
+        };
+
+        /// Per-frame globals every pass can read (sleak/frame.glsl): Vulkan
+        /// set 2 binding 1, GL uniform buffer 11. std140, append only.
+        struct alignas(16) FrameData {
+            uint32_t Version;
+            uint32_t FrameIndex;
+            float Time;
+            float DeltaTime;
+            float Screen[4];
+            float Jitter[4];
+            float CameraPos[4];
+            float PrevCameraPos[4];
+            float View[16];
+            float Proj[16];
+            float ViewProj[16];
+            float InvViewProjRel[16];
+            float PrevViewProjRel[16];
+            float LightDir[4];
+            float LightColor[4];
+            float Ambient[4];
+            uint32_t Flags[4];
+        };
+        static_assert(offsetof(FrameData, Version) == 0);
+        static_assert(offsetof(FrameData, FrameIndex) == 4);
+        static_assert(offsetof(FrameData, Time) == 8);
+        static_assert(offsetof(FrameData, DeltaTime) == 12);
+        static_assert(offsetof(FrameData, Screen) == 16);
+        static_assert(offsetof(FrameData, Jitter) == 32);
+        static_assert(offsetof(FrameData, CameraPos) == 48);
+        static_assert(offsetof(FrameData, PrevCameraPos) == 64);
+        static_assert(offsetof(FrameData, View) == 80);
+        static_assert(offsetof(FrameData, Proj) == 144);
+        static_assert(offsetof(FrameData, ViewProj) == 208);
+        static_assert(offsetof(FrameData, InvViewProjRel) == 272);
+        static_assert(offsetof(FrameData, PrevViewProjRel) == 336);
+        static_assert(offsetof(FrameData, LightDir) == 400);
+        static_assert(offsetof(FrameData, LightColor) == 416);
+        static_assert(offsetof(FrameData, Ambient) == 432);
+        static_assert(offsetof(FrameData, Flags) == 448);
+        static_assert(sizeof(FrameData) == 464);
     }
 }
 

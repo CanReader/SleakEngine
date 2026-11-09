@@ -134,6 +134,9 @@ enum class DepthCompare {
             virtual void EndForwardTransparentPass() {}
             // Update the per-frame deferred CB (InvViewProj + screen size + near/far).
             virtual void UpdateDeferredCB(const void* data, uint32_t size) { (void)data; (void)size; }
+            /// Fills and uploads this frame's FrameData and game block; the
+            /// first call RenderCommandQueue::ExecuteCommands makes.
+            virtual void UploadFrameData() {}
 
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;

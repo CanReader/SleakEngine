@@ -21,6 +21,7 @@
 #include "../../include/private/Graphics/OpenGL/OpenGLShader.hpp"
 #include "../../include/private/Graphics/OpenGL/OpenGLTexture.hpp"
 #include "Graphics/Common/ConstantBuffer.hpp"
+#include "Graphics/Common/FrameCapture.hpp"
 #include "Graphics/Common/RenderCommandQueue.hpp"
 #include "Graphics/Common/ResourceManager.hpp"
 #include "Graphics/Common/SSAOKernel.hpp"
@@ -48,6 +49,10 @@ constexpr int MAT4_DIM = 4;
 constexpr size_t MAT4_FLOATS = MAT4_DIM * MAT4_DIM;
 constexpr size_t MAT4_BYTES = MAT4_FLOATS * sizeof(float);
 constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
+
+// Pixel pack alignment: tight rows for the capture, GL's default afterwards
+constexpr GLint CAPTURE_PACK_ALIGNMENT = 1;
+constexpr GLint DEFAULT_PACK_ALIGNMENT = 4;
 
 /// Sets one attribute's format on vao and routes it to the shared binding.
 void SetAttribFormat(GLuint vao, GLuint location, GLint components, GLenum type,
@@ -301,10 +306,13 @@ void OpenGLRenderer::EndRender() {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    // A captured frame leaves the UI out, as on Vulkan
+    const bool capture = !m_capturePath.empty();
     if (bImInitialized) {
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (!capture) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     }
+    if (capture) WriteFrameCapture();
 
     glBindVertexArray(0);
     SDL_GL_SwapWindow(m_Window->GetSDLWindow());
@@ -312,10 +320,49 @@ void OpenGLRenderer::EndRender() {
     UpdateFrameMetrics();
 }
 
+bool OpenGLRenderer::RequestFrameCapture(const std::string& path) {
+    if (path.empty()) return false;
+    m_capturePath = path;
+    return true;
+}
+
+void OpenGLRenderer::WriteFrameCapture() {
+    std::string path;
+    path.swap(m_capturePath);
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSizeInPixels(m_Window->GetSDLWindow(), &width, &height);
+    if (width <= 0 || height <= 0) {
+        SLEAK_ERROR("Frame capture: window has no pixels, {} not written",
+                    path);
+        return;
+    }
+
+    const size_t rowBytes = static_cast<size_t>(width) * FRAME_CAPTURE_CHANNELS;
+    std::vector<uint8_t> bottomUp(rowBytes * static_cast<size_t>(height));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, CAPTURE_PACK_ALIGNMENT);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE,
+                 bottomUp.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, DEFAULT_PACK_ALIGNMENT);
+
+    // GL rows run bottom-up; the PPM starts at the top row
+    std::vector<uint8_t> rgb(bottomUp.size());
+    for (int y = 0; y < height; ++y) {
+        const size_t src = static_cast<size_t>(height - 1 - y) * rowBytes;
+        std::memcpy(rgb.data() + static_cast<size_t>(y) * rowBytes,
+                    bottomUp.data() + src, rowBytes);
+    }
+    WriteFramePPM(path, static_cast<uint32_t>(width),
+                  static_cast<uint32_t>(height), rgb);
+}
+
 void OpenGLRenderer::Cleanup() {
     if (m_Initialized) {
         CleanupSceneRead();
         CleanupGBufferResources();
+        CleanupFrameUBOs();
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
@@ -794,6 +841,17 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
     if (!data) return;
 
     const auto* ubo = static_cast<const RenderEngine::ShadowLightUBO*>(data);
+    if (size >= sizeof(RenderEngine::ShadowLightUBO)) {
+        m_frameData.SetLight(*ubo);
+        if (CreateFrameUBOs()) {
+            RenderEngine::ShadowLightUBO raw = *ubo;
+            if (m_shadowMapRendered)
+                memcpy(raw.LightVP, m_shadowMapLightVP, sizeof(raw.LightVP));
+            glNamedBufferSubData(m_shadowLightRawUBO, 0, sizeof(raw), &raw);
+            glBindBufferBase(GL_UNIFORM_BUFFER, SHADOW_LIGHT_UBO_BINDING,
+                             m_shadowLightRawUBO);
+        }
+    }
 
     RenderEngine::PCSSShadowGPUData shadowData{};
     // Sample with the map's own matrix
@@ -814,6 +872,71 @@ void OpenGLRenderer::UpdateShadowLightUBO(const void* data, uint32_t size) {
 
     // Bind shadow UBO at binding 5 (matches shader)
     glBindBufferBase(GL_UNIFORM_BUFFER, 5, m_shadowUBO);
+}
+
+bool OpenGLRenderer::CreateFrameUBOs() {
+    if (m_frameUBOsCreated) return true;
+    struct FrameBuffer {
+        GLuint* buffer;
+        size_t size;
+        GLuint binding;
+    };
+    const FrameBuffer buffers[] = {
+        {&m_frameDataUBO, sizeof(RenderEngine::FrameData),
+         FRAME_DATA_UBO_BINDING},
+        {&m_frameUserUBO, RenderEngine::FRAME_USER_DATA_MAX_BYTES,
+         FRAME_USER_UBO_BINDING},
+        {&m_frameCascadeUBO, RenderEngine::FRAME_CASCADE_BLOCK_BYTES,
+         FRAME_CASCADE_UBO_BINDING},
+        {&m_shadowLightRawUBO, sizeof(RenderEngine::ShadowLightUBO),
+         SHADOW_LIGHT_UBO_BINDING},
+        {&m_frameAtmosphereUBO, RenderEngine::FRAME_ATMOSPHERE_BLOCK_BYTES,
+         FRAME_ATMOSPHERE_UBO_BINDING},
+    };
+    for (const FrameBuffer& entry : buffers) {
+        const std::vector<uint8_t> zeros(entry.size, 0);
+        glCreateBuffers(1, entry.buffer);
+        glNamedBufferData(*entry.buffer, static_cast<GLsizeiptr>(entry.size),
+                          zeros.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, entry.binding, *entry.buffer);
+    }
+    m_frameUBOsCreated = true;
+    return true;
+}
+
+void OpenGLRenderer::CleanupFrameUBOs() {
+    for (GLuint* buffer : {&m_frameDataUBO, &m_frameUserUBO, &m_frameCascadeUBO,
+                           &m_shadowLightRawUBO, &m_frameAtmosphereUBO}) {
+        if (*buffer) glDeleteBuffers(1, buffer);
+        *buffer = 0;
+    }
+    m_frameUBOsCreated = false;
+}
+
+void OpenGLRenderer::UploadFrameData() {
+    if (!CreateFrameUBOs()) return;
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(m_Window->GetSDLWindow(), &width, &height);
+
+    RenderEngine::FrameTargetInfo target;
+    target.width = static_cast<uint32_t>(std::max(width, 0));
+    target.height = static_cast<uint32_t>(std::max(height, 0));
+    if (m_ssaoEnabled && m_ssaoCreated && IsDeferredEnabled())
+        target.featureFlags |= RenderEngine::FrameFlagSSAO;
+    if (m_shadowPassEnabled)
+        target.featureFlags |= RenderEngine::FrameFlagShadows;
+    if (IsDeferredEnabled())
+        target.featureFlags |= RenderEngine::FrameFlagDeferred;
+
+    RenderEngine::FrameData data{};
+    m_frameData.Build(target, data);
+    glNamedBufferSubData(m_frameDataUBO, 0, sizeof(data), &data);
+    glNamedBufferSubData(m_frameUserUBO, 0,
+                         RenderEngine::FRAME_USER_DATA_MAX_BYTES,
+                         m_frameData.GetUserData());
+    glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_DATA_UBO_BINDING, m_frameDataUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_USER_UBO_BINDING, m_frameUserUBO);
 }
 
 bool OpenGLRenderer::CreateShadowMapResources() {
