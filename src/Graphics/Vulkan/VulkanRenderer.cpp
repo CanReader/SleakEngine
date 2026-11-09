@@ -292,7 +292,7 @@ void VulkanRenderer::BeginRender() {
     bFrameStarted = true;
     m_pbrMaterialSlot[currentFrame] = 0;  // reset PBR material ring for this frame
     m_pbrMaterialBindings[currentFrame].clear();
-    m_boneSlot[currentFrame] = 1;         // slot 0 is the identity palette
+    m_boneSlot[currentFrame] = 1;  // slot 0 is the identity palette
     BeginGpuFrame();
 
     // Skip shadow pass if no cached draws — preserve previous frame's shadow map
