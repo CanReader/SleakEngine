@@ -23,6 +23,15 @@ struct VertexAttribute {
     uint32_t           offset;
 };
 
+/// Face culling of one custom-format pipeline variant.
+/// @ingroup vertexformats
+enum class VertexCullMode : uint8_t {
+    Default,  ///< The backend's existing choice for the pass
+    Back,     ///< Cull faces wound clockwise on screen
+    Front,    ///< Cull faces wound counter-clockwise on screen
+    None      ///< Draw both sides
+};
+
 /// A complete custom vertex layout plus the shader stems that consume it.
 /// Register once at startup; the handle keys pipelines and mesh creation.
 /// Shader stems are consumed by the Vulkan backend; OpenGL instead binds
@@ -96,7 +105,24 @@ struct VertexAttribute {
 /// as a reactive mask and trusts history less there, since animated or
 /// refracted content is not described by the depth buffer.
 ///
-/// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat, MeshBatch
+/// `gbufferFragmentStem` replaces the GBuffer variant's engine fragment
+/// shader and must write all four targets; RT3 holds object motion, a game
+/// channel and a shading model id (`sleak/gbuffer.glsl`). Without it RT3
+/// keeps shading model 0, which game lighting stems shade like engine
+/// materials.
+///
+/// `shadowFragmentStem` makes the shadow variant alpha-tested: it reads the
+/// caster's diffuse (Vulkan set 0 binding 0, OpenGL unit 0) and discards.
+/// Shadows replay the previous frame, so that material must outlive its last
+/// draw by one frame.
+///
+/// `cullMode` covers the main and GBuffer variants, `shadowCullMode` the
+/// shadow variant; transparent variants draw both sides. `Default` keeps the
+/// backend's choice. Vulkan shadow shaders do not flip Y, so there `Back`
+/// culls the faces turned toward the light; OpenGL culls those turned away.
+///
+/// @see VertexFormatRegistry, VertexAttribute, VertexAttribFormat,
+/// VertexCullMode, MeshBatch
 /// @ingroup vertexformats
 struct VertexLayoutDesc {
     uint32_t                     stride = 0;
@@ -110,6 +136,14 @@ struct VertexLayoutDesc {
     std::string                  transparentShaderStem;
     // Transparent draws sample the opaque scene; see above.
     bool transparentReadsScene = false;
+    /// Fragment stem of the GBuffer variant; empty runs the engine's.
+    std::string gbufferFragmentStem;
+    /// Fragment stem of the shadow variant; empty keeps it depth only.
+    std::string shadowFragmentStem;
+    /// Culling of the main and GBuffer variants.
+    VertexCullMode cullMode = VertexCullMode::Default;
+    /// Culling of the shadow variant.
+    VertexCullMode shadowCullMode = VertexCullMode::Default;
 };
 
 /// 0 is reserved for the engine's default vertex layout; registered
