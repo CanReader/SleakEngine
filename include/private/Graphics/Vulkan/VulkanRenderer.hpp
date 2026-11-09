@@ -8,6 +8,7 @@
 #include <Runtime/Material.hpp>
 #include <Runtime/Skeleton.hpp>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <set>
 #include <unordered_map>
@@ -1083,6 +1084,26 @@ private:
     static constexpr float BLOOM_ADDITIVE_STRENGTH = 0.06f;
     // Blend: weight of each coarser level, 2^(-1/3)
     static constexpr float BLOOM_BLEND_LEVEL_RATIO = 0.79370053f;
+
+    /// Push constants of bloom_composite.frag (BloomCompositePC).
+    struct BloomCompositePushConstants {
+        float bloomStrength;
+        float exposure;
+        float gamma;
+        uint32_t ssrEnabled;
+        float sharpenStrength;
+        uint32_t bloomMode;
+        uint32_t tonemapOperator;
+        float saturation;
+        float whiteCurve;
+        float dither;
+        float bloomNormalize;
+        float pad0;
+        float whitePath[4];
+        float whitePathInverse[4];
+    };
+    static_assert(offsetof(BloomCompositePushConstants, whitePath) == 48);
+    static_assert(sizeof(BloomCompositePushConstants) == 80);
 
     /// Levels the bloom chain runs in the current mode.
     uint32_t BloomLevelCount() const {

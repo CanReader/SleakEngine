@@ -329,7 +329,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     VkPushConstantRange compPushRange{};
     compPushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     compPushRange.offset     = 0;
-    compPushRange.size = 32;
+    compPushRange.size = sizeof(BloomCompositePushConstants);
 
     VkPipelineLayoutCreateInfo cliInfo{};
     cliInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -771,20 +771,29 @@ void VulkanRenderer::RenderBloomCompositePass() {
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
-    struct {
-        float bloomStrength, exposure, gamma;
-        uint32_t ssrEnabled;
-        float sharpenStrength;
-        float _pad[3];
-    } pc{};
+    BloomCompositePushConstants pc{};
+    const OutputTransformParams out = GetOutputTransform();
+    const bool blend = m_bloomEnabled && m_bloomMode == BloomMode::Blend;
     // bloom disabled -> 0 so the (black) mip contributes nothing
-    pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
-    pc.exposure      = m_exposure;
-    pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
+    pc.bloomStrength = blend
+                           ? m_bloomBlend
+                           : (m_bloomEnabled ? BLOOM_ADDITIVE_STRENGTH : 0.0f);
+    pc.exposure = out.exposure;
+    pc.gamma = out.gamma;
     pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
     // Sharpening an aliased (non-TAA) frame only amplifies the stair-steps
     pc.sharpenStrength =
         (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
+    pc.bloomMode =
+        static_cast<uint32_t>(blend ? BloomMode::Blend : BloomMode::Additive);
+    pc.tonemapOperator = out.op;
+    pc.saturation = out.saturation;
+    pc.whiteCurve = out.curve;
+    pc.dither = out.dither;
+    pc.bloomNormalize = 1.0f / BloomBlendWeightSum();
+    std::copy_n(out.white, std::size(pc.whitePath), pc.whitePath);
+    std::copy_n(out.whiteInverse, std::size(pc.whitePathInverse),
+                pc.whitePathInverse);
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);

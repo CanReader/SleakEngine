@@ -398,6 +398,15 @@ std::optional<SwapchainDetails> VulkanRenderer::QuerySwapchain() {
     return details;
 }
 
+namespace {
+/// True for the 8-bit formats whose stores encode sRGB in hardware.
+bool IsSrgbFormat(VkFormat format) {
+    return format == VK_FORMAT_B8G8R8A8_SRGB ||
+           format == VK_FORMAT_R8G8B8A8_SRGB ||
+           format == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
+}
+}  // namespace
+
 /// Picks a UNORM surface format to avoid double sRGB encoding.
 VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
     const std::vector<VkSurfaceFormatKHR>& formats) {
@@ -406,6 +415,7 @@ VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
     // pipeline), so using _SRGB would gamma-encode everything twice —
     // producing a washed-out, overbright image. _UNORM writes values as-is,
     // matching the behaviour of DX11/DX12 DXGI_FORMAT_*_UNORM swap chains.
+    m_targetEncodesSRGB = false;
     for (auto& format : formats)
         if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
             format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
@@ -417,6 +427,12 @@ VkSurfaceFormatKHR VulkanRenderer::ChooseFormat(
             format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             return format;
 
+    // An sRGB fallback encodes on its own; the output transform must not
+    m_targetEncodesSRGB = IsSrgbFormat(formats[0].format);
+    if (m_targetEncodesSRGB)
+        SLEAK_WARN(
+            "Swapchain format encodes sRGB; the output transform "
+            "leaves gamma to it");
     return formats[0];
 }
 

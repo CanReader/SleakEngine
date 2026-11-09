@@ -1,9 +1,12 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // ============================================================
-// Bloom Composite Pass — HDR scene + SSR + bloom, ACES tonemap
-// (gamma only when tonemapping is enabled, otherwise matches GL output)
+// Bloom Composite Pass: HDR scene + SSR + bloom, then the output transform
+// (ACES by default, or the soft curve of sleak/tonemap.glsl)
 // ============================================================
+
+#include "sleak/tonemap.glsl"
 
 layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
@@ -13,15 +16,25 @@ layout(set = 0, binding = 1) uniform sampler2D bloomTex;
 layout(set = 0, binding = 2) uniform sampler2D ssrTex;
 
 layout(push_constant) uniform BloomCompositePC {
-    float bloomStrength;   // bloom mix amount (typical 0.04..0.08 UE-style)
+    float bloomStrength;   // additive amount, or the blend share
     float exposure;        // exposure multiplier for HDR scene
     float gamma;           // 1.0 unless tonemapping is enabled
     uint  ssrEnabled;      // 0 skips the SSR fetch
     float sharpenStrength; // post-TAA RCAS strength, 0 = off, 1 = strongest
+    uint  bloomMode;       // SLEAK_BLOOM_*
+    uint  tonemapOperator; // SLEAK_TONEMAP_*
+    float saturation;      // display-space saturation, 1 = identity
+    float whiteCurve;      // soft curve exponent
+    float dither;          // noise amplitude in display units, 0 = off
+    float bloomNormalize;  // 1 / sum of the blend level weights
     float _pad0;
-    float _pad1;
-    float _pad2;
+    vec4  whitePath;       // white-path matrix c, a, b, d
+    vec4  whitePathInverse;
 };
+
+// BloomMode in GraphicsConfig.hpp
+#define SLEAK_BLOOM_ADDITIVE 0u
+#define SLEAK_BLOOM_BLEND 1u
 
 // AMD FidelityFX FSR1 RCAS: caps the negative lobe so sharpening never rings
 const float RCAS_LIMIT     = 0.25 - 1.0 / 16.0;
@@ -52,17 +65,6 @@ vec3 SharpenRCAS(vec3 e, vec2 uv) {
     return FromPerceptual(clamp(sharp, vec3(0.0), vec3(PERCEPTUAL_MAX)));
 }
 
-// ACES Filmic tonemap (Narkowicz 2015)
-vec3 ACESFilm(vec3 x) {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e),
-                 vec3(0.0), vec3(1.0));
-}
-
 void main() {
     vec3 hdr = texture(sceneHDR, fragUV).rgb;
     if (sharpenStrength > 0.0) hdr = SharpenRCAS(hdr, fragUV);
@@ -78,20 +80,40 @@ void main() {
         }
     }
 
-    // Add bloom on top of the HDR scene. Bloom is a soft glow derived
-    // from the bright parts of the scene; adding it preserves the base
-    // luminance and only brightens hot spots (unlike mix, which dims
-    // the scene by the bloom factor in non-glowing regions).
     vec3 combined = hdr;
-    if (bloomStrength > 0.0)
-        combined += texture(bloomTex, fragUV).rgb * clamp(bloomStrength, 0.0, 1.0);
+    if (bloomMode == SLEAK_BLOOM_BLEND) {
+        // Energy-conserving: each pixel trades a share for the level blur
+        vec3 bloom = texture(bloomTex, fragUV).rgb * bloomNormalize;
+        combined = mix(hdr, bloom, clamp(bloomStrength, 0.0, 1.0));
+    } else if (bloomStrength > 0.0) {
+        // Add bloom on top of the HDR scene
+        combined += texture(bloomTex, fragUV).rgb *
+                    clamp(bloomStrength, 0.0, 1.0);
+    }
 
-    // Apply exposure before tone mapping.
-    combined *= exposure;
+    vec3 ldr;
+    if (tonemapOperator == SLEAK_TONEMAP_ACES) {
+        // Apply exposure before tone mapping.
+        combined *= exposure;
 
-    // Gamma stays 1.0 by default to match the OpenGL reference output
-    vec3 ldr = ACESFilm(combined);
-    if (gamma != 1.0) ldr = pow(ldr, vec3(1.0 / max(gamma, 0.01)));
+        // Gamma stays 1.0 by default to match the OpenGL reference output
+        ldr = SleakTonemapAces(combined);
+        if (gamma != 1.0) ldr = pow(ldr, vec3(1.0 / max(gamma, 0.01)));
+        if (saturation != 1.0)
+            ldr = clamp(SleakSaturate(ldr, saturation), vec3(0.0), vec3(1.0));
+    } else {
+        SleakOutputParams o;
+        o.op = tonemapOperator;
+        o.exposure = exposure;
+        o.gamma = gamma;
+        o.saturation = saturation;
+        o.dither = dither;
+        o.curve = whiteCurve;
+        o.white = whitePath;
+        o.whiteInverse = whitePathInverse;
+        ldr = SleakOutputTransform(combined, o);
+    }
+    if (dither > 0.0) ldr = SleakApplyDither(ldr, gl_FragCoord.xy, dither);
 
     outColor = vec4(ldr, 1.0);
 }
