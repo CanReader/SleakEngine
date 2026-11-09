@@ -180,6 +180,8 @@ struct VertexLayoutDesc {
     std::string                  shadowShaderStem;       // empty skips the shadow pass
     std::string                  gbufferShaderStem;      // empty means forward only
     std::string                  transparentShaderStem;  // empty skips the transparent pass
+    std::string                  gbufferFragmentStem;    // empty runs the engine's gbuffer.frag
+    std::string                  shadowFragmentStem;     // empty keeps the shadow pass depth only
 };
 ```
 
@@ -187,12 +189,12 @@ struct VertexLayoutDesc {
 `VertexFormatHandle`, and `Sleak::MeshBatch::CreateMesh` keys GPU buffers to
 it. See @ref vertex_format for the registration mechanics.
 
-**The stems are Vulkan-only.** Only `VulkanPipelines.cpp` reads them, to
-build up to four pipelines per registered format. OpenGL ignores every stem
-field and uses the layout purely to program `glVertexAttribPointer` against
-its own fixed programs, which is why a game's custom formats need no `_gl`
-variants for their gbuffer and shadow stems. Neither DirectX backend
-references the registry at all.
+**Vulkan always reads the stems; OpenGL reads `_gl` files when they
+exist.** `VulkanPipelines.cpp` builds up to four pipelines per registered
+format. OpenGL builds a shadow, GBuffer and transparent program from
+`<stem>_gl.vert` and `_gl.frag` where the vertex file exists and keeps its
+engine program for a pass without one (see @ref vertex_format). Neither
+DirectX backend references the registry at all.
 
 How Vulkan turns each stem into a path is not uniform, and the asymmetry
 decides which files you have to write:
@@ -201,11 +203,13 @@ decides which files you have to write:
 | :--- | :--- | :--- |
 | `shaderStem` | `assets/shaders/<stem>` | Both, so `<stem>.vert.spv` and `<stem>.frag.spv` |
 | `transparentShaderStem` | `assets/shaders/<stem>` | Both, same as above |
-| `shadowShaderStem` | `assets/shaders/<stem>.vert.spv` | Vertex only |
-| `gbufferShaderStem` | `assets/shaders/<stem>.vert.spv` | Vertex only; the fragment stage is fixed to the engine's `gbuffer.frag.spv` |
+| `shadowShaderStem` | `assets/shaders/<stem>.vert.spv` | Vertex only, unless `shadowFragmentStem` adds `<fragment>.frag.spv` |
+| `gbufferShaderStem` | `assets/shaders/<stem>.vert.spv` | Vertex; the fragment stage is `gbufferFragmentStem`'s `.frag.spv` or the engine's `gbuffer.frag.spv` |
 
-A shadow or gbuffer stem therefore ships as a lone `.vert` plus its `.spv`,
-with no fragment shader and no non-Vulkan variants.
+A shadow or gbuffer stem without a fragment stem therefore ships as a lone
+`.vert` plus its `.spv`. A GBuffer fragment stem writes all four targets,
+RT3 included (`sleak/gbuffer.glsl`); an alpha-tested shadow fragment stem
+samples the caster diffuse at set 0 binding 0.
 
 ### No fallback
 
@@ -279,6 +283,9 @@ same file serves both. The engine library holds:
 | `sleak/binding.glsl` | Slot numbers, `SLEAK_BINDING(set, vkBinding, glBinding)` keyed on glslc's `VULKAN` macro, depth-range and UV/clip flip helpers |
 | `sleak/frame.glsl` | The `FrameData` block (`uFrame`), `SLEAK_FRAME_USER_BLOCK`, the Debug guards |
 | `sleak/shadow_light.glsl` | The full `ShadowLightUBO` block |
+| `sleak/gbuffer.glsl` | GBuffer RT3 layout: `SleakEncodeMotionModel`, `SleakShadingModel`, shading model 0 for the engine |
+| `sleak/lighting_inputs.glsl` | Every binding of the deferred lighting pass, for `Application::SetLightingShader` stems |
+| `sleak/lighting_default.glsl` | The engine lighting per backend: `SleakShadeDefault`, `SleakLightingDefaultMain` and their helpers |
 
 Rules: a file that uses `#include` declares
 `#extension GL_GOOGLE_include_directive : require` right after `#version`;

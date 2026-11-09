@@ -218,6 +218,9 @@ replays the cached shadow draw list if there is one, then opens the GBuffer
 render pass and binds the GBuffer pipeline. Because `BeginRender` runs
 before the scene update, the shadow pass necessarily replays the previous
 frame's geometry, which is what the queue's cross-frame shadow cache is for.
+Every shadow pipeline takes its depth bias as dynamic state, set once when
+the pass opens, and custom formats with an alpha-tested shadow variant get
+the caster material's diffuse at set 0.
 
 `ExecuteCommands` then walks this frame's queue. Opaque, non-skinned draws
 execute immediately into the open GBuffer pass. Draws whose material reports
@@ -226,7 +229,10 @@ debug lines) are held back in a forward list instead.
 
 `ExecuteDeferredLightingPass` closes the GBuffer pass, runs SSAO and its
 bilateral blur, refreshes the GBuffer descriptors, then opens the lighting
-pass and shades the whole screen with a single fullscreen triangle. SSAO
+pass and shades the whole screen with a single fullscreen triangle, using
+the game's `Application::SetLightingShader` stem when one is set. The
+GBuffer has four color targets; the fourth (RT3) holds object motion, a game
+channel and a shading model id and is read at set 0 binding 7. SSAO
 lives inside the lighting stage rather than in the post chain, since the
 lighting pass consumes its result directly.
 
