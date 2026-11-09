@@ -323,8 +323,8 @@ public:
 
     // Renderer
     RendererType Type;
-    RenderMode Mode;
-    RenderFace Face;
+    RenderMode Mode = RenderMode::Fill;
+    RenderFace Face = RenderFace::None;
 
     // Shadow pass
     bool m_shadowPassEnabled = false;
