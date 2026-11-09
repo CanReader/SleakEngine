@@ -31,6 +31,8 @@ class FrameDataBuilder {
     bool SetUserData(const void* data, uint32_t size);
     /// Fills out for this frame and keeps it as the previous frame.
     void Build(const FrameTargetInfo& target, FrameData& out);
+    /// Forgets the previous frame, so the next Build starts from its camera.
+    void ResetHistory() { m_hasPrevious = false; }
     /// The game block, always FRAME_USER_DATA_MAX_BYTES long.
     const uint8_t* GetUserData() const { return m_userData.data(); }
 

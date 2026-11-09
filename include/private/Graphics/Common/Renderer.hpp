@@ -164,6 +164,11 @@ public:
     bool SetFrameUserData(const void* data, uint32_t size) {
         return m_frameData.SetUserData(data, size);
     }
+    /// Restarts FrameData history and drops the game block for a new scene.
+    void ResetFrameData() {
+        m_frameData.ResetHistory();
+        m_frameData.SetUserData(nullptr, 0);
+    }
 
     // VSync
     virtual void SetVSync(bool enabled) {
