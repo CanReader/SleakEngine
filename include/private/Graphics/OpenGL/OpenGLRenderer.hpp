@@ -207,6 +207,13 @@ private:
     // GBuffer + lighting pass shaders
     class OpenGLShader* m_gbufferShader  = nullptr;   // geometry pass shader
     class OpenGLShader* m_lightingShader = nullptr;   // lighting pass shader
+    // Game lighting stem (SetLightingShader); null keeps m_lightingShader
+    class OpenGLShader* m_lightingOverrideShader = nullptr;
+    // Stem whose failure was already logged
+    std::string m_lightingOverrideFailedStem;
+    /// Rebuilds or drops the lighting override after SetLightingShader,
+    /// keeping the engine shader and logging once when the stem fails.
+    void ApplyLightingShaderChange();
     GLuint m_lightingVAO = 0;  // empty VAO for fullscreen triangle
 
     // Deferred CB UBO (InvViewProj + screen size; bound at slot 6)

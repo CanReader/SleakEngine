@@ -72,6 +72,7 @@ constexpr const char* GL_VERTEX_SUFFIX = "_gl.vert";
 constexpr const char* GL_FRAGMENT_SUFFIX = "_gl.frag";
 constexpr const char* ENGINE_GBUFFER_FRAGMENT_STEM = "gbuffer";
 constexpr const char* ENGINE_SHADOW_FRAGMENT_STEM = "shadow_depth";
+constexpr const char* LIGHTING_VERTEX = "assets/shaders/lighting_pass_gl.vert";
 constexpr const char* FORMAT_PASS_NAMES[] = {"GBuffer", "shadow",
                                              "transparent"};
 
@@ -277,6 +278,7 @@ void OpenGLRenderer::BeginRender() {
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
+    if (m_lightingShaderDirty) ApplyLightingShaderChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
     if (m_hasPendingLightVP) {
@@ -444,13 +446,17 @@ bool OpenGLRenderer::ReloadShaders(const std::vector<std::string>& stems) {
             SLEAK_WARN("Hot reload: no loaded OpenGL shader is built from '{}'",
                        stem);
     }
-    // Format programs that failed get another try
+    // Format programs and a lighting stem that failed get another try
     for (FormatPrograms& entry : m_formatPrograms) {
         for (size_t pass = 0; pass < FORMAT_PASS_COUNT; ++pass) {
             if (!entry.failed[pass]) continue;
             entry.failed[pass] = false;
             entry.resolved[pass] = false;
         }
+    }
+    if (!m_lightingShaderStem.empty() && !m_lightingOverrideShader) {
+        m_lightingOverrideFailedStem.clear();
+        m_lightingShaderDirty = true;
     }
     return true;
 }
@@ -1189,6 +1195,8 @@ bool OpenGLRenderer::CreateGBufferResources() {
 
     m_gbufferCreated = true;
     SLEAK_INFO("OpenGL GBuffer created ({}x{}) — deferred rendering active", w, h);
+    // A lighting stem set before the GBuffer existed applies next frame
+    if (!m_lightingShaderStem.empty()) m_lightingShaderDirty = true;
 
     if (!CreateSSAOResources()) {
         SLEAK_WARN("OpenGL SSAO resources failed to initialize — SSAO disabled");
@@ -1212,6 +1220,8 @@ void OpenGLRenderer::CleanupGBufferResources() {
     if (m_deferredCBUBO)      { glDeleteBuffers(1, &m_deferredCBUBO);       m_deferredCBUBO      = 0; }
     delete m_gbufferShader;  m_gbufferShader  = nullptr;
     delete m_lightingShader; m_lightingShader = nullptr;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
     m_gbufferCreated    = false;
     m_deferredCBCreated = false;
 }
@@ -1345,7 +1355,10 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     ResetFormatPassState();
     m_inGeometryPass = false;
 
-    if (!m_gbufferCreated || !m_lightingShader) return;
+    // The game lighting stem when one loaded
+    OpenGLShader* lighting =
+        m_lightingOverrideShader ? m_lightingOverrideShader : m_lightingShader;
+    if (!m_gbufferCreated || !lighting) return;
 
     // SSAO must run BEFORE the lighting pass so its blurred output is
     // available for the lighting shader to multiply against vertex AO.
@@ -1374,7 +1387,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glDisable(GL_BLEND);
 
     // Bind lighting shader
-    m_lightingShader->bind();
+    lighting->bind();
 
     // Bind GBuffer textures at units 8-12
     glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
@@ -1387,8 +1400,8 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glActiveTexture(GL_TEXTURE13);
     glBindTexture(GL_TEXTURE_2D, m_ssaoCreated ? m_ssaoBlurTex : 0);
     // SSAO enable flag via plain uniform — avoids growing DeferredCBData
-    GLint ssaoLoc = glGetUniformLocation(
-        m_lightingShader->GetProgram(), "uSSAOEnabled");
+    GLint ssaoLoc =
+        glGetUniformLocation(lighting->GetProgram(), "uSSAOEnabled");
     if (ssaoLoc >= 0) {
         glUniform1i(ssaoLoc, (m_ssaoEnabled && m_ssaoCreated) ? 1 : 0);
     }
@@ -1442,6 +1455,31 @@ void OpenGLRenderer::BeginForwardTransparentPass() {
 void OpenGLRenderer::EndForwardTransparentPass() {
     m_inForwardTransparentPass = false;
     m_formatDrawsSuppressed = false;
+}
+
+/// Rebuilds or drops the lighting override after SetLightingShader.
+void OpenGLRenderer::ApplyLightingShaderChange() {
+    if (!m_gbufferCreated) return;  // CreateGBufferResources reapplies
+    m_lightingShaderDirty = false;
+    delete m_lightingOverrideShader;
+    m_lightingOverrideShader = nullptr;
+    if (m_lightingShaderStem.empty()) return;
+
+    auto* shader = new OpenGLShader();
+    if (shader->compile(LIGHTING_VERTEX, GLShaderPath(m_lightingShaderStem,
+                                                      GL_FRAGMENT_SUFFIX))) {
+        m_lightingOverrideShader = shader;
+        m_lightingOverrideFailedStem.clear();
+        SLEAK_INFO("OpenGL: lighting shader '{}' active", m_lightingShaderStem);
+        return;
+    }
+    delete shader;
+    if (m_lightingOverrideFailedStem == m_lightingShaderStem) return;
+    SLEAK_ERROR(
+        "OpenGL: lighting shader '{}' failed to load, keeping the engine "
+        "lighting",
+        m_lightingShaderStem);
+    m_lightingOverrideFailedStem = m_lightingShaderStem;
 }
 
 // ============================================================
