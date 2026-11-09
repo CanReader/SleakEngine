@@ -230,7 +230,7 @@ public:
 
     // MSAA
     /// Rebuilds the swapchain-dependent pipelines and render pass for a
-    /// queued MSAA sample count change.
+    /// queued MSAA sample count change; ImGui only gets a new pipeline.
     void ApplyMSAAChange() override;
     /// Rebuilds the GBuffer for a queued albedo format change.
     void ApplyGBufferFormatChange();
@@ -629,6 +629,10 @@ private:
 
  // ImGUI
  VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
+ /// Render pass and sample count of the pass ImGui draws in this mode.
+ ImGui_ImplVulkan_PipelineInfo ImGuiPipelineInfo() const;
+ /// Rebuilds the ImGui pipeline for ImGuiPipelineInfo; the GPU must be idle.
+ void RecreateImGuiPipeline();
 
  // Shadow mapping resources
  VkImage m_shadowImage = VK_NULL_HANDLE;

@@ -1450,7 +1450,8 @@ void VulkanRenderer::ApplyGBufferFormatChange() {
 }
 
 /// Rebuilds the swapchain-dependent pipelines and render pass for a queued
-/// MSAA sample count change.
+/// MSAA sample count change. ImGui keeps its context, descriptor pool and
+/// texture IDs and only gets a new pipeline.
 void VulkanRenderer::ApplyMSAAChange() {
     if (!m_msaaChangeRequested)
         return;
@@ -1502,18 +1503,6 @@ void VulkanRenderer::ApplyMSAAChange() {
     // Cleanup GBuffer BEFORE swapchain/depth (avoids dangling image view refs)
     CleanupGBufferResources();
 
-    // Shutdown ImGUI
-    if (bImInitialized) {
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
-        ImGui::DestroyContext();
-        bImInitialized = false;
-    }
-    if (imguiDescriptorPool) {
-        vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
-        imguiDescriptorPool = VK_NULL_HANDLE;
-    }
-
     // Cleanup swapchain-related resources
     CleanupMSAAColorResources();
     CleanupSwapChain();
@@ -1531,7 +1520,7 @@ void VulkanRenderer::ApplyMSAAChange() {
     CreateSkinnedPipeline();
     CreateDebugLinePipeline();
     if (m_deferredEnabled) CreateGBufferResources();
-    CreateImGUI();
+    RecreateImGuiPipeline();
 
     // Re-bind skybox cubemap texture to the new descriptor sets
     if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
