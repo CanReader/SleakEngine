@@ -25,6 +25,12 @@ namespace Sleak {
         "cache/vulkan_pipelines.bin.tmp";
     constexpr size_t kPipelineCacheHeaderSize =
         sizeof(VkPipelineCacheHeaderVersionOne);
+    // Custom-format stems resolve to SPIR-V next to the engine shaders
+    constexpr const char* kShaderDir = "assets/shaders/";
+    constexpr const char* kVertexSpirvSuffix = ".vert.spv";
+    constexpr const char* kFragmentSpirvSuffix = ".frag.spv";
+    constexpr const char* kEngineGBufferFragment =
+        "assets/shaders/gbuffer.frag.spv";
     // Viewport and scissor, plus depth bias in the shadow pass
     constexpr uint32_t kCustomDynamicStateCount = 2;
     constexpr uint32_t kShadowDynamicStateCount = 3;
@@ -890,6 +896,22 @@ static VkFormat ToVkVertexFormat(VertexAttribFormat format) {
     return VK_FORMAT_R32G32B32_SFLOAT;
 }
 
+/// Vulkan cull flags of a format cull mode; Default keeps the pass's own.
+static VkCullModeFlags ToVkCullMode(VertexCullMode mode,
+                                    VkCullModeFlags passDefault) {
+    switch (mode) {
+        case VertexCullMode::Back:
+            return VK_CULL_MODE_BACK_BIT;
+        case VertexCullMode::Front:
+            return VK_CULL_MODE_FRONT_BIT;
+        case VertexCullMode::None:
+            return VK_CULL_MODE_NONE;
+        case VertexCullMode::Default:
+            break;
+    }
+    return passDefault;
+}
+
 /// True when the render pass a custom-format variant targets exists.
 bool VulkanRenderer::CustomPassAvailable(CustomPass pass) const {
     switch (pass) {
@@ -953,25 +975,29 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
         return VK_NULL_HANDLE;
     }
 
-    // Shader stages
-    const std::string base = "assets/shaders/" + *stem;
-    std::string shaderPath = base;
+    // Shader stages; no fragment path means a depth-only variant
+    const bool shadowSamples =
+        pass == CustomPass::Shadow && !desc.shadowFragmentStem.empty();
+    const bool customGBuffer =
+        pass == CustomPass::GBuffer && !desc.gbufferFragmentStem.empty();
+    const std::string vertPath = kShaderDir + *stem + kVertexSpirvSuffix;
+    std::string fragPath = kShaderDir + *stem + kFragmentSpirvSuffix;
+    if (pass == CustomPass::Shadow)
+        fragPath = shadowSamples ? kShaderDir + desc.shadowFragmentStem +
+                                       kFragmentSpirvSuffix
+                                 : std::string();
+    if (pass == CustomPass::GBuffer)
+        fragPath = customGBuffer ? kShaderDir + desc.gbufferFragmentStem +
+                                       kFragmentSpirvSuffix
+                                 : std::string(kEngineGBufferFragment);
     VulkanShader shader(device);
-    bool compiled = false;
-    if (pass == CustomPass::Shadow) {
-        shaderPath = base + ".vert.spv";
-        compiled = shader.compileVertexOnly(shaderPath);
-    } else if (pass == CustomPass::GBuffer) {
-        shaderPath = base + ".vert.spv";
-        compiled =
-            shader.compile(shaderPath, "assets/shaders/gbuffer.frag.spv");
-    } else {
-        compiled = shader.compile(base);
-    }
+    const bool compiled = fragPath.empty() ? shader.compileVertexOnly(vertPath)
+                                           : shader.compile(vertPath, fragPath);
     if (!compiled) {
         SLEAK_ERROR(
             "VulkanRenderer: Failed to compile '{}' for vertex format {}",
-            shaderPath, format);
+            fragPath.empty() ? vertPath : vertPath + "' + '" + fragPath,
+            format);
         return VK_NULL_HANDLE;
     }
     VkPipelineShaderStageCreateInfo stages[] = {shader.GetVertexInfo(),
@@ -1026,9 +1052,12 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
+    // Shadow shaders do not flip Y, so there Back culls light-facing faces
+    const VertexCullMode cull =
+        pass == CustomPass::Shadow ? desc.shadowCullMode : desc.cullMode;
     rasterizer.cullMode = pass == CustomPass::Transparent
                               ? VK_CULL_MODE_NONE
-                              : VK_CULL_MODE_BACK_BIT;
+                              : ToVkCullMode(cull, VK_CULL_MODE_BACK_BIT);
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     // Bias factors come from vkCmdSetDepthBias at shadow pass begin
     if (pass == CustomPass::Shadow) rasterizer.depthBiasEnable = VK_TRUE;
@@ -1072,7 +1101,7 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
     std::array<VkPipelineColorBlendAttachmentState, GBUFFER_COUNT> blends;
     blends.fill(blend);
     // The engine fragment shader leaves RT3 at shading model 0
-    if (pass == CustomPass::GBuffer && m_independentBlend)
+    if (pass == CustomPass::GBuffer && !customGBuffer && m_independentBlend)
         blends[GBUFFER_RT3].colorWriteMask = 0;
 
     VkPipelineColorBlendStateCreateInfo colorBlend{};
@@ -1086,7 +1115,7 @@ VkPipeline VulkanRenderer::BuildCustomFormatPipeline(
     // Pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = pass == CustomPass::Shadow ? 1 : 2;
+    pipelineInfo.stageCount = fragPath.empty() ? 1 : 2;
     pipelineInfo.pStages = stages;
     pipelineInfo.pVertexInputState = &vertexInput;
     pipelineInfo.pInputAssemblyState = &inputAssembly;
@@ -1140,6 +1169,7 @@ void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     if (format == 0) return;
     if (m_activeCustomFormat == format) return;
     m_activeCustomFormat = format;
+    m_shadowVariantSamples = false;
 
     CustomPass pass = CustomPass::Main;
     if (m_shadowPassActive) {
@@ -1167,6 +1197,13 @@ void VulkanRenderer::BeginCustomFormatPass(VertexFormatHandle format) {
     }
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, target);
+
+    // Alpha-tested shadow variants read the caster material at set 0
+    if (pass == CustomPass::Shadow) {
+        const VertexLayoutDesc* desc = VertexFormatRegistry::Get(format);
+        m_shadowVariantSamples = desc && !desc->shadowFragmentStem.empty();
+        FlushShadowMaterial();
+    }
 }
 
 
@@ -1176,8 +1213,11 @@ void VulkanRenderer::EndCustomFormatPass() {
     if (m_activeCustomFormat == 0) return;
     m_activeCustomFormat = 0;
     m_customFormatUnbound = false;
+    m_shadowVariantSamples = false;
 
     if (m_shadowPassActive) {
+        // Set 0 is rebound below; the next sampling variant binds again
+        m_shadowMaterialDirty = true;
         if (m_shadowPipeline != VK_NULL_HANDLE) {
             vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               m_shadowPipeline);

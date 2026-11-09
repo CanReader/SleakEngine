@@ -197,6 +197,9 @@ public:
     /// Marks the shadow pass inactive.
     virtual void EndShadowPass() override;
     virtual bool IsShadowPassActive() const override { return m_shadowPassActive; }
+    /// Records the caster material; alpha-tested shadow variants sample its
+    /// diffuse at set 0.
+    void BindShadowMaterial(Sleak::Material* material) override;
 
     // Light UBO update (called by LightManager)
     /// Copies light and shadow data into the current frame's mapped UBO.
@@ -325,6 +328,9 @@ private:
  void CleanupShadowResources();
  /// Forgets every per-pass shadow cache; runs at each shadow pass begin.
  void ResetShadowPassState();
+ /// Binds the recorded caster material's diffuse at set 0 when the bound
+ /// shadow variant samples it; the default white texture stands in.
+ void FlushShadowMaterial();
  /// Creates the Vulkan instance. The validation layer is on in Debug builds
  /// or with --validate, and --syncval adds synchronization validation.
  bool InitVulkan();
@@ -632,6 +638,10 @@ private:
  // Layout m_shadowPCCache was last pushed with in this shadow pass, or
  // null once anything else overwrote the push constants.
  VkPipelineLayout m_shadowPCPushedLayout = VK_NULL_HANDLE;
+ // Caster material of the next shadow draws, for alpha-tested variants
+ Sleak::Material* m_shadowMaterial = nullptr;
+ bool m_shadowMaterialDirty = true;
+ bool m_shadowVariantSamples = false;
 
  // Light VP matrix (stored as raw floats for push constant computation)
  float m_lightVP[16] = {};

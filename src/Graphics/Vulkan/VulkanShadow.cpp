@@ -1,3 +1,4 @@
+#include <Runtime/Material.hpp>
 #include <Runtime/MeshData.hpp>
 #include <algorithm>
 #include <array>
@@ -603,6 +604,33 @@ void VulkanRenderer::ResetShadowPassState() {
     m_shadowPCPushedLayout = VK_NULL_HANDLE;
     m_activeCustomFormat = 0;
     m_customFormatUnbound = false;
+    m_shadowMaterial = nullptr;
+    m_shadowMaterialDirty = true;
+    m_shadowVariantSamples = false;
+}
+
+/// Records the caster material; alpha-tested shadow variants sample its
+/// diffuse at set 0.
+void VulkanRenderer::BindShadowMaterial(Sleak::Material* material) {
+    m_shadowMaterial = material;
+    m_shadowMaterialDirty = true;
+    FlushShadowMaterial();
+}
+
+/// Binds the recorded caster material's diffuse at set 0 when the bound
+/// shadow variant samples it; the default white texture stands in.
+void VulkanRenderer::FlushShadowMaterial() {
+    if (!m_shadowPassActive || !m_shadowVariantSamples ||
+        !m_shadowMaterialDirty)
+        return;
+    Sleak::Texture* diffuse =
+        m_shadowMaterial ? m_shadowMaterial->GetDiffuseTexture() : nullptr;
+    auto* texture = static_cast<VulkanTexture*>(diffuse);
+    if (!texture || texture->GetType() == TextureType::TextureCube ||
+        !texture->HasDescriptorSets())
+        texture = m_defaultTexture;
+    BindTextureRaw(texture, 0);
+    m_shadowMaterialDirty = false;
 }
 
 /// Marks the shadow pass inactive.
