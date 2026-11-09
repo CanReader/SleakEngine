@@ -497,6 +497,14 @@ namespace Sleak {
         renderer->SetTonemappingEnabled(cfg.tonemapEnabled);
         renderer->SetExposure(cfg.exposure);
         renderer->SetGamma(cfg.gamma);
+        renderer->SetTonemapOperator(cfg.tonemapOperator);
+        renderer->SetTonemapWhiteCurve(cfg.tonemapWhiteCurve);
+        renderer->SetTonemapWhitePath(cfg.tonemapWhitePath);
+        renderer->SetSaturation(cfg.saturation);
+        renderer->SetOutputDither(cfg.filmGrainEnabled);
+        renderer->SetBloomMode(cfg.bloomMode);
+        renderer->SetBloomBlend(cfg.bloomBlend);
+        renderer->SetGBufferAlbedoSRGB(cfg.gbufferAlbedoSRGB);
         renderer->SetPCSSEnabled(cfg.pcssEnabled);
     }
 

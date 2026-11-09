@@ -139,6 +139,7 @@ set(GRAPHICS_COMMON_SOURCES
     src/Graphics/Common/GraphicsConfig.cpp
     src/Graphics/Common/Material.cpp
     src/Graphics/Common/MeshBatch.cpp
+    src/Graphics/Common/OutputTransform.cpp
     src/Graphics/Common/RenderCommandQueue.cpp
     src/Graphics/Common/RenderCommands.cpp
     src/Graphics/Common/RendererFactory.cpp

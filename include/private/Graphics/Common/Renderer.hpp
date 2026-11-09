@@ -1,11 +1,13 @@
 #pragma once
 
+#include <Core/GraphicsConfig.hpp>
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
 #include <string>
 #include <vector>
 
 #include "FrameDataBuilder.hpp"
+#include "OutputTransform.hpp"
 #include "RenderContext.hpp"
 
 namespace Sleak {
@@ -192,13 +194,45 @@ public:
     bool GetVSync() const { return m_vsync; }
     virtual void ApplyVSyncChange() {}
 
-    // Post-process: ACES Tonemapping
+    // Output transform: exposure, tonemap operator, display gamma
     void SetTonemappingEnabled(bool enabled) { m_tonemapEnabled = enabled; }
     bool IsTonemappingEnabled() const { return m_tonemapEnabled; }
     void SetExposure(float exposure) { m_exposure = exposure; }
     float GetExposure() const { return m_exposure; }
     void SetGamma(float gamma) { m_gamma = gamma; }
     float GetGamma() const { return m_gamma; }
+    /// Curve the composite applies between linear HDR and the display.
+    void SetTonemapOperator(TonemapOperator op) { m_tonemapOperator = op; }
+    /// Exponent p of the soft curve; clamped when the transform is built.
+    void SetTonemapWhiteCurve(float p) { m_tonemapWhiteCurve = p; }
+    /// Channel bleed of the soft curve, 0 = none.
+    void SetTonemapWhitePath(float s) { m_tonemapWhitePath = s; }
+    /// Display-space saturation after the curve, 1 = unchanged.
+    void SetSaturation(float s) { m_saturation = s; }
+    /// One-step anti-banding noise on the display image.
+    void SetOutputDither(bool enabled) { m_outputDither = enabled; }
+
+    /// This frame's output transform, for the composite and FrameData.
+    OutputTransformParams GetOutputTransform() const {
+        OutputTransformSettings s;
+        s.op = static_cast<uint32_t>(m_tonemapOperator);
+        s.exposure = m_exposure;
+        s.gamma = (m_tonemapEnabled && !m_targetEncodesSRGB) ? m_gamma : 1.0f;
+        s.saturation = m_saturation;
+        s.dither = m_outputDither;
+        s.whiteCurve = m_tonemapWhiteCurve;
+        s.whitePath = m_tonemapWhitePath;
+        return BuildOutputTransform(s);
+    }
+
+    /// Stores GBuffer albedo sRGB-encoded so linear albedo keeps its dark
+    /// precision; backends switch the format at the next frame.
+    void SetGBufferAlbedoSRGB(bool enabled) {
+        if (enabled == m_gbufferAlbedoSRGB) return;
+        m_gbufferAlbedoSRGB = enabled;
+        m_gbufferFormatChangeRequested = true;
+    }
+    bool IsGBufferAlbedoSRGB() const { return m_gbufferAlbedoSRGB; }
 
     // Post-process: SSAO
     void SetSSAOEnabled(bool enabled) { m_ssaoEnabled = enabled; }
@@ -231,6 +265,10 @@ public:
     // Post-process: Bloom
     void SetBloomEnabled(bool enabled) { m_bloomEnabled = enabled; }
     bool IsBloomEnabled() const { return m_bloomEnabled; }
+    /// How bloom returns to the scene.
+    void SetBloomMode(BloomMode mode) { m_bloomMode = mode; }
+    /// Share of each pixel BloomMode::Blend replaces with the blur.
+    void SetBloomBlend(float share) { m_bloomBlend = share; }
 
     // PCSS Soft Shadows
     void SetPCSSEnabled(bool enabled) { m_pcssEnabled = enabled; }
@@ -336,12 +374,21 @@ public:
     std::string m_lightingShaderStem;
     bool m_lightingShaderDirty = false;
 
-    // Post-process: Tonemapping
-    // Disabled by default — game renders in sRGB space, not linear HDR.
-    // Enable only when the lighting pipeline explicitly works in linear space.
+    // Output transform; tonemapEnabled turns on the display encode
     bool m_tonemapEnabled = false;
     float m_exposure = 1.0f;
     float m_gamma = 2.2f;
+    TonemapOperator m_tonemapOperator = TonemapOperator::Aces;
+    float m_tonemapWhiteCurve = 2.0f;
+    float m_tonemapWhitePath = 1.0f;
+    float m_saturation = 1.0f;
+    bool m_outputDither = false;
+    // Set by a backend whose present image encodes sRGB itself
+    bool m_targetEncodesSRGB = false;
+
+    // GBuffer albedo stored sRGB; the backend applies a change at BeginRender
+    bool m_gbufferAlbedoSRGB = false;
+    bool m_gbufferFormatChangeRequested = false;
 
     // Post-process: SSAO
     bool m_ssaoEnabled = false;
@@ -370,6 +417,8 @@ public:
     float m_sharpenStrength = 0.0f;
     float m_bloomRadius = 1.0f;
     float m_bloomIntensity = 1.0f;
+    BloomMode m_bloomMode = BloomMode::Additive;
+    float m_bloomBlend = 0.2f;
 
     // PCSS
     bool m_pcssEnabled = true;
