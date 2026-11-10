@@ -57,6 +57,9 @@ constexpr size_t TRANSFORM_CB_BYTES = 2 * MAT4_BYTES;
 constexpr GLint CAPTURE_PACK_ALIGNMENT = 1;
 constexpr GLint DEFAULT_PACK_ALIGNMENT = 4;
 
+// RT0 albedo + AO: UNORM by default, sRGB with SetGBufferAlbedoSRGB
+constexpr GLenum GBUFFER_ALBEDO_FORMAT = GL_RGBA8;
+constexpr GLenum GBUFFER_ALBEDO_SRGB_FORMAT = GL_SRGB8_ALPHA8;
 // GBuffer color targets; RT3 holds motion, game channel and shading model
 constexpr GLsizei GBUFFER_COLOR_COUNT = 4;
 constexpr GLuint GBUFFER_MOTION_MODEL_INDEX = 3;
@@ -286,6 +289,7 @@ void OpenGLRenderer::BeginRender() {
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
+    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
@@ -302,6 +306,8 @@ void OpenGLRenderer::BeginRender() {
         // Deferred path: geometry pass writes to GBuffer
         glBindFramebuffer(GL_FRAMEBUFFER, m_gbufferFBO);
         glDrawBuffers(GBUFFER_COLOR_COUNT, GBUFFER_DRAW_BUFFERS);
+        // sRGB RT0 encodes linear writes; off again at the lighting pass
+        if (m_gbufferAlbedoSRGB) glEnable(GL_FRAMEBUFFER_SRGB);
         // glClear honours color masks: RT3 must take the 0 clear
         SetMotionModelWrites(true);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -332,6 +338,7 @@ void OpenGLRenderer::BeginRender() {
 }
 
 void OpenGLRenderer::EndRender() {
+    glDisable(GL_FRAMEBUFFER_SRGB);
     // Resolve MSAA FBO to default framebuffer before ImGui.
     // Skip in deferred mode — we rendered directly to FBO 0.
     if (m_msaaFBO != 0 && !IsDeferredEnabled()) {
@@ -992,6 +999,7 @@ void OpenGLRenderer::UploadFrameData() {
         target.featureFlags |= RenderEngine::FrameFlagDeferred;
 
     RenderEngine::FrameData data{};
+    target.output = GetOutputTransform();
     m_frameData.Build(target, data);
     glNamedBufferSubData(m_frameDataUBO, 0, sizeof(data), &data);
     glNamedBufferSubData(m_frameUserUBO, 0,
@@ -1141,7 +1149,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
     };
 
     // RT0: Albedo + AO   (RGBA8)
-    makeColorTex(m_gbufferAlbedoAO,    GL_RGBA8,   w, h);
+    makeColorTex(m_gbufferAlbedoAO, GBufferAlbedoFormat(), w, h);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_gbufferAlbedoAO, 0);
 
     // RT1: Normal + Roughness  (RGBA16F)
@@ -1281,6 +1289,21 @@ void OpenGLRenderer::CleanupIBL() {
     m_iblBoundCubemap = 0;
 }
 
+GLenum OpenGLRenderer::GBufferAlbedoFormat() const {
+    return m_gbufferAlbedoSRGB ? GBUFFER_ALBEDO_SRGB_FORMAT
+                               : GBUFFER_ALBEDO_FORMAT;
+}
+
+void OpenGLRenderer::ApplyGBufferFormatChange() {
+    m_gbufferFormatChangeRequested = false;
+    // Not created yet: CreateGBufferResources picks the format up
+    if (!m_gbufferCreated) return;
+    glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
+    glTexImage2D(GL_TEXTURE_2D, 0, GBufferAlbedoFormat(), m_gbufferWidth,
+                 m_gbufferHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
     if (!m_gbufferCreated) return;
 
@@ -1289,7 +1312,8 @@ void OpenGLRenderer::RecreateGBufferOnResize(int width, int height) {
 
     // Resize AlbedoAO
     glBindTexture(GL_TEXTURE_2D, m_gbufferAlbedoAO);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GBufferAlbedoFormat(), width, height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
     // Resize NormalRough
     glBindTexture(GL_TEXTURE_2D, m_gbufferNormalRough);
@@ -1369,6 +1393,8 @@ void OpenGLRenderer::UpdateDeferredCB(const void* data, uint32_t size) {
 }
 
 void OpenGLRenderer::ExecuteDeferredLightingPass() {
+    // The default framebuffer never encodes: the shaders write display values
+    glDisable(GL_FRAMEBUFFER_SRGB);
     // Geometry pass state back to its defaults
     RestorePassCull();
     SetMotionModelWrites(true);

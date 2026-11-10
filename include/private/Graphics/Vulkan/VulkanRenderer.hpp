@@ -7,7 +7,9 @@
 
 #include <Runtime/Material.hpp>
 #include <Runtime/Skeleton.hpp>
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <set>
 #include <unordered_map>
@@ -230,6 +232,8 @@ public:
     /// Rebuilds the swapchain-dependent pipelines and render pass for a
     /// queued MSAA sample count change.
     void ApplyMSAAChange() override;
+    /// Rebuilds the GBuffer for a queued albedo format change.
+    void ApplyGBufferFormatChange();
     /// Recreates the swapchain to apply a queued VSync toggle.
     void ApplyVSyncChange() override;
     /// Recreates the extent-dependent shadow map objects at the queued resolution.
@@ -427,6 +431,8 @@ private:
  /// Picks a UNORM surface format to avoid double sRGB encoding.
  VkSurfaceFormatKHR ChooseFormat(
      const std::vector<VkSurfaceFormatKHR>& formats);
+ // Set once the sRGB swapchain fallback has been reported
+ bool m_srgbFallbackWarned = false;
  /// Picks FIFO when VSync is on, otherwise MAILBOX or IMMEDIATE.
  VkPresentModeKHR ChoosePresentMode(const std::vector<VkPresentModeKHR>& modes);
  /// Clamps the window size to the surface's supported extent.
@@ -734,6 +740,14 @@ private:
      VK_FORMAT_R16G16B16A16_SFLOAT,  // RT2: MetalEmit (HDR emissive)
      VK_FORMAT_R16G16B16A16_SFLOAT,  // RT3: object motion, game, shading model
  };
+ // RT0 index, stored sRGB while m_gbufferAlbedoSRGB is set
+ static constexpr uint32_t GBUFFER_ALBEDO_INDEX = 0;
+ /// Format of GBuffer target index, honouring the sRGB albedo switch.
+ VkFormat GBufferFormat(uint32_t index) const {
+     return (index == GBUFFER_ALBEDO_INDEX && m_gbufferAlbedoSRGB)
+                ? VK_FORMAT_R8G8B8A8_SRGB
+                : m_gbufferFormats[index];
+ }
  VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
  VkFramebuffer m_gbufferFramebuffer = VK_NULL_HANDLE;
  VkPipeline m_gbufferPipeline = VK_NULL_HANDLE;
@@ -1074,7 +1088,55 @@ private:
     // We render the lighting pass into an HDR scene-color image (not the
     // swapchain). Then we run the bloom pyramid and a final composite that
     // tonemaps + combines bloom into the swapchain.
-    static constexpr uint32_t BLOOM_MIP_COUNT = 6;
+    // 7 levels for BloomMode::Blend; Additive runs the first 6, as before
+    static constexpr uint32_t BLOOM_MIP_COUNT = 7;
+    static constexpr uint32_t BLOOM_ADDITIVE_LEVELS = 6;
+    // Additive prefilter and strength
+    static constexpr float BLOOM_THRESHOLD = 1.0f;
+    static constexpr float BLOOM_KNEE = 0.5f;
+    static constexpr float BLOOM_ADDITIVE_STRENGTH = 0.06f;
+    // Blend: weight of each coarser level, 2^(-1/3)
+    static constexpr float BLOOM_BLEND_LEVEL_RATIO = 0.79370053f;
+
+    /// Push constants of bloom_composite.frag (BloomCompositePC).
+    struct BloomCompositePushConstants {
+        float bloomStrength;
+        float exposure;
+        float gamma;
+        uint32_t ssrEnabled;
+        float sharpenStrength;
+        uint32_t bloomMode;
+        uint32_t tonemapOperator;
+        float saturation;
+        float whiteCurve;
+        float dither;
+        float bloomNormalize;
+        float pad0;
+        float whitePath[4];
+        float whitePathInverse[4];
+    };
+    static_assert(offsetof(BloomCompositePushConstants, whitePath) == 48);
+    static_assert(sizeof(BloomCompositePushConstants) == 80);
+
+    /// Levels the bloom chain runs in the current mode, at most the mips
+    /// the bloom image has.
+    uint32_t BloomLevelCount() const {
+        return std::min(m_bloomMode == BloomMode::Blend ? BLOOM_MIP_COUNT
+                                                        : BLOOM_ADDITIVE_LEVELS,
+                        m_bloomMipCount);
+    }
+    /// Sum of the Blend weights of the first levels, the composite's
+    /// normalizer.
+    static constexpr float BloomBlendWeightSum(uint32_t levels) {
+        float sum = 0.0f;
+        float weight = 1.0f;
+        for (uint32_t k = 0; k < levels; ++k) {
+            sum += weight;
+            weight *= BLOOM_BLEND_LEVEL_RATIO;
+        }
+        return sum;
+    }
+
     bool       m_bloomResourcesCreated     = false;
     VkFormat   m_hdrSceneFormat            = VK_FORMAT_R16G16B16A16_SFLOAT;
 
@@ -1092,6 +1154,8 @@ private:
     std::array<VkImageView, BLOOM_MIP_COUNT> m_bloomMipViews = {};
     std::array<VkFramebuffer, BLOOM_MIP_COUNT> m_bloomMipFramebuffers = {};
     std::array<VkExtent2D, BLOOM_MIP_COUNT> m_bloomMipExtents = {};
+    // Mips the bloom image has: BLOOM_MIP_COUNT, fewer for tiny swapchains
+    uint32_t m_bloomMipCount = BLOOM_MIP_COUNT;
 
     VkRenderPass   m_bloomRenderPass       = VK_NULL_HANDLE;   // shared, loadOp=DONT_CARE, color output
     VkRenderPass   m_bloomAddRenderPass    = VK_NULL_HANDLE;   // LOAD, blend-add
@@ -1117,9 +1181,9 @@ private:
     VkDescriptorSetLayout m_bloomCompositeDSL = VK_NULL_HANDLE;  // 2 samplers
     VkDescriptorPool      m_bloomDescriptorPool = VK_NULL_HANDLE;
 
-    // Pre-allocated descriptor sets (per frame slot, per transition)
-    //   transitions = 1 (threshold -> mip0) + (BLOOM_MIP_COUNT-1) downsample
-    //               + (BLOOM_MIP_COUNT-1) upsample
+    // Pre-allocated descriptor sets (per frame slot, per transition), sized
+    // for the longest chain: 1 threshold + (BLOOM_MIP_COUNT-1) downsamples
+    // + (BLOOM_MIP_COUNT-1) upsamples
     static constexpr uint32_t BLOOM_TRANSITION_COUNT = 1 + (BLOOM_MIP_COUNT - 1) + (BLOOM_MIP_COUNT - 1);
     std::array<std::array<VkDescriptorSet, BLOOM_TRANSITION_COUNT>, MAX_FRAMES_IN_FLIGHT> m_bloomFilterSets = {};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_bloomCompositeSets = {};

@@ -24,6 +24,12 @@ void main() {
     // 65504 is the max half-float value; clamp well below to keep gaussians stable.
     hdr = min(hdr, vec3(1000.0));
 
+    // Threshold 0 or below passes the scene through (BloomMode::Blend)
+    if (threshold <= 0.0) {
+        outColor = vec4(hdr, 1.0);
+        return;
+    }
+
     float brightness = max(hdr.r, max(hdr.g, hdr.b));
 
     // Quadratic soft-knee curve (COD/UE4 style):

@@ -12,6 +12,20 @@ class DirectionalLight;
 /// @ingroup core
 enum class GraphicsQuality { Off, Low, Medium, High, Ultra };
 
+/// Curve between linear HDR and the display.
+/// @ingroup core
+enum class TonemapOperator : uint32_t {
+    Aces = 0,          ///< Narkowicz ACES fit, the engine default
+    SoftRational = 1,  ///< x / (1 + x^p)^(1/p) inside a soft white path
+};
+
+/// How the bloom pyramid returns to the scene.
+/// @ingroup core
+enum class BloomMode : uint32_t {
+    Additive = 0,  ///< thresholded glow added on top, the engine default
+    Blend = 1,     ///< every pixel blended toward a seven-level blur
+};
+
 /// Data-driven render settings applied to a renderer in one shot via
 /// Application::ApplyGraphicsConfig(). Game owns and persists this.
 /// @ingroup core
@@ -87,6 +101,19 @@ struct ENGINE_API GraphicsConfig {
 
     // Render scale
     float renderScale = 1.0f;
+
+    // Output transform; tonemapEnabled (display gamma), exposure, gamma,
+    // saturation and filmGrainEnabled (one-step dither) above also apply
+    TonemapOperator tonemapOperator = TonemapOperator::Aces;
+    float tonemapWhiteCurve = 2.0f;  // soft curve exponent p
+    float tonemapWhitePath = 1.0f;   // channel bleed, 0 = none
+
+    // Bloom composition
+    BloomMode bloomMode = BloomMode::Additive;
+    float bloomBlend = 0.2f;  // share BloomMode::Blend replaces
+
+    // GBuffer albedo stored sRGB, for linear albedo (sRGB textures)
+    bool gbufferAlbedoSRGB = false;
 
     /// Builds a config from a named quality preset.
     static GraphicsConfig Preset(GraphicsQuality q);

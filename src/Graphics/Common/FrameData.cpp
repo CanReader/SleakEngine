@@ -141,6 +141,14 @@ void FrameDataBuilder::Build(const FrameTargetInfo& target, FrameData& out) {
     out.Flags[0] |= FrameFlagGuard;
 #endif
     out.Flags[1] = target.cascadeCount;
+    out.Flags[FRAME_FLAGS_TONEMAP_INDEX] = target.output.op;
+    out.Output[0] = target.output.exposure;
+    out.Output[1] = target.output.gamma;
+    out.Output[2] = target.output.saturation;
+    out.Output[3] = target.output.dither;
+    out.OutputCurve[0] = target.output.curve;
+    std::copy_n(target.output.white, VEC4_SIZE, out.WhitePath);
+    std::copy_n(target.output.whiteInverse, VEC4_SIZE, out.WhitePathInverse);
 
     std::copy_n(viewProj, MATRIX_SIZE, m_prevViewProj);
     std::copy_n(cameraPos, AXES, m_prevCameraPos);

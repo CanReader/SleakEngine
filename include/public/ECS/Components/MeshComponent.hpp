@@ -9,6 +9,7 @@
 
 namespace Sleak {
     class MeshData;
+    struct MeshHandle;
     namespace RenderEngine {
         class TransformBuffer;
         class BufferBase;
@@ -28,6 +29,9 @@ namespace Sleak {
         MeshComponent(GameObject* object) : Component(object) {}
         /// Uploads data's vertex/index arrays to new GPU buffers.
         MeshComponent(GameObject*, MeshData data);
+        /// Draws a MeshBatch mesh, custom vertex format included, with the
+        /// owner's transform; shares the handle's buffers.
+        MeshComponent(GameObject* object, const MeshHandle& mesh);
 
         /// Validates that vertex and index buffers were created successfully.
         virtual bool Initialize() override;

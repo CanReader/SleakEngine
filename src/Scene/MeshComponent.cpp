@@ -3,6 +3,7 @@
 #include <ECS/Components/MaterialComponent.hpp>
 #include <ECS/Components/MeshComponent.hpp>
 #include <ECS/Components/TransformComponent.hpp>
+#include <Runtime/MeshBatch.hpp>
 #include <Runtime/MeshData.hpp>
 #include <cmath>
 
@@ -52,6 +53,13 @@ MeshComponent::MeshComponent(GameObject* object, MeshData data) : Component(obje
             VertexCount = data.vertices.GetSize();
             IndexCount = data.indices.GetSize();
     }
+
+    MeshComponent::MeshComponent(GameObject* object, const MeshHandle& mesh)
+        : Component(object),
+          VertexBuffer(mesh.vertexBuffer),
+          IndexBuffer(mesh.indexBuffer),
+          VertexCount(0),
+          IndexCount(mesh.indexCount) {}
 
     bool MeshComponent::Initialize() {
         if (!VertexBuffer.IsValid())

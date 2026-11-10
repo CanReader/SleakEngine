@@ -87,10 +87,14 @@ bool VulkanRenderer::CreateHDRSceneResources() {
 
 /// Creates the multi-mip bloom image and a per-mip image view.
 bool VulkanRenderer::CreateBloomImages() {
-    // Single image with BLOOM_MIP_COUNT mip levels, each starting at
+    // Single image with up to BLOOM_MIP_COUNT mip levels, each starting at
     // (scExtent / 2) and halving. HDR float format preserves bloom energy.
     uint32_t w = std::max(1u, scExtent.width  / 2);
     uint32_t h = std::max(1u, scExtent.height / 2);
+    // A full chain halves the larger side down to 1
+    uint32_t fullChain = 1;
+    for (uint32_t side = std::max(w, h); side > 1; side >>= 1) ++fullChain;
+    m_bloomMipCount = std::min(BLOOM_MIP_COUNT, fullChain);
 
     VkImageCreateInfo info{};
     info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -98,7 +102,7 @@ bool VulkanRenderer::CreateBloomImages() {
     info.extent.width  = w;
     info.extent.height = h;
     info.extent.depth  = 1;
-    info.mipLevels     = BLOOM_MIP_COUNT;
+    info.mipLevels = m_bloomMipCount;
     info.arrayLayers   = 1;
     info.format        = m_hdrSceneFormat;
     info.tiling        = VK_IMAGE_TILING_OPTIMAL;
@@ -121,7 +125,7 @@ bool VulkanRenderer::CreateBloomImages() {
     vkBindImageMemory(device, m_bloomImage, m_bloomMemory, 0);
 
     // Per-mip views — each is a single-mip view so framebuffers can target it.
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
+    for (uint32_t m = 0; m < m_bloomMipCount; ++m) {
         m_bloomMipExtents[m].width  = std::max(1u, w >> m);
         m_bloomMipExtents[m].height = std::max(1u, h >> m);
 
@@ -212,7 +216,7 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
 /// Creates the per-mip bloom framebuffers and one composite framebuffer per swapchain image.
 bool VulkanRenderer::CreateBloomFramebuffers() {
     // One framebuffer per bloom mip (reused between threshold/downsample/upsample).
-    for (uint32_t m = 0; m < BLOOM_MIP_COUNT; ++m) {
+    for (uint32_t m = 0; m < m_bloomMipCount; ++m) {
         VkFramebufferCreateInfo fb{};
         fb.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fb.renderPass      = m_bloomRenderPass;
@@ -329,7 +333,7 @@ bool VulkanRenderer::CreateBloomPipelines() {
     VkPushConstantRange compPushRange{};
     compPushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     compPushRange.offset     = 0;
-    compPushRange.size = 32;
+    compPushRange.size = sizeof(BloomCompositePushConstants);
 
     VkPipelineLayoutCreateInfo cliInfo{};
     cliInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -486,7 +490,7 @@ bool VulkanRenderer::CreateBloomResources() {
 
     m_bloomResourcesCreated = true;
     SLEAK_INFO("Bloom + HDR scene resources created ({}x{}, {} mips)",
-               scExtent.width, scExtent.height, BLOOM_MIP_COUNT);
+               scExtent.width, scExtent.height, m_bloomMipCount);
     return true;
 }
 
@@ -608,11 +612,15 @@ void VulkanRenderer::RenderBloomPass() {
     // but keep the buffer well-defined for consistency).
     m_bloomFallbackPrimed = false;
 
-    // Per-frame transition set index layout:
+    // Per-frame transition set index layout for L = BloomLevelCount():
     //   [0]              : threshold  (sceneHDR -> bloomMip0)
-    //   [1..MIP-1]       : downsamples (bloomMip[i-1] -> bloomMip[i])
-    //   [MIP..MIP*2-2]   : upsamples  (bloomMip[MIP-1-k] -> bloomMip[MIP-2-k])
-    // BLOOM_TRANSITION_COUNT = 1 + (MIP-1) + (MIP-1) = 11 for MIP=6.
+    //   [1..L-1]         : downsamples (bloomMip[i-1] -> bloomMip[i])
+    //   [L..L*2-2]       : upsamples  (bloomMip[L-1-k] -> bloomMip[L-2-k])
+    // Additive runs today's 6 levels; Blend all BLOOM_MIP_COUNT with a
+    // pass-through prefilter, no Karis and BLOOM_BLEND_LEVEL_RATIO weights;
+    // both stop at the mips a tiny swapchain leaves the image.
+    const bool blend = m_bloomMode == BloomMode::Blend;
+    const uint32_t levels = BloomLevelCount();
     auto& setArray = m_bloomFilterSets[currentFrame];
     BeginGpuPass(GpuPass::Bloom);
 
@@ -636,7 +644,10 @@ void VulkanRenderer::RenderBloomPass() {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_bloomThresholdPipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_bloomFilterPipelineLayout, 0, 1, &setArray[0], 0, nullptr);
-        struct { float threshold, knee, p0, p1; } thresh{ 1.0f, 0.5f, 0.0f, 0.0f };
+        struct {
+            float threshold, knee, p0, p1;
+        } thresh{blend ? 0.0f : BLOOM_THRESHOLD, blend ? 0.0f : BLOOM_KNEE,
+                 0.0f, 0.0f};
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(thresh), &thresh);
         vkCmdDraw(command, 3, 1, 0, 0);
@@ -644,8 +655,8 @@ void VulkanRenderer::RenderBloomPass() {
     }
 
     // ---------- 2. Downsample chain ----------
-    for (uint32_t m = 1; m < BLOOM_MIP_COUNT; ++m) {
-        uint32_t setIdx = m; // [1..MIP-1]
+    for (uint32_t m = 1; m < levels; ++m) {
+        uint32_t setIdx = m;  // [1..L-1]
         WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m - 1], m_bloomSampler,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -665,7 +676,8 @@ void VulkanRenderer::RenderBloomPass() {
         struct { float tsx, tsy, karis, p; } pc;
         pc.tsx   = 1.0f / float(m_bloomMipExtents[m - 1].width);
         pc.tsy   = 1.0f / float(m_bloomMipExtents[m - 1].height);
-        pc.karis = (m == 1) ? 1.0f : 0.0f;   // Karis only on first downsample (firefly kill).
+        // Karis only on the first additive downsample (firefly kill)
+        pc.karis = (!blend && m == 1) ? 1.0f : 0.0f;
         pc.p     = 0.0f;
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
@@ -674,8 +686,8 @@ void VulkanRenderer::RenderBloomPass() {
     }
 
     // ---------- 3. Upsample chain (additive blend onto next-larger mip) ----------
-    for (uint32_t m = BLOOM_MIP_COUNT - 1; m > 0; --m) {
-        uint32_t setIdx = BLOOM_MIP_COUNT + (BLOOM_MIP_COUNT - 1 - m); // [MIP..MIP*2-2]
+    for (uint32_t m = levels - 1; m > 0; --m) {
+        uint32_t setIdx = levels + (levels - 1 - m);  // [L..L*2-2]
         WriteSingleImageSampler(device, setArray[setIdx], m_bloomMipViews[m], m_bloomSampler,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -696,7 +708,7 @@ void VulkanRenderer::RenderBloomPass() {
         pc.tsx       = 1.0f / float(m_bloomMipExtents[m].width);
         pc.tsy       = 1.0f / float(m_bloomMipExtents[m].height);
         pc.radius = m_bloomRadius;
-        pc.intensity = m_bloomIntensity;
+        pc.intensity = blend ? BLOOM_BLEND_LEVEL_RATIO : m_bloomIntensity;
         vkCmdPushConstants(command, m_bloomFilterPipelineLayout,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(command, 3, 1, 0, 0);
@@ -764,20 +776,29 @@ void VulkanRenderer::RenderBloomCompositePass() {
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_bloomCompositePipelineLayout, 0, 1, &compSet, 0, nullptr);
 
-    struct {
-        float bloomStrength, exposure, gamma;
-        uint32_t ssrEnabled;
-        float sharpenStrength;
-        float _pad[3];
-    } pc{};
+    BloomCompositePushConstants pc{};
+    const OutputTransformParams out = GetOutputTransform();
+    const bool blend = m_bloomEnabled && m_bloomMode == BloomMode::Blend;
     // bloom disabled -> 0 so the (black) mip contributes nothing
-    pc.bloomStrength = m_bloomEnabled ? 0.06f : 0.0f;   // UE4-style soft bloom
-    pc.exposure      = m_exposure;
-    pc.gamma = m_tonemapEnabled ? m_gamma : 1.0f;
+    pc.bloomStrength = blend
+                           ? m_bloomBlend
+                           : (m_bloomEnabled ? BLOOM_ADDITIVE_STRENGTH : 0.0f);
+    pc.exposure = out.exposure;
+    pc.gamma = out.gamma;
     pc.ssrEnabled = (ssrReady && m_ssrEnabled) ? 1u : 0u;
     // Sharpening an aliased (non-TAA) frame only amplifies the stair-steps
     pc.sharpenStrength =
         (m_taaResolvedView != VK_NULL_HANDLE) ? m_sharpenStrength : 0.0f;
+    pc.bloomMode =
+        static_cast<uint32_t>(blend ? BloomMode::Blend : BloomMode::Additive);
+    pc.tonemapOperator = out.op;
+    pc.saturation = out.saturation;
+    pc.whiteCurve = out.curve;
+    pc.dither = out.dither;
+    pc.bloomNormalize = 1.0f / BloomBlendWeightSum(BloomLevelCount());
+    std::copy_n(out.white, std::size(pc.whitePath), pc.whitePath);
+    std::copy_n(out.whiteInverse, std::size(pc.whitePathInverse),
+                pc.whitePathInverse);
     vkCmdPushConstants(command, m_bloomCompositePipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
     vkCmdDraw(command, 3, 1, 0, 0);

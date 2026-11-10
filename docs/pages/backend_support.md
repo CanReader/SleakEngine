@@ -112,11 +112,17 @@ The reference backend and the only one where the whole feature list is live.
 Deferred is the default path: a GBuffer geometry pass, SSAO and its bilateral
 blur, a fullscreen lighting pass, a forward pass for transparent, skinned,
 and debug geometry, and then a post chain of TAA, SSR, bloom, and a composite
-that applies ACES tonemapping and gamma. There is no separate tonemap pass,
-which is why Vulkan does not set `CapTonemapPass`.
+that applies the output transform: exposure, ACES or the soft rational curve,
+gamma, saturation and dither (`GraphicsConfig`). There is no separate tonemap
+pass, which is why Vulkan does not set `CapTonemapPass`. With
+`gbufferAlbedoSRGB` the GBuffer albedo target is `R8G8B8A8_SRGB`; OpenGL uses
+`GL_SRGB8_ALPHA8` and enables `GL_FRAMEBUFFER_SRGB` only for its GBuffer pass.
+DX11 and DX12 ignore the operator, saturation, dither, bloom mode and sRGB
+albedo fields.
 
 SSAO and SSR both run at full swapchain resolution. Bloom starts at half
-resolution and mips down six levels.
+resolution and mips down six levels (`Additive`) or seven (`Blend`), fewer
+when the window is too small for the full chain.
 
 Two Vulkan-specific gaps are worth planning around. `SetRenderDrawMode` and
 `SetRenderCullFace` are no-ops, since changing polygon or cull mode requires

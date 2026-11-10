@@ -20,7 +20,7 @@ bool VulkanRenderer::CreateGBufferRenderPass() {
     VkAttachmentReference   colorRefs[GBUFFER_COUNT] = {};
 
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
-        colorAtts[i].format         = m_gbufferFormats[i];
+        colorAtts[i].format = GBufferFormat(i);
         colorAtts[i].samples        = VK_SAMPLE_COUNT_1_BIT;
         colorAtts[i].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colorAtts[i].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;

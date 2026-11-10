@@ -285,7 +285,10 @@ same file serves both. The engine library holds:
 | `sleak/shadow_light.glsl` | The full `ShadowLightUBO` block |
 | `sleak/gbuffer.glsl` | GBuffer RT3 layout: `SleakEncodeMotionModel`, `SleakShadingModel`, shading model 0 for the engine |
 | `sleak/lighting_inputs.glsl` | Every binding of the deferred lighting pass, for `Application::SetLightingShader` stems |
-| `sleak/lighting_default.glsl` | The engine lighting per backend: `SleakShadeDefault`, `SleakLightingDefaultMain` and their helpers |
+| `sleak/lighting_default.glsl` | The engine lighting per backend: `SleakShadeDefault`, `SleakLightingDefaultMain` and their helpers; Vulkan also `SleakFogAmount` / `SleakFogColor` |
+| `sleak/color.glsl` | sRGB transfer functions, Rec. 601 luma, saturation and its inverse, `SleakApplyDither` |
+| `sleak/tonemap.glsl` | `SleakOutputParams`, ACES and the soft curve with their inverses, `SleakOutputTransform` and its inverse, and the legacy helpers `SleakLegacyToScene`, `SleakSceneToLegacy`, `SleakLegacyDisplayToOutput` for colors authored for the default ACES output |
+| `sleak/frame_output.glsl` | `SleakFrameOutput()`: this frame's output transform from `FrameData` |
 
 Rules: a file that uses `#include` declares
 `#extension GL_GOOGLE_include_directive : require` right after `#version`;
@@ -307,7 +310,7 @@ Per-frame data sits in descriptor set 2 on Vulkan and in uniform buffers
 | Block | Vulkan | OpenGL | Contents |
 | :--- | :--- | :--- | :--- |
 | `ShadowLightUBO` | set 2, binding 0 | 14 | Primary light, shadow and fog |
-| `FrameData` | set 2, binding 1 | 11 | Clock, frame index, screen, jitter, camera and matrices, light, flags |
+| `FrameData` | set 2, binding 1 | 11 | Clock, frame index, screen, jitter, camera and matrices, light, flags, output transform (`Flags.z` operator, `Output`, `OutputCurve`, `WhitePath`, `WhitePathInverse`) |
 | Game block | set 2, binding 2 | 12 | Up to 1 KiB set with `Application::SetFrameUserData` |
 | Cascades | set 2, binding 3 | 13 | Reserved, zero |
 | Atmosphere | set 2, binding 4 | 15 | Reserved, zero |
