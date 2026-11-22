@@ -1509,7 +1509,7 @@ void VulkanRenderer::ApplyMSAAChange() {
 }
 
 /// Switches deferred shading between frames: deferred builds the GBuffer at
-/// 1x, forward frees it.
+/// 1x, forward frees it and gets its MSAA count back.
 void VulkanRenderer::ApplyDeferredChange() {
     vkDeviceWaitIdle(device);
     m_deferredEnabled = m_pendingDeferredEnabled;
@@ -1519,9 +1519,15 @@ void VulkanRenderer::ApplyDeferredChange() {
                m_deferredEnabled ? "enabled" : "disabled");
 
     if (m_deferredEnabled) {
-        // Deferred has no MSAA: drop a queued count, rebuild an active one
+        // Remember the forward count, queued or active, and drop to 1x
+        m_forwardMsaaCount = m_msaaChangeRequested ? m_pendingMsaaSampleCount
+                                                   : m_msaaSampleCount;
         m_pendingMsaaSampleCount = SINGLE_SAMPLE_COUNT;
         m_msaaChangeRequested = m_msaaSampleCount != SINGLE_SAMPLE_COUNT;
+    } else if (!m_msaaChangeRequested) {
+        // Restore the forward count unless a newer one is queued
+        m_pendingMsaaSampleCount = m_forwardMsaaCount;
+        m_msaaChangeRequested = m_forwardMsaaCount != m_msaaSampleCount;
     }
     // The MSAA rebuild covers the GBuffer and the pipelines
     if (m_msaaChangeRequested) {
