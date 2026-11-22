@@ -183,7 +183,8 @@ private:
     /// Uploads light and shadow data, sampling with the matrix the shadow
     /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
-    /// Uploads this frame's FrameData and game block (buffers 11 and 12).
+    /// Uploads this frame's FrameData, game block and atmosphere block
+    /// (buffers 11, 12 and 15).
     void UploadFrameData() override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();

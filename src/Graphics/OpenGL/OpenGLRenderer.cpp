@@ -1021,8 +1021,14 @@ void OpenGLRenderer::UploadFrameData() {
     glNamedBufferSubData(m_frameUserUBO, 0,
                          RenderEngine::FRAME_USER_DATA_MAX_BYTES,
                          m_frameData.GetUserData());
+    RenderEngine::AtmosphereData atmosphere{};
+    BuildFrameAtmosphere(atmosphere);
+    glNamedBufferSubData(m_frameAtmosphereUBO, 0, sizeof(atmosphere),
+                         &atmosphere);
     glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_DATA_UBO_BINDING, m_frameDataUBO);
     glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_USER_UBO_BINDING, m_frameUserUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, FRAME_ATMOSPHERE_UBO_BINDING,
+                     m_frameAtmosphereUBO);
 }
 
 bool OpenGLRenderer::CreateShadowMapResources() {

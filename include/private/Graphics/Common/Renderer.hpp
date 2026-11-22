@@ -3,6 +3,7 @@
 #include <Core/GraphicsConfig.hpp>
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
+#include <Runtime/Atmosphere.hpp>
 #include <string>
 #include <vector>
 
@@ -166,10 +167,25 @@ public:
     bool SetFrameUserData(const void* data, uint32_t size) {
         return m_frameData.SetUserData(data, size);
     }
-    /// Restarts FrameData history and drops the game block for a new scene.
+    /// Restarts FrameData history and drops the game block and the
+    /// atmosphere for a new scene.
     void ResetFrameData() {
         m_frameData.ResetHistory();
         m_frameData.SetUserData(nullptr, 0);
+        m_atmosphereSet = false;
+    }
+
+    /// Draws the procedural sky and fog with these settings where
+    /// AtmosphereSupported holds, until the next scene activates.
+    void SetAtmosphere(const AtmosphereSettings& settings) {
+        m_atmosphere = settings;
+        m_atmosphereSet = true;
+    }
+    /// True when this backend can draw the atmosphere right now.
+    virtual bool AtmosphereSupported() const { return false; }
+    /// True when the atmosphere replaces the skybox this frame.
+    bool DrawsAtmosphere() const {
+        return m_atmosphereSet && AtmosphereSupported();
     }
 
     // Deferred lighting shader
@@ -357,6 +373,9 @@ public:
         }
     }
 
+    /// Fills this frame's atmosphere block, disabled unless it draws.
+    void BuildFrameAtmosphere(AtmosphereData& out) const;
+
     // Performance counter
     bool bEnabledPerformanceCounter = false;
     int frameRate = 0;
@@ -384,6 +403,10 @@ public:
 
     // FrameData contents, uploaded by the backends that read it
     FrameDataBuilder m_frameData;
+
+    // Atmosphere of the active scene (SetAtmosphere)
+    AtmosphereSettings m_atmosphere;
+    bool m_atmosphereSet = false;
 
     // Deferred lighting override; backends rebuild it at BeginRender
     std::string m_lightingShaderStem;

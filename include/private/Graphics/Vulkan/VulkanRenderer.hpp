@@ -206,7 +206,8 @@ public:
     // Light UBO update (called by LightManager)
     /// Copies light and shadow data into the current frame's mapped UBO.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
-    /// Writes this frame's FrameData and game block into set 2 bindings 1-2.
+    /// Writes this frame's FrameData, game block and atmosphere block into
+    /// set 2 bindings 1, 2 and 4.
     void UploadFrameData() override;
     /// Stages the light view-projection matrix for commit at the next BeginRender.
     void SetLightVP(const float* lightVP) override;

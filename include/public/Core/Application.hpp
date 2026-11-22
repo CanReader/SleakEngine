@@ -57,6 +57,7 @@ struct ENGINE_API ApplicationDefaults {
 
 class Window;
 class DebugOverlay;
+struct AtmosphereSettings;
 namespace RenderEngine { class Renderer; }
 
 /// Owns the window, renderer, and game loop. One instance per process,
@@ -224,6 +225,14 @@ class ENGINE_API Application {
     void SetLightingShader(const std::string& stem);
     /// Stem last passed to SetLightingShader(), empty for the engine shader.
     const std::string& GetLightingShader() const;
+
+    // Procedural atmosphere
+    /// Draws the procedural sky and fog (Vulkan and OpenGL, deferred) in
+    /// place of the skybox until the next scene activates. Call it before
+    /// Scene::Update to affect this frame.
+    void SetAtmosphere(const AtmosphereSettings& settings);
+    /// True when the active backend draws the atmosphere this frame.
+    bool IsAtmosphereActive() const;
 
     Benchmark* GetBenchmark() { return m_benchmark; }
 
