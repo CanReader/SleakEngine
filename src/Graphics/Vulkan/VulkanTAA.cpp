@@ -450,6 +450,27 @@ void VulkanRenderer::UpdateTAAUBO() {
     memcpy(m_prevViewProj, currentVP, sizeof(m_prevViewProj));
 }
 
+/// Moves depth from attachment to read-only for the passes that sample it
+/// after the forward pass; later calls in the same frame do nothing.
+void VulkanRenderer::TransitionDepthForPostPasses() {
+    if (m_depthReadOnlyForPost) return;
+    m_depthReadOnlyForPost = true;
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.image = depthImage;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+}
+
 /// Resolves the frame against TAA history into the ping-pong target.
 void VulkanRenderer::RenderTAAPass() {
     m_taaResolvedView = VK_NULL_HANDLE;
@@ -466,24 +487,8 @@ void VulkanRenderer::RenderTAAPass() {
     const uint32_t readIdx  = 1u - writeIdx;
     BeginGpuPass(GpuPass::TAA);
 
-    // ---- 1. Depth barrier: DEPTH_STENCIL_ATTACHMENT → READ_ONLY ----
-    // (SSR will skip its own depth barrier since TAA already handles it)
-    {
-        VkImageMemoryBarrier depBar{};
-        depBar.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        depBar.oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depBar.newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        depBar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depBar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depBar.srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        depBar.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-        depBar.image               = depthImage;
-        depBar.subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &depBar);
-    }
+    // ---- 1. Depth to read-only, unless a pass before TAA moved it ----
+    TransitionDepthForPostPasses();
 
     // ---- 2. Transition write target: SHADER_READ_ONLY → COLOR_ATTACHMENT ----
     {

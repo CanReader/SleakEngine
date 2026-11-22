@@ -196,6 +196,7 @@ void VulkanRenderer::BeginRender() {
     m_forwardPassOpen = false;
     m_activeCustomFormat = 0;
     m_sceneReadPrepared = false;
+    m_depthReadOnlyForPost = false;
     if (!bRender)
         return;
 

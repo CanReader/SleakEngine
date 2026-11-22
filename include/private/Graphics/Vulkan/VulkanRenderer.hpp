@@ -1088,6 +1088,10 @@ private:
     void UpdateTAAUBO();
     /// Resolves the frame against TAA history into the ping-pong target.
     void RenderTAAPass();
+    /// Moves depth to read-only once per frame for the passes that sample
+    /// it after the forward pass.
+    void TransitionDepthForPostPasses();
+    bool m_depthReadOnlyForPost = false;  // done this frame
     /// HDR scene color for the post passes: the TAA resolve when TAA ran.
     VkImageView PostSceneView() const;
 
