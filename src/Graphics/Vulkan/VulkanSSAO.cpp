@@ -575,8 +575,6 @@ bool VulkanRenderer::CreateSSAOResources() {
 
 /// Destroys all SSAO pipelines, framebuffers, descriptors, images, and samplers.
 void VulkanRenderer::CleanupSSAOResources() {
-    if (!m_ssaoResourcesCreated) return;
-
     if (m_ssaoPipeline)              { vkDestroyPipeline(device, m_ssaoPipeline, nullptr);              m_ssaoPipeline = VK_NULL_HANDLE; }
     if (m_ssaoBlurPipeline)          { vkDestroyPipeline(device, m_ssaoBlurPipeline, nullptr);          m_ssaoBlurPipeline = VK_NULL_HANDLE; }
     if (m_ssaoPipelineLayout)        { vkDestroyPipelineLayout(device, m_ssaoPipelineLayout, nullptr);  m_ssaoPipelineLayout = VK_NULL_HANDLE; }

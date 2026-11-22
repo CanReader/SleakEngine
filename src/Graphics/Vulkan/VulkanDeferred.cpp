@@ -1018,9 +1018,11 @@ bool VulkanRenderer::CreateDeferredCBResources() {
     return true;
 }
 
-/// Destroys all GBuffer, lighting, and forward transparent pass resources.
+/// Destroys every GBuffer, lighting, and forward pass resource that exists,
+/// so a build that failed partway is freed too.
 void VulkanRenderer::CleanupGBufferResources() {
-    if (!m_gbufferResourcesCreated) return;
+    // The second Cleanup() runs after the device is gone
+    if (device == VK_NULL_HANDLE) return;
 
     // If a frame is currently being recorded (command buffer is open), wait for
     // the GPU to finish all pending work before destroying resources that may be
@@ -1118,23 +1120,21 @@ void VulkanRenderer::CleanupGBufferResources() {
     }
 
     // Deferred CB resources
-    if (m_deferredCBCreated) {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            if (m_deferredCBMapped[i]) {
-                vkUnmapMemory(device, m_deferredCBMemory[i]);
-                m_deferredCBMapped[i] = nullptr;
-            }
-            if (m_deferredCBBuffers[i]) {
-                vkDestroyBuffer(device, m_deferredCBBuffers[i], nullptr);
-                m_deferredCBBuffers[i] = VK_NULL_HANDLE;
-            }
-            if (m_deferredCBMemory[i]) {
-                vkFreeMemory(device, m_deferredCBMemory[i], nullptr);
-                m_deferredCBMemory[i] = VK_NULL_HANDLE;
-            }
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (m_deferredCBMapped[i]) {
+            vkUnmapMemory(device, m_deferredCBMemory[i]);
+            m_deferredCBMapped[i] = nullptr;
         }
-        m_deferredCBCreated = false;
+        if (m_deferredCBBuffers[i]) {
+            vkDestroyBuffer(device, m_deferredCBBuffers[i], nullptr);
+            m_deferredCBBuffers[i] = VK_NULL_HANDLE;
+        }
+        if (m_deferredCBMemory[i]) {
+            vkFreeMemory(device, m_deferredCBMemory[i], nullptr);
+            m_deferredCBMemory[i] = VK_NULL_HANDLE;
+        }
     }
+    m_deferredCBCreated = false;
     if (m_deferredCBPool) {
         vkDestroyDescriptorPool(device, m_deferredCBPool, nullptr);
         m_deferredCBPool = VK_NULL_HANDLE;

@@ -269,8 +269,6 @@ bool VulkanRenderer::CreateIBLResources() {
 
 /// Destroys the IBL images, samplers, and descriptor resources.
 void VulkanRenderer::CleanupIBLResources() {
-    if (!m_iblResourcesCreated) return;
-
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (m_iblSettingsMapped[i]) {
             vkUnmapMemory(device, m_iblSettingsMemory[i]);

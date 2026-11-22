@@ -496,8 +496,6 @@ bool VulkanRenderer::CreateBloomResources() {
 
 /// Destroys all bloom and HDR scene resources, then cleans up TAA resources.
 void VulkanRenderer::CleanupBloomResources() {
-    if (!m_bloomResourcesCreated) return;
-
     if (m_bloomThresholdPipeline)   { vkDestroyPipeline(device, m_bloomThresholdPipeline, nullptr);   m_bloomThresholdPipeline = VK_NULL_HANDLE; }
     if (m_bloomDownsamplePipeline)  { vkDestroyPipeline(device, m_bloomDownsamplePipeline, nullptr);  m_bloomDownsamplePipeline = VK_NULL_HANDLE; }
     if (m_bloomUpsamplePipeline)    { vkDestroyPipeline(device, m_bloomUpsamplePipeline, nullptr);    m_bloomUpsamplePipeline = VK_NULL_HANDLE; }

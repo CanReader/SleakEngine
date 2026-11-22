@@ -1397,7 +1397,7 @@ bool VulkanRenderer::RecreateSwapChain() {
     // Cleanup GBuffer BEFORE CleanupSwapChain (which destroys depth image)
     // to avoid dangling image view references in GBuffer framebuffer
     bool hadGBuffer = m_gbufferResourcesCreated;
-    CleanupGBufferResources();
+    if (hadGBuffer) CleanupGBufferResources();
 
     CleanupMSAAColorResources();
     CleanupSwapChain();
@@ -1816,12 +1816,10 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
                m_shadowMapResolution, m_shadowMapResolution);
 }
 
-/// Top-level orchestrator for deferred rendering: creates the GBuffer color
-/// images, then the render passes, descriptors, and pipelines that read
-/// them. Shares the depth image from CreateDepthResources() (already SAMPLED_BIT).
-bool VulkanRenderer::CreateGBufferResources() {
-    if (m_gbufferResourcesCreated) return true;
-
+/// Creates the GBuffer color images, then the render passes, descriptors,
+/// and pipelines that read them; false at the first step that fails. Shares
+/// the depth image from CreateDepthResources() (already SAMPLED_BIT).
+bool VulkanRenderer::BuildGBufferResources() {
     // Create GBuffer color attachment images
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
         VkImageCreateInfo imageInfo{};
@@ -1916,6 +1914,17 @@ bool VulkanRenderer::CreateGBufferResources() {
     // SSR input descriptors depend on m_gbufferViews + m_hdrSceneView, both
     // created above — safe to write now.
     UpdateSSRDescriptors();
+    return true;
+}
+
+/// Top-level orchestrator for deferred rendering: builds the GBuffer and
+/// what reads it, or frees what a failed build made.
+bool VulkanRenderer::CreateGBufferResources() {
+    if (m_gbufferResourcesCreated) return true;
+    if (!BuildGBufferResources()) {
+        CleanupGBufferResources();
+        return false;
+    }
 
     // Recreate forward-pass pipelines so they use m_forwardRenderPass instead
     // of the main renderPass (which may have different attachments when MSAA
@@ -1966,6 +1975,5 @@ bool VulkanRenderer::CreateGBufferResources() {
                scExtent.width, scExtent.height);
     return true;
 }
-
 }
 }

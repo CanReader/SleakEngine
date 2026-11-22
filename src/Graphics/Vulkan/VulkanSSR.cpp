@@ -371,8 +371,6 @@ bool VulkanRenderer::CreateSSRPipeline() {
 
 /// Destroys the SSR pipeline, framebuffer, descriptors, image, and sampler.
 void VulkanRenderer::CleanupSSRResources() {
-    if (!m_ssrResourcesCreated) return;
-
     if (m_ssrPipeline)        { vkDestroyPipeline(device, m_ssrPipeline, nullptr);             m_ssrPipeline = VK_NULL_HANDLE; }
     if (m_ssrPipelineLayout)  { vkDestroyPipelineLayout(device, m_ssrPipelineLayout, nullptr); m_ssrPipelineLayout = VK_NULL_HANDLE; }
     delete m_ssrShader; m_ssrShader = nullptr;

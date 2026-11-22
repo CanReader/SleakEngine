@@ -291,7 +291,8 @@ private:
     /// program samples it.
     void FlushShadowMaterial();
 
-    /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
+    /// Allocates the GBuffer FBO, attachments and shaders; a failed attempt
+    /// frees what it made.
     bool CreateGBufferResources();
     void CleanupGBufferResources();
     /// Tears down and reallocates the GBuffer at a new swapchain size.

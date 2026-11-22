@@ -1186,6 +1186,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        CleanupGBufferResources();
         return false;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

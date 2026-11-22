@@ -265,8 +265,10 @@ private:
 
  // Deferred rendering
  /// Creates the GBuffer color images, render passes, descriptors, and
- /// pipelines that make up the deferred lighting path.
+ /// pipelines of the deferred lighting path; a failed build frees them.
  bool CreateGBufferResources();
+ /// Runs the GBuffer build steps in order; false at the first that fails.
+ bool BuildGBufferResources();
  /// Creates the GBuffer render pass with its four color attachments and depth.
  bool CreateGBufferRenderPass();
  /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
@@ -316,7 +318,7 @@ private:
  /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and
  /// descriptor set.
  bool CreateIBLResources();
- /// Destroys all GBuffer, lighting, and forward transparent pass resources.
+ /// Destroys every GBuffer, lighting, and forward pass resource that exists.
  void CleanupGBufferResources();
  /// Destroys the IBL images, samplers, and descriptor resources.
  void CleanupIBLResources();
