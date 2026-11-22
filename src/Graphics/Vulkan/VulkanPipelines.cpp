@@ -1502,6 +1502,8 @@ bool VulkanRenderer::ReloadShaders(const std::vector<std::string>& stems) {
     (void)stems;
     vkDeviceWaitIdle(device);
 
+    std::vector<VkPipeline*> atmosphere = {&m_atmospherePipeline};
+    for (VkPipeline& face : m_skyProbePipelines) atmosphere.push_back(&face);
     const PipelineGroup groups[] = {
         {"default_shader",
          {&pipeline},
@@ -1551,9 +1553,9 @@ bool VulkanRenderer::ReloadShaders(const std::vector<std::string>& stems) {
          &VulkanRenderer::CreateLightingOverridePipeline},
         // After lighting_pass too: built on the same layout
         {"atmosphere",
-         {&m_atmospherePipeline},
+         atmosphere,
          {},
-         {&m_atmosphereShader},
+         {&m_atmosphereShader, &m_skyProbeShader},
          &VulkanRenderer::CreateAtmospherePipelines},
         {"ssao",
          {&m_ssaoPipeline, &m_ssaoBlurPipeline},

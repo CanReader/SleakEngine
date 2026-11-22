@@ -187,6 +187,8 @@ public:
     bool DrawsAtmosphere() const {
         return m_atmosphereSet && AtmosphereSupported();
     }
+    /// Faces of a cube map.
+    static constexpr uint32_t CUBE_FACES = 6;
 
     // Deferred lighting shader
     /// Lights the deferred pass with a game fragment stem from the next
@@ -407,6 +409,9 @@ public:
     // Atmosphere of the active scene (SetAtmosphere)
     AtmosphereSettings m_atmosphere;
     bool m_atmosphereSet = false;
+    // Sky probe: a mipped cube of the sky gradient for reflections
+    static constexpr uint32_t SKY_PROBE_SIZE = 64;
+    static constexpr uint32_t SKY_PROBE_MIPS = 6;
 
     // Deferred lighting override; backends rebuild it at BeginRender
     std::string m_lightingShaderStem;

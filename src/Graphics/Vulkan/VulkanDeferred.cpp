@@ -437,13 +437,16 @@ bool VulkanRenderer::CreateLightingFramebuffers() {
 }
 
 /// Creates a fullscreen pipeline for a render pass from a compiled shader
-/// pair on m_lightingPipelineLayout, opaque unless a blend state is given;
-/// VK_NULL_HANDLE on failure.
+/// pair on m_lightingPipelineLayout, opaque unless a blend state is given,
+/// with optional fragment constants; VK_NULL_HANDLE on failure.
 VkPipeline VulkanRenderer::BuildLightingPipeline(
     VulkanShader& shader, VkRenderPass renderPass,
-    const VkPipelineColorBlendAttachmentState* blend) {
+    const VkPipelineColorBlendAttachmentState* blend,
+    const VkSpecializationInfo* constants) {
+    VkPipelineShaderStageCreateInfo fragment = shader.GetFragInfo();
+    fragment.pSpecializationInfo = constants;
     VkPipelineShaderStageCreateInfo shaderStages[] = {shader.GetVertexInfo(),
-                                                      shader.GetFragInfo()};
+                                                      fragment};
 
     // No vertex input — fullscreen triangle from gl_VertexIndex
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
@@ -1224,6 +1227,8 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 
     // 3. Update GBuffer sampler descriptor sets for current frame
     UpdateGBufferDescriptors();
+    // Sky probe for this frame's reflections
+    RenderSkyProbe();
 
     // 4. Begin lighting render pass
     VkClearValue clearVal{};
