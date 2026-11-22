@@ -143,6 +143,7 @@ void VulkanRenderer::UploadFrameData() {
                 sizeof(data));
     std::memcpy(base + m_frameUBOOffsets[SET2_USER_BINDING],
                 m_frameData.GetUserData(), FRAME_USER_DATA_MAX_BYTES);
+    if (DrawsAtmosphere()) EnsureAtmosphereResources();
     AtmosphereData atmosphere{};
     BuildFrameAtmosphere(atmosphere);
     std::memcpy(base + m_frameUBOOffsets[SET2_ATMOSPHERE_BINDING], &atmosphere,

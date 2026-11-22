@@ -294,9 +294,12 @@ private:
  bool CreateLightingFramebuffers();
  /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
  bool CreateLightingPipeline();
- /// Creates a fullscreen lighting pipeline from a compiled shader pair on
- /// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
- VkPipeline BuildLightingPipeline(VulkanShader& shader);
+ /// Creates a fullscreen pipeline for a render pass from a compiled shader
+ /// pair on m_lightingPipelineLayout, opaque unless a blend state is given;
+ /// VK_NULL_HANDLE on failure.
+ VkPipeline BuildLightingPipeline(
+     VulkanShader& shader, VkRenderPass renderPass,
+     const VkPipelineColorBlendAttachmentState* blend = nullptr);
  /// Builds the lighting pipeline for m_lightingShaderStem; false on failure.
  bool CreateLightingOverridePipeline();
  /// Destroys the lighting override pipeline and shader; the GPU must be idle.
@@ -1244,6 +1247,7 @@ private:
         SSAO,
         Lighting,
         Forward,
+        Atmosphere,
         TAA,
         SSR,
         Bloom,
@@ -1381,6 +1385,26 @@ private:
     void PrepareSceneRead();
     /// Records the scene color and depth copies between two forward passes.
     void RecordSceneCopy();
+
+    // ---- Atmosphere: sky and fog composite (VulkanAtmosphere.cpp) ----
+    /// Deferred path compositing and the atmosphere objects not failed.
+    bool AtmosphereSupported() const override;
+    /// Builds the atmosphere objects on first use; a failure leaves the
+    /// skybox drawing.
+    void EnsureAtmosphereResources();
+    /// Destroys every atmosphere object; the next use rebuilds them.
+    void CleanupAtmosphereResources();
+    /// Framebuffer the composite draws into.
+    bool CreateAtmosphereTargets();
+    /// Compiles the atmosphere shaders and builds their pipelines.
+    bool CreateAtmospherePipelines();
+    /// Sky and fog over the HDR scene at final depth.
+    void RenderAtmospherePass();
+
+    VkPipeline m_atmospherePipeline = VK_NULL_HANDLE;
+    VkFramebuffer m_atmosphereFramebuffer = VK_NULL_HANDLE;  // HDR scene
+    VulkanShader* m_atmosphereShader = nullptr;
+    bool m_atmosphereFailed = false;  // creation failed, the skybox stays
 };
 
 }  // namespace RenderEngine

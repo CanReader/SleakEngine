@@ -17,9 +17,9 @@ namespace {
 
 constexpr float kGpuLogIntervalSeconds = 2.0f;
 
-constexpr std::array kGpuRowNames = {"shadow",  "gbuffer", "ssao",  "lighting",
-                                     "forward", "taa",     "ssr",   "bloom",
-                                     "tonemap", "ui",      "other", "total"};
+constexpr std::array kGpuRowNames = {
+    "shadow", "gbuffer", "ssao",    "lighting", "forward", "atmosphere", "taa",
+    "ssr",    "bloom",   "tonemap", "ui",       "other",   "total"};
 
 }  // namespace
 
@@ -227,7 +227,7 @@ void VulkanRenderer::LogGpuProfile(float seconds) const {
                 ? std::format("  ({}/{} frames)", m_gpuRuns[row],
                               m_gpuWindowFrames)
                 : std::string();
-        SLEAK_INFO("  {:<9}{:8.3f}{:8.3f}{}", kGpuRowNames[row], avg,
+        SLEAK_INFO("  {:<11}{:8.3f}{:8.3f}{}", kGpuRowNames[row], avg,
                    m_gpuMaxMs[row], runs);
     }
 }

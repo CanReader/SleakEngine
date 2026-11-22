@@ -566,6 +566,8 @@ void VulkanRenderer::EndRender() {
     }
 
     if (deferredPath) {
+        // Sky and fog at final depth, before TAA resolves them
+        if (DrawsAtmosphere()) RenderAtmospherePass();
         // TAA: accumulate current HDR frame with history into a ping-pong
         // target that SSR, bloom and the composite read. Also handles the depth
         // barrier (ATTACHMENT → READ_ONLY) so SSR can skip its own barrier.
