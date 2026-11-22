@@ -88,9 +88,11 @@ VulkanRenderer::~VulkanRenderer() {
 }
 
 /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
-/// pipelines, and sync objects.
+/// pipelines, and sync objects, in the requested deferred mode.
 bool VulkanRenderer::Initialize() {
     m_captureMode = !CommandLine::GetValue("-capture").empty();
+    // Mode requested before init; depth and the GBuffer follow it
+    m_deferredEnabled = m_pendingDeferredEnabled;
 
     if (!InitVulkan())
         SLEAK_RETURN_ERR("Failed to initialize Vulkan Instance!");

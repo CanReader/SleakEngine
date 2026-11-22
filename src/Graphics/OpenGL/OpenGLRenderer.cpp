@@ -147,6 +147,8 @@ bool OpenGLRenderer::Initialize() {
     if (m_Initialized) {
         return true;
     }
+    // Mode requested before init; the GBuffer follows it
+    m_deferredEnabled = m_pendingDeferredEnabled;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);

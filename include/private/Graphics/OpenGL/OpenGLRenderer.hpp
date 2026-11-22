@@ -28,6 +28,8 @@ public:
     OpenGLRenderer(Window* window);
     virtual ~OpenGLRenderer();
 
+    /// Creates the GL context and engine resources, with the GBuffer only
+    /// when deferred shading is requested.
     bool Initialize() override;
     /// Applies queued settings, renders the shadow map and binds the target.
     void BeginRender() override;

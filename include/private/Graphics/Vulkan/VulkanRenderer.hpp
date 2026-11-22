@@ -67,7 +67,7 @@ public:
     ~VulkanRenderer();
 
     /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
-    /// pipelines, and sync objects.
+    /// pipelines, and sync objects, in the requested deferred mode.
     virtual bool Initialize() override;
     /// Acquires a swapchain image and begins the shadow/GBuffer/forward
     /// passes; drawing happens via the RenderContext methods below.
