@@ -340,6 +340,10 @@ app->SetBloomEnabled(true);
 app->SetTAAEnabled(true);
 ```
 
+MSAA works the other way around: it needs forward rendering, so the count
+takes effect only after `app->SetDeferredEnabled(false)`. See
+@ref backend_support.
+
 Post-processing settings apply to the deferred path, which not every
 backend implements. Check first rather than assuming:
 

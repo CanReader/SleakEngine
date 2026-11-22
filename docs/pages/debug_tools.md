@@ -123,7 +123,8 @@ field of view. The performance panel prints the backend name in its accent
 color, then FPS, frame time, vertex and triangle counts, cached CPU and RAM
 figures, GPU usage when the platform reports it, a collider wireframe
 checkbox, and an MSAA dropdown clamped to the backend's
-`GetMaxMSAASampleCount()`.
+`GetMaxMSAASampleCount()`. Counts above 1x take effect only while deferred
+rendering is off.
 
 ### Engine hotkeys
 

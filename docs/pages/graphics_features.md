@@ -18,7 +18,7 @@ DX12 covers forward rendering with shadows.
 | Status | Feature | SleakEngine notes |
 |:---:|---|---|
 | <span class="feat-y">✓</span> | Deferred shading | `VulkanDeferred.cpp` GBuffer + `lighting_pass.frag`; GL path in `OpenGLRenderer.cpp` with `gbuffer_gl` / `lighting_pass_gl` |
-| <span class="feat-y">✓</span> | Forward rendering | `Renderer::SetDeferredEnabled`, `default_shader` variants on all four backends |
+| <span class="feat-y">✓</span> | Forward rendering | `Renderer::SetDeferredEnabled`, applied at the next `BeginRender`; `default_shader` variants on all four backends |
 | <span class="feat-y">✓</span> | Forward transparent pass | `VulkanRenderer::BeginForwardTransparentPass`, routed by `RenderCommandQueue.cpp` after lighting |
 | <span class="feat-n">✓</span> | Forward+ / clustered shading | - |
 | <span class="feat-n">✓</span> | Visibility buffer | - |
@@ -77,7 +77,7 @@ DX12 covers forward rendering with shadows.
 | <span class="feat-y">✓</span> | SSAO | `VulkanSSAO.cpp` and `ExecuteSSAOPass` in `OpenGLRenderer.cpp`, hemisphere kernel from `SSAOKernel.hpp`, separate blur pass |
 | <span class="feat-y">✓</span> | Screen space reflections | `VulkanSSR.cpp`, `ssr.frag`; VK only |
 | <span class="feat-y">✓</span> | Temporal anti-aliasing | `VulkanTAA.cpp`, `taa.frag`, Halton sub-pixel jitter applied to the WVP push constant; VK only |
-| <span class="feat-y">✓</span> | MSAA | `Renderer::SetMSAASampleCount`, VK pipelines and GL `m_msaaFBO`; forward only, the deferred path silently forces 1 sample because a multisampled GBuffer is too expensive |
+| <span class="feat-y">✓</span> | MSAA | `Renderer::SetMSAASampleCount`, VK pipelines and GL `m_msaaFBO`; forward only, because a multisampled GBuffer is too expensive. Counts above 1x are rejected while deferred is requested; Vulkan drops to 1x when deferred turns on and restores the count when it turns off |
 | <span class="feat-y">✓</span> | Bloom | `VulkanBloom.cpp`, half resolution; `GraphicsConfig::bloomMode`: `Additive` (default, thresholded 6-level glow added on top) or `Blend` (7 levels, every pixel mixed toward the normalized blur by `bloomBlend`, energy conserving); both chains stop early on windows under 128 px; VK only |
 | <span class="feat-y">✓</span> | Tone mapping | ACES filmic (Narkowicz fit) by default; `GraphicsConfig::tonemapOperator = SoftRational` selects `x / (1 + x^p)^(1/p)` inside a soft white path (`tonemapWhiteCurve`, `tonemapWhitePath`); `sleak/tonemap.glsl` holds both and their inverses; VK composite; on GL only a game lighting stem that calls `SleakFrameOutput()` applies it, the engine GL lighting keeps its inline ACES |
 | <span class="feat-y">✓</span> | Exposure, gamma, saturation, dither | `GraphicsConfig::exposure`, `gamma` (with `tonemapEnabled`), `saturation`, `filmGrainEnabled` (one 8-bit step of noise); applied where the tone mapping is: the VK composite, or a GL lighting stem through `SleakFrameOutput()` |

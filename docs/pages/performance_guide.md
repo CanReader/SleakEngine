@@ -141,14 +141,17 @@ with high-frequency shadow edges. It is Vulkan only.
 
 ### MSAA
 
-MSAA and the deferred path are mutually exclusive. When deferred is active
-the GBuffer is created with one sample per pixel and the swapchain forces
-1x, and the OpenGL renderer skips its MSAA framebuffer entirely. Setting
-`msaaSamples` to 4 with deferred enabled changes nothing visible and
-nothing in frame time.
+MSAA and the deferred path are mutually exclusive. While deferred is
+requested, `SetMSAASampleCount` rejects counts above 1x, so setting
+`msaaSamples` to 4 changes nothing visible and nothing in frame time. When
+deferred turns on, Vulkan drops to 1x and OpenGL skips its MSAA framebuffer;
+when it turns off, both return to the forward count.
 
-MSAA is worth reaching for on the DirectX backends, which run forward.
-`Sleak::Application::GetMaxMSAASampleCount()` reports the device limit.
+MSAA is worth reaching for in forward mode: on Vulkan, OpenGL, and
+DirectX 11 after `Application::SetDeferredEnabled(false)`. A change, like the
+deferred switch itself, applies between frames. On Vulkan it waits for the
+GPU and rebuilds pipelines, so expect one long frame rather than a steady
+cost. `Sleak::Application::GetMaxMSAASampleCount()` reports the device limit.
 
 ---
 

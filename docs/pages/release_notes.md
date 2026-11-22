@@ -7,6 +7,26 @@ written against the code that shipped in them, newest first.
 
 ## Unreleased
 
+### Runtime deferred and MSAA switches
+
+`SetDeferredEnabled` is now a request: the renderer applies it at the start
+of the next `BeginRender`, so a frame never changes mode halfway. Switching
+mid-frame used to record forward draws inside the Vulkan GBuffer pass, and
+on OpenGL it left every later frame drawing into the GBuffer, with no terrain
+or UI on screen. A switch requested before the renderer initializes picks
+the starting mode. Forward mode owns no GBuffer: turning deferred off frees
+it and turning it on builds it, so turning it on after a forward-mode resize
+no longer stays forward on Vulkan. A GBuffer build that fails partway now
+frees what it made.
+
+A Vulkan MSAA change now keeps the ImGui context, descriptor pool, and
+texture ids, and only rebuilds the ImGui pipeline. Ids a game cached used to
+point into a freed pool and crash the next UI draw. Turning deferred on drops
+Vulkan to 1x, and turning it off restores the forward count.
+
+`GetDeferredEnabled` and `Application::GetIsDeferredEnabled` report the
+requested mode, which is also what `SetMSAASampleCount` checks.
+
 ### OpenGL changes for games that do not opt in
 
 The engine now ships `lighting_pass_gl.frag`, so OpenGL runs its default

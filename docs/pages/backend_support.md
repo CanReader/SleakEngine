@@ -58,7 +58,7 @@ you draw the checkbox.
 | Separate tonemap pass | No, folded into bloom | No | Yes | No |
 | HDR render target | Yes | No | No | No |
 | MSAA implemented | Yes | Yes | Yes | No |
-| MSAA reachable above 1x | No | No | No | No |
+| MSAA reachable above 1x | With deferred off | With deferred off | With deferred off | No |
 | Custom vertex attributes | Yes | Yes | No | No |
 | Custom vertex shader stems | Yes | Ignored | Ignored | Ignored |
 | Polygon mode / cull face switching | No | Yes | Yes | Yes |
@@ -151,8 +151,8 @@ tonemap pass is gated on the sample count being 1 or less, so it and MSAA are
 mutually exclusive by design.
 
 The MSAA implementation itself is complete, including a quality-level probe
-and resource recreation, but it is unreachable at more than 1x for the reason
-in section 5.
+and resource recreation. It goes above 1x only after
+`SetDeferredEnabled(false)`, for the reason in section 5.
 
 DirectX 11 ignores registered vertex formats entirely, so custom-format
 geometry is interpreted through the built-in 96-byte `Sleak::Vertex` layout.
@@ -184,21 +184,36 @@ than assuming the flag you passed took effect.
 
 `Renderer::SetMSAASampleCount` validates the count against 1, 2, 4, and 8,
 clamps it to the hardware maximum, and then rejects anything above 1x while
-deferred rendering is enabled. A multisampled GBuffer would mismatch the
+deferred rendering is requested. A multisampled GBuffer would mismatch the
 1-sample attachments the deferred render passes are built with. The rejection
 is silent: no log, no return value, and `GetMSAASampleCount()` keeps
 reporting the previous value.
 
-The catch is that `m_deferredEnabled` defaults to `true` on the base
-`Renderer`, and `SetDeferredEnabled` has no callers anywhere in the engine.
-The check therefore fires on every backend, including the two that have no
-deferred path at all. Vulkan, OpenGL, and DirectX 11 each carry a working
-`ApplyMSAAChange` implementation that nothing currently reaches, and
-DirectX 12 has no MSAA support to reach.
+Deferred rendering is requested by default on every backend, including the
+two DirectX backends that have no deferred path. MSAA therefore stays at 1x
+until the game calls `Application::SetDeferredEnabled(false)`. After that,
+Vulkan, OpenGL, and DirectX 11 accept the count; DirectX 12 has no MSAA
+support. Set the count after the switch: one rejected while deferred was
+requested is not kept.
 
-Practically: treat MSAA as unavailable, and reach for TAA on Vulkan when you
-need anti-aliasing. Expect `-msaa 4`, `GraphicsConfig::msaaSamples`, and the
-debug overlay's MSAA dropdown to have no visible effect.
+Both settings are requests that `BeginRender` applies at the start of the
+next frame, the deferred switch first, so a frame never changes mode
+halfway. A switch requested before the renderer initializes picks the
+starting mode. Forward mode owns no GBuffer: Vulkan and OpenGL free it when
+deferred turns off and build it when deferred turns on, and a build that
+fails partway frees what it made. On Vulkan, both settings rebuild the
+main-pass pipelines, and an MSAA change also rebuilds the swapchain targets.
+ImGui keeps its context, descriptor pool, and texture ids, and only gets a
+new pipeline.
+
+Turning deferred on drops Vulkan to 1x and remembers the forward count;
+turning it off restores that count. `GetMSAASampleCount()` reports the count
+in use. OpenGL keeps its count and skips its MSAA framebuffer while deferred
+is on.
+
+Practically: with deferred on, reach for TAA on Vulkan. Expect `-msaa 4`,
+`GraphicsConfig::msaaSamples`, and the debug overlay's MSAA dropdown to do
+nothing while deferred rendering is requested.
 
 ---
 
@@ -228,6 +243,7 @@ stem-to-file mapping and the exact messages.
 | The `GraphicsCaps` bits and the base default | `include/private/Graphics/Common/Renderer.hpp` |
 | Each backend's declared mask | `GetFeatureCaps` in each `include/private/Graphics/<backend>/` renderer header |
 | The MSAA rejection | `Renderer::SetMSAASampleCount` in `Renderer.hpp` |
+| The deferred switch | `ApplyDeferredChange` in `VulkanRenderer.cpp` and `OpenGLRenderer.cpp` |
 | Shadow resolution queueing | `Renderer::SetShadowMapResolution`, `ApplyShadowResolutionChange` |
 | Deferred split and post chain | `src/Graphics/Vulkan/VulkanDeferred.cpp`, `VulkanBloom.cpp` |
 | OpenGL GBuffer setup and its shader load | `src/Graphics/OpenGL/OpenGLRenderer.cpp`, `CreateGBufferResources` |
