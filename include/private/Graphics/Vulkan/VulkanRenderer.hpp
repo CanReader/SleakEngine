@@ -232,6 +232,9 @@ public:
     /// Rebuilds the swapchain-dependent pipelines and render pass for a
     /// queued MSAA sample count change; ImGui only gets a new pipeline.
     void ApplyMSAAChange() override;
+    /// Switches deferred shading between frames: deferred builds the GBuffer
+    /// at 1x, forward frees it.
+    void ApplyDeferredChange() override;
     /// Rebuilds the GBuffer for a queued albedo format change.
     void ApplyGBufferFormatChange();
     /// Recreates the swapchain to apply a queued VSync toggle.
@@ -510,6 +513,8 @@ private:
  VkImage m_msaaColorImage = VK_NULL_HANDLE;
  VkDeviceMemory m_msaaColorImageMemory = VK_NULL_HANDLE;
  VkImageView m_msaaColorImageView = VK_NULL_HANDLE;
+ // Deferred shading runs at this sample count
+ static constexpr uint32_t SINGLE_SAMPLE_COUNT = 1;
 
  // Descriptor sets for uniform buffers
  VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;

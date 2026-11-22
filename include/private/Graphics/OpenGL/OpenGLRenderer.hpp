@@ -55,6 +55,9 @@ public:
 
     void ApplyMSAAChange() override;
     void ApplyVSyncChange() override;
+    /// Switches deferred shading between frames, building the GBuffer for
+    /// deferred and freeing it for forward.
+    void ApplyDeferredChange() override;
 
     virtual RenderContext* GetContext() override { return this; }
 

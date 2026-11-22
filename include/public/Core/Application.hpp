@@ -154,8 +154,9 @@ class ENGINE_API Application {
     bool GetVSync() const;
     void SetVSync(bool enabled);
 
-    /// Deferred rendering
+    /// Deferred mode last requested, which the next frame renders with.
     const bool GetIsDeferredEnabled() const;
+    /// Requests deferred shading on or off from the next frame.
     void SetDeferredEnabled(bool enabled);
 
     // Screen-space ambient occlusion (deferred path only)

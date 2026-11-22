@@ -204,11 +204,13 @@ void VulkanRenderer::BeginRender() {
     }
 
     // Apply pending changes between frames
+    // Mode first: the rebuilds below depend on it
+    if (DeferredChangeRequested()) ApplyDeferredChange();
+    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
     if (m_msaaChangeRequested)
         ApplyMSAAChange();
-    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
@@ -1502,6 +1504,36 @@ void VulkanRenderer::ApplyMSAAChange() {
     RecreateImGuiPipeline();
 
     SLEAK_INFO("MSAA change applied successfully");
+}
+
+/// Switches deferred shading between frames: deferred builds the GBuffer at
+/// 1x, forward frees it.
+void VulkanRenderer::ApplyDeferredChange() {
+    vkDeviceWaitIdle(device);
+    m_deferredEnabled = m_pendingDeferredEnabled;
+    // TAA history is stale after forward frames
+    m_taaRanLastFrame = false;
+    SLEAK_INFO("Deferred shading {}",
+               m_deferredEnabled ? "enabled" : "disabled");
+
+    if (m_deferredEnabled) {
+        // Deferred has no MSAA: drop a queued count, rebuild an active one
+        m_pendingMsaaSampleCount = SINGLE_SAMPLE_COUNT;
+        m_msaaChangeRequested = m_msaaSampleCount != SINGLE_SAMPLE_COUNT;
+    }
+    // The MSAA rebuild covers the GBuffer and the pipelines
+    if (m_msaaChangeRequested) {
+        ApplyMSAAChange();
+        return;
+    }
+    // Forward mode owns no GBuffer
+    if (m_deferredEnabled) {
+        CreateGBufferResources();
+    } else {
+        CleanupGBufferResources();
+        RebuildMainPassPipelines();
+    }
+    RecreateImGuiPipeline();
 }
 
 /// Recreates the swapchain to apply a queued VSync toggle.
