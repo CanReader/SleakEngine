@@ -373,8 +373,6 @@ bool VulkanRenderer::CreateTAAPipeline() {
 
 /// Destroys the TAA pipeline, framebuffers, descriptors, images, and sampler.
 void VulkanRenderer::CleanupTAAResources() {
-    if (!m_taaResourcesCreated) return;
-
     vkDeviceWaitIdle(device);
 
     if (m_taaPipeline)       { vkDestroyPipeline(device, m_taaPipeline, nullptr);             m_taaPipeline = VK_NULL_HANDLE; }

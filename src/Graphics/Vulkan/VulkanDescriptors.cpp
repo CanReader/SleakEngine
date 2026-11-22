@@ -246,25 +246,38 @@ void VulkanRenderer::WriteTextureDescriptors(VulkanTexture* texture) {
             [this](VulkanTexture* target) { WriteTextureDescriptors(target); });
 }
 
+/// Render pass and sample count of the pass ImGui draws in this mode. In
+/// deferred mode that is the bloom composite (swapchain, post-tonemap): the
+/// forward pass holds linear HDR and ends in SHADER_READ_ONLY_OPTIMAL.
+ImGui_ImplVulkan_PipelineInfo VulkanRenderer::ImGuiPipelineInfo() const {
+    const bool deferred = m_gbufferResourcesCreated && m_deferredEnabled;
+    ImGui_ImplVulkan_PipelineInfo info{};
+    info.RenderPass = renderPass;
+    info.Subpass = 0;
+    info.MSAASamples = deferred ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
+    if (deferred && m_bloomCompositeRenderPass != VK_NULL_HANDLE)
+        info.RenderPass = m_bloomCompositeRenderPass;
+    else if (deferred && m_forwardRenderPass != VK_NULL_HANDLE)
+        info.RenderPass = m_forwardRenderPass;
+    return info;
+}
+
+/// Rebuilds the ImGui pipeline for ImGuiPipelineInfo. ImGui destroys the old
+/// pipeline at once, so the GPU must be idle.
+void VulkanRenderer::RecreateImGuiPipeline() {
+    if (!bImInitialized) return;
+    const ImGui_ImplVulkan_PipelineInfo info = ImGuiPipelineInfo();
+    if (info.RenderPass == VK_NULL_HANDLE) return;
+    ImGui_ImplVulkan_CreateMainPipeline(&info);
+}
+
 /// Initializes ImGui and its Vulkan backend against the active render pass.
 bool VulkanRenderer::CreateImGUI() {
     if (!device || !instance || !graphicsQueue)
         return false;
 
-    // In deferred mode, ImGui renders inside the bloom COMPOSITE pass (swapchain
-    // target, post-tonemap). Forward pass can't host ImGui because its output
-    // is linear HDR and it ends in SHADER_READ_ONLY_OPTIMAL for bloom sampling.
-    VkRenderPass imguiRenderPass = VK_NULL_HANDLE;
-    if (m_gbufferResourcesCreated && m_deferredEnabled && m_bloomCompositeRenderPass != VK_NULL_HANDLE) {
-        imguiRenderPass = m_bloomCompositeRenderPass;
-    } else if (m_gbufferResourcesCreated && m_deferredEnabled && m_forwardRenderPass != VK_NULL_HANDLE) {
-        imguiRenderPass = m_forwardRenderPass;
-    } else {
-        imguiRenderPass = renderPass;
-    }
-
-    if (!imguiRenderPass)
-        return false;
+    const ImGui_ImplVulkan_PipelineInfo pipelineInfo = ImGuiPipelineInfo();
+    if (pipelineInfo.RenderPass == VK_NULL_HANDLE) return false;
 
     // ImGui backend allocates split SAMPLED_IMAGE + SAMPLER sets, not COMBINED_IMAGE_SAMPLER
     VkDescriptorPoolSize poolSizes[] = {
@@ -304,10 +317,7 @@ bool VulkanRenderer::CreateImGUI() {
     initInfo.MinImageCount = 2;
     initInfo.ImageCount =
         static_cast<uint32_t>(swapChainImages.size());
-    initInfo.PipelineInfoMain.MSAASamples = (m_gbufferResourcesCreated && m_deferredEnabled)
-                          ? VK_SAMPLE_COUNT_1_BIT : m_msaaSamples;
-    initInfo.PipelineInfoMain.RenderPass = imguiRenderPass;
-    initInfo.PipelineInfoMain.Subpass = 0;
+    initInfo.PipelineInfoMain = pipelineInfo;
 
     if (!ImGui_ImplVulkan_Init(&initInfo))
         return false;

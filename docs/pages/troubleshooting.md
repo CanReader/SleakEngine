@@ -98,14 +98,16 @@ Custom-format buffers are interpreted through the built-in 96-byte
 ### MSAA has no effect
 
 **Cause.** `Renderer::SetMSAASampleCount` silently rejects any count above 1
-while deferred rendering is enabled, because the GBuffer attachments are
-single-sample. `m_deferredEnabled` defaults to true on the base renderer and
-nothing ever clears it, so the check fires on every backend, including the
-forward-only ones. There is no log and no return value, and
-`GetMSAASampleCount()` keeps reporting the old value.
+while deferred rendering is requested, because the GBuffer attachments are
+single-sample. Deferred is requested by default on every backend, including
+the forward-only DirectX ones. There is no log and no return value, and
+`GetMSAASampleCount()` keeps reporting the old value. On Vulkan, turning
+deferred on also drops an active count to 1x until deferred turns off again.
 
-**Fix.** Treat MSAA as unavailable. Use TAA on Vulkan when you need
-anti-aliasing.
+**Fix.** Call `Application::SetDeferredEnabled(false)` first, then set the
+count. Both apply at the start of the next frame. Vulkan, OpenGL, and
+DirectX 11 then honor it; DirectX 12 has no MSAA. With deferred on, use TAA
+on Vulkan. See @ref backend_support.
 
 ### Nothing is shadowed on DirectX 12
 

@@ -213,7 +213,13 @@ On Vulkan, the deferred path is not a sequence of top-level calls from
 `Application`. Most of it hangs off three points: `BeginRender`, the queue
 flush, and `EndRender`.
 
-`BeginRender` does two things before any game draw exists this frame. It
+`BeginRender` first applies the settings queued during the previous frame:
+the deferred switch from `SetDeferredEnabled`, then a GBuffer albedo format
+change, VSync, and MSAA. The mode goes first because the others rebuild for
+it. A frame therefore never changes mode halfway, and the queue always
+replays into the passes `BeginRender` opened.
+
+Then it does two things before any game draw exists this frame. It
 replays the cached shadow draw list if there is one, then opens the GBuffer
 render pass and binds the GBuffer pipeline. Because `BeginRender` runs
 before the scene update, the shadow pass necessarily replays the previous

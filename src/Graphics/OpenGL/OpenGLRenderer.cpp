@@ -147,6 +147,8 @@ bool OpenGLRenderer::Initialize() {
     if (m_Initialized) {
         return true;
     }
+    // Mode requested before init; the GBuffer follows it
+    m_deferredEnabled = m_pendingDeferredEnabled;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
@@ -284,12 +286,15 @@ void OpenGLRenderer::ConfigureVertexLayout(uint32_t layout,
 }
 
 void OpenGLRenderer::BeginRender() {
+    // A frame that skipped the lighting pass left the geometry pass open
+    m_inGeometryPass = false;
     m_sceneReadPrepared = false;
+    // Mode first: the format change below depends on it
+    if (DeferredChangeRequested()) ApplyDeferredChange();
+    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
-    if (m_msaaChangeRequested)
-        ApplyMSAAChange();
-    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
+    if (m_msaaChangeRequested) ApplyMSAAChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
@@ -817,6 +822,17 @@ void OpenGLRenderer::ApplyVSyncChange() {
     SLEAK_INFO("OpenGL VSync {}", m_vsync ? "enabled" : "disabled");
 }
 
+void OpenGLRenderer::ApplyDeferredChange() {
+    Renderer::ApplyDeferredChange();
+    SLEAK_INFO("OpenGL deferred shading {}",
+               m_deferredEnabled ? "enabled" : "disabled");
+    // Forward mode owns no GBuffer
+    if (m_deferredEnabled)
+        CreateGBufferResources();
+    else
+        CleanupGBufferResources();
+}
+
 void OpenGLRenderer::ConfigureRenderMode() {
     switch (Mode) {
         case RenderMode::Fill:
@@ -1184,6 +1200,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         SLEAK_ERROR("OpenGL GBuffer FBO is not complete!");
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        CleanupGBufferResources();
         return false;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

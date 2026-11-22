@@ -88,9 +88,11 @@ VulkanRenderer::~VulkanRenderer() {
 }
 
 /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
-/// pipelines, and sync objects.
+/// pipelines, and sync objects, in the requested deferred mode.
 bool VulkanRenderer::Initialize() {
     m_captureMode = !CommandLine::GetValue("-capture").empty();
+    // Mode requested before init; depth and the GBuffer follow it
+    m_deferredEnabled = m_pendingDeferredEnabled;
 
     if (!InitVulkan())
         SLEAK_RETURN_ERR("Failed to initialize Vulkan Instance!");
@@ -204,11 +206,12 @@ void VulkanRenderer::BeginRender() {
     }
 
     // Apply pending changes between frames
+    // Mode first: the rebuilds below depend on it
+    if (DeferredChangeRequested()) ApplyDeferredChange();
+    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
-    if (m_msaaChangeRequested)
-        ApplyMSAAChange();
-    if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
+    if (m_msaaChangeRequested) ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
@@ -1397,7 +1400,7 @@ bool VulkanRenderer::RecreateSwapChain() {
     // Cleanup GBuffer BEFORE CleanupSwapChain (which destroys depth image)
     // to avoid dangling image view references in GBuffer framebuffer
     bool hadGBuffer = m_gbufferResourcesCreated;
-    CleanupGBufferResources();
+    if (hadGBuffer) CleanupGBufferResources();
 
     CleanupMSAAColorResources();
     CleanupSwapChain();
@@ -1450,7 +1453,8 @@ void VulkanRenderer::ApplyGBufferFormatChange() {
 }
 
 /// Rebuilds the swapchain-dependent pipelines and render pass for a queued
-/// MSAA sample count change.
+/// MSAA sample count change. ImGui keeps its context, descriptor pool and
+/// texture IDs and only gets a new pipeline.
 void VulkanRenderer::ApplyMSAAChange() {
     if (!m_msaaChangeRequested)
         return;
@@ -1478,41 +1482,8 @@ void VulkanRenderer::ApplyMSAAChange() {
         renderPass = VK_NULL_HANDLE;
     }
 
-    // Destroy main-pass pipelines (NOT shadow pipeline)
-    if (pipeline) {
-        vkDestroyPipeline(device, pipeline, nullptr);
-        pipeline = VK_NULL_HANDLE;
-    }
-    if (skyboxPipeline) {
-        vkDestroyPipeline(device, skyboxPipeline, nullptr);
-        skyboxPipeline = VK_NULL_HANDLE;
-    }
-    if (skinnedPipeline) {
-        vkDestroyPipeline(device, skinnedPipeline, nullptr);
-        skinnedPipeline = VK_NULL_HANDLE;
-    }
-    if (debugLinePipeline) {
-        vkDestroyPipeline(device, debugLinePipeline, nullptr);
-        debugLinePipeline = VK_NULL_HANDLE;
-    }
-    // Custom-format variants are built against the render passes torn down
-    // here; drop them so the next draw rebuilds against the new ones.
-    DestroyCustomFormatPipelines();
-
     // Cleanup GBuffer BEFORE swapchain/depth (avoids dangling image view refs)
     CleanupGBufferResources();
-
-    // Shutdown ImGUI
-    if (bImInitialized) {
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
-        ImGui::DestroyContext();
-        bImInitialized = false;
-    }
-    if (imguiDescriptorPool) {
-        vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
-        imguiDescriptorPool = VK_NULL_HANDLE;
-    }
 
     // Cleanup swapchain-related resources
     CleanupMSAAColorResources();
@@ -1526,36 +1497,50 @@ void VulkanRenderer::ApplyMSAAChange() {
     CreateMSAAColorResources();
     CreateRenderPass();
     CreateFrameBuffer();
-    CreateGraphicsPipeline();
-    CreateSkyboxPipeline();
-    CreateSkinnedPipeline();
-    CreateDebugLinePipeline();
-    if (m_deferredEnabled) CreateGBufferResources();
-    CreateImGUI();
-
-    // Re-bind skybox cubemap texture to the new descriptor sets
-    if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
-        for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
-
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = skyboxDescriptorSets[i];
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo = &imageInfo;
-
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
-        }
-        m_skyboxDescriptorsWritten = true;
-    }
+    // A GBuffer build rebuilds the main-pass pipelines itself
+    if (m_deferredEnabled)
+        CreateGBufferResources();
+    else
+        RebuildMainPassPipelines();
+    RecreateImGuiPipeline();
 
     SLEAK_INFO("MSAA change applied successfully");
+}
+
+/// Switches deferred shading between frames: deferred builds the GBuffer at
+/// 1x, forward frees it and gets its MSAA count back.
+void VulkanRenderer::ApplyDeferredChange() {
+    vkDeviceWaitIdle(device);
+    m_deferredEnabled = m_pendingDeferredEnabled;
+    // TAA history is stale after forward frames
+    m_taaRanLastFrame = false;
+    SLEAK_INFO("Deferred shading {}",
+               m_deferredEnabled ? "enabled" : "disabled");
+
+    if (m_deferredEnabled) {
+        // Remember the forward count, queued or active, and drop to 1x
+        m_forwardMsaaCount = m_msaaChangeRequested ? m_pendingMsaaSampleCount
+                                                   : m_msaaSampleCount;
+        m_pendingMsaaSampleCount = SINGLE_SAMPLE_COUNT;
+        m_msaaChangeRequested = m_msaaSampleCount != SINGLE_SAMPLE_COUNT;
+    } else if (!m_msaaChangeRequested) {
+        // Restore the forward count unless a newer one is queued
+        m_pendingMsaaSampleCount = m_forwardMsaaCount;
+        m_msaaChangeRequested = m_forwardMsaaCount != m_msaaSampleCount;
+    }
+    // The MSAA rebuild covers the GBuffer and the pipelines
+    if (m_msaaChangeRequested) {
+        ApplyMSAAChange();
+        return;
+    }
+    // Forward mode owns no GBuffer
+    if (m_deferredEnabled) {
+        CreateGBufferResources();
+    } else {
+        CleanupGBufferResources();
+        RebuildMainPassPipelines();
+    }
+    RecreateImGuiPipeline();
 }
 
 /// Recreates the swapchain to apply a queued VSync toggle.
@@ -1827,12 +1812,10 @@ void VulkanRenderer::ApplyShadowResolutionChange() {
                m_shadowMapResolution, m_shadowMapResolution);
 }
 
-/// Top-level orchestrator for deferred rendering: creates the GBuffer color
-/// images, then the render passes, descriptors, and pipelines that read
-/// them. Shares the depth image from CreateDepthResources() (already SAMPLED_BIT).
-bool VulkanRenderer::CreateGBufferResources() {
-    if (m_gbufferResourcesCreated) return true;
-
+/// Creates the GBuffer color images, then the render passes, descriptors,
+/// and pipelines that read them; false at the first step that fails. Shares
+/// the depth image from CreateDepthResources() (already SAMPLED_BIT).
+bool VulkanRenderer::BuildGBufferResources() {
     // Create GBuffer color attachment images
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) {
         VkImageCreateInfo imageInfo{};
@@ -1927,56 +1910,73 @@ bool VulkanRenderer::CreateGBufferResources() {
     // SSR input descriptors depend on m_gbufferViews + m_hdrSceneView, both
     // created above — safe to write now.
     UpdateSSRDescriptors();
+    return true;
+}
 
-    // Recreate forward-pass pipelines so they use m_forwardRenderPass instead
-    // of the main renderPass (which may have different attachments when MSAA
-    // is active, or an incompatible finalLayout).
-    if (m_forwardRenderPass != VK_NULL_HANDLE) {
-        if (pipeline)         { vkDestroyPipeline(device, pipeline, nullptr);         pipeline = VK_NULL_HANDLE; }
-        if (skyboxPipeline)   { vkDestroyPipeline(device, skyboxPipeline, nullptr);   skyboxPipeline = VK_NULL_HANDLE; }
-        if (debugLinePipeline) { vkDestroyPipeline(device, debugLinePipeline, nullptr); debugLinePipeline = VK_NULL_HANDLE; }
-        if (skinnedPipeline) {
-            vkDestroyPipeline(device, skinnedPipeline, nullptr);
-            skinnedPipeline = VK_NULL_HANDLE;
-        }
-        DestroyCustomFormatPipelines();
-
-        CreateGraphicsPipeline();
-        CreateSkyboxPipeline();
-        CreateDebugLinePipeline();
-        CreateSkinnedPipeline();
-
-        m_gbufferResourcesCreated = true;
-
-        // Re-bind skybox cubemap to the newly allocated descriptor sets
-        if (m_skyboxCubemapView != VK_NULL_HANDLE && m_skyboxCubemapSampler != VK_NULL_HANDLE) {
-            for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
-                VkDescriptorImageInfo imageInfo{};
-                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                imageInfo.imageView   = m_skyboxCubemapView;
-                imageInfo.sampler     = m_skyboxCubemapSampler;
-
-                VkWriteDescriptorSet descriptorWrite{};
-                descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrite.dstSet          = skyboxDescriptorSets[i];
-                descriptorWrite.dstBinding      = 0;
-                descriptorWrite.dstArrayElement = 0;
-                descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptorWrite.descriptorCount = 1;
-                descriptorWrite.pImageInfo      = &imageInfo;
-
-                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
-            }
-            m_skyboxDescriptorsWritten = true;
-        }
-
-        PrebuildCustomFormatPipelines();
+/// Top-level orchestrator for deferred rendering: builds the GBuffer and
+/// what reads it and moves the main-pass pipelines to its forward pass. A
+/// failed build frees what it made and leaves them on the main pass.
+bool VulkanRenderer::CreateGBufferResources() {
+    if (m_gbufferResourcesCreated) return true;
+    if (!BuildGBufferResources()) {
+        CleanupGBufferResources();
+        // The main-pass pipelines leave the freed forward pass
+        RebuildMainPassPipelines();
+        return false;
     }
+
+    // Forward-pass pipelines move to m_forwardRenderPass, whose attachments
+    // and finalLayout differ from the main renderPass
+    m_gbufferResourcesCreated = true;
+    RebuildMainPassPipelines();
 
     SLEAK_INFO("VulkanRenderer: Deferred GBuffer resources created ({}x{})",
                scExtent.width, scExtent.height);
     return true;
 }
 
+/// Rebuilds the main, skybox, debug line, skinned and custom-format
+/// pipelines for the pass forward draws use: the HDR forward pass while
+/// deferred is active, else the main pass. The GPU must be idle.
+void VulkanRenderer::RebuildMainPassPipelines() {
+    for (VkPipeline* target :
+         {&pipeline, &skyboxPipeline, &debugLinePipeline, &skinnedPipeline}) {
+        if (*target == VK_NULL_HANDLE) continue;
+        vkDestroyPipeline(device, *target, nullptr);
+        *target = VK_NULL_HANDLE;
+    }
+    DestroyCustomFormatPipelines();
+
+    CreateGraphicsPipeline();
+    CreateSkyboxPipeline();
+    CreateDebugLinePipeline();
+    CreateSkinnedPipeline();
+
+    // Re-bind skybox cubemap to the newly allocated descriptor sets
+    if (m_skyboxCubemapView != VK_NULL_HANDLE &&
+        m_skyboxCubemapSampler != VK_NULL_HANDLE) {
+        for (VkDescriptorSet set : skyboxDescriptorSets) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = m_skyboxCubemapView;
+            imageInfo.sampler = m_skyboxCubemapSampler;
+
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = set;
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+        }
+        m_skyboxDescriptorsWritten = true;
+    }
+
+    PrebuildCustomFormatPipelines();
+}
 }
 }

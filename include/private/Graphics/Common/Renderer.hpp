@@ -294,11 +294,21 @@ public:
     virtual void ApplyShadowResolutionChange() {}
 
     // Deferred rendering mode (default: enabled)
-    void SetDeferredEnabled(bool enabled) { m_deferredEnabled = enabled; }
-    bool GetDeferredEnabled() const { return m_deferredEnabled; }
+    /// Requests deferred shading on or off; the backend switches at its next
+    /// BeginRender, so a frame never changes mode halfway.
+    void SetDeferredEnabled(bool enabled) {
+        m_pendingDeferredEnabled = enabled;
+    }
+    /// The requested mode, which frames from the next BeginRender use.
+    bool GetDeferredEnabled() const { return m_pendingDeferredEnabled; }
+    /// Switches to the requested mode; the default only copies the flag.
+    virtual void ApplyDeferredChange() {
+        m_deferredEnabled = m_pendingDeferredEnabled;
+    }
 
     // Anti-aliasing (MSAA)
-    /// Requests a new MSAA sample count; rejects invalid values and samples above 1 while deferred shading is on.
+    /// Requests a new MSAA sample count; rejects invalid values and samples
+    /// above 1 while deferred shading is requested.
     virtual void SetMSAASampleCount(uint32_t samples) {
         // Validate: must be 1, 2, 4, or 8
         if (samples != 1 && samples != 2 && samples != 4 && samples != 8)
@@ -311,8 +321,7 @@ public:
         // GBuffer color/depth attachments are 1-sample, so a render pass
         // built with >1 samples produces attachment/pipeline sample
         // mismatches. Silently reject — keep the current sample count.
-        if (m_deferredEnabled && samples > 1)
-            return;
+        if (m_pendingDeferredEnabled && samples > 1) return;
         m_pendingMsaaSampleCount = samples;
         m_msaaChangeRequested = true;
     }
@@ -325,6 +334,11 @@ public:
     virtual void ConfigureRenderMode() = 0;
     /// Applies the current RenderFace (cull mode) to backend state.
     virtual void ConfigureRenderFace() = 0;
+
+    /// True while SetDeferredEnabled asked for the mode not active yet.
+    bool DeferredChangeRequested() const {
+        return m_pendingDeferredEnabled != m_deferredEnabled;
+    }
 
     /// Rolls up frame count into rate/time/triangle stats once per MetricUpdateInterval.
     void UpdateFrameMetrics() {
@@ -430,8 +444,9 @@ public:
     bool m_shadowResourcesCreated = false;
     bool m_shadowResChangeRequested = false;
 
-    // Deferred rendering
+    // Deferred rendering: the active mode and the one BeginRender applies
     bool m_deferredEnabled = true;
+    bool m_pendingDeferredEnabled = true;
 
     // VSync state
     bool m_vsync = false;

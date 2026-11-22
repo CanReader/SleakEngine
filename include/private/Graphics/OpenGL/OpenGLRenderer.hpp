@@ -28,7 +28,10 @@ public:
     OpenGLRenderer(Window* window);
     virtual ~OpenGLRenderer();
 
+    /// Creates the GL context and engine resources, with the GBuffer only
+    /// when deferred shading is requested.
     bool Initialize() override;
+    /// Applies queued settings, renders the shadow map and binds the target.
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;
@@ -54,6 +57,9 @@ public:
 
     void ApplyMSAAChange() override;
     void ApplyVSyncChange() override;
+    /// Switches deferred shading between frames, building the GBuffer for
+    /// deferred and freeing it for forward.
+    void ApplyDeferredChange() override;
 
     virtual RenderContext* GetContext() override { return this; }
 
@@ -290,7 +296,8 @@ private:
     /// program samples it.
     void FlushShadowMaterial();
 
-    /// Allocates the GBuffer FBO and its albedo/normal/metal-emit/depth attachments.
+    /// Allocates the GBuffer FBO, attachments and shaders; a failed attempt
+    /// frees what it made.
     bool CreateGBufferResources();
     void CleanupGBufferResources();
     /// Tears down and reallocates the GBuffer at a new swapchain size.

@@ -67,7 +67,7 @@ public:
     ~VulkanRenderer();
 
     /// Runs the full Vulkan bring-up sequence: instance, device, swapchain,
-    /// pipelines, and sync objects.
+    /// pipelines, and sync objects, in the requested deferred mode.
     virtual bool Initialize() override;
     /// Acquires a swapchain image and begins the shadow/GBuffer/forward
     /// passes; drawing happens via the RenderContext methods below.
@@ -230,8 +230,11 @@ public:
 
     // MSAA
     /// Rebuilds the swapchain-dependent pipelines and render pass for a
-    /// queued MSAA sample count change.
+    /// queued MSAA sample count change; ImGui only gets a new pipeline.
     void ApplyMSAAChange() override;
+    /// Switches deferred shading between frames: deferred builds the GBuffer
+    /// at 1x, forward frees it and gets its MSAA count back.
+    void ApplyDeferredChange() override;
     /// Rebuilds the GBuffer for a queued albedo format change.
     void ApplyGBufferFormatChange();
     /// Recreates the swapchain to apply a queued VSync toggle.
@@ -262,11 +265,17 @@ private:
  /// Compiles the skinned shaders on first use and creates the forward
  /// skinned pipeline.
  bool CreateSkinnedPipeline();
+ /// Rebuilds the main, skybox, debug line, skinned and custom-format
+ /// pipelines for the pass forward draws use; the GPU must be idle.
+ void RebuildMainPassPipelines();
 
  // Deferred rendering
  /// Creates the GBuffer color images, render passes, descriptors, and
- /// pipelines that make up the deferred lighting path.
+ /// pipelines of the deferred lighting path; a failed build frees them and
+ /// leaves the main-pass pipelines on the main pass.
  bool CreateGBufferResources();
+ /// Runs the GBuffer build steps in order; false at the first that fails.
+ bool BuildGBufferResources();
  /// Creates the GBuffer render pass with its four color attachments and depth.
  bool CreateGBufferRenderPass();
  /// Creates the GBuffer framebuffer binding the GBuffer images and depth.
@@ -316,7 +325,7 @@ private:
  /// Creates stub IBL irradiance, prefilter, and BRDF LUT images, samplers, and
  /// descriptor set.
  bool CreateIBLResources();
- /// Destroys all GBuffer, lighting, and forward transparent pass resources.
+ /// Destroys every GBuffer, lighting, and forward pass resource that exists.
  void CleanupGBufferResources();
  /// Destroys the IBL images, samplers, and descriptor resources.
  void CleanupIBLResources();
@@ -504,6 +513,10 @@ private:
  VkImage m_msaaColorImage = VK_NULL_HANDLE;
  VkDeviceMemory m_msaaColorImageMemory = VK_NULL_HANDLE;
  VkImageView m_msaaColorImageView = VK_NULL_HANDLE;
+ // Deferred shading runs at this sample count
+ static constexpr uint32_t SINGLE_SAMPLE_COUNT = 1;
+ // MSAA count forward shading gets back when deferred turns off
+ uint32_t m_forwardMsaaCount = SINGLE_SAMPLE_COUNT;
 
  // Descriptor sets for uniform buffers
  VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
@@ -629,6 +642,10 @@ private:
 
  // ImGUI
  VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
+ /// Render pass and sample count of the pass ImGui draws in this mode.
+ ImGui_ImplVulkan_PipelineInfo ImGuiPipelineInfo() const;
+ /// Rebuilds the ImGui pipeline for ImGuiPipelineInfo; the GPU must be idle.
+ void RecreateImGuiPipeline();
 
  // Shadow mapping resources
  VkImage m_shadowImage = VK_NULL_HANDLE;
