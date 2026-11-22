@@ -29,6 +29,7 @@ public:
     virtual ~OpenGLRenderer();
 
     bool Initialize() override;
+    /// Applies queued settings, renders the shadow map and binds the target.
     void BeginRender() override;
     void EndRender() override;
     void Cleanup() override;

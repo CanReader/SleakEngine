@@ -284,6 +284,8 @@ void OpenGLRenderer::ConfigureVertexLayout(uint32_t layout,
 }
 
 void OpenGLRenderer::BeginRender() {
+    // A frame that skipped the lighting pass left the geometry pass open
+    m_inGeometryPass = false;
     m_sceneReadPrepared = false;
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
