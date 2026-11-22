@@ -104,6 +104,8 @@ DX12 covers forward rendering with shadows.
 | <span class="feat-y">✓</span> | Cubemap skybox | `Sleak::Skybox` six-face constructor, `skybox.frag` |
 | <span class="feat-y">✓</span> | Equirectangular panorama sky | `SkyboxMode::Panorama` |
 | <span class="feat-y">✓</span> | Procedural gradient sky | `SkyboxMode::Gradient`, three-color vertical blend |
+| <span class="feat-y">✓</span> | Procedural sky with sun, moon and stars | `Application::SetAtmosphere`, Vulkan and OpenGL deferred, see @ref atmosphere; `GraphicsConfig::skyProcedural*` are not wired to it |
+| <span class="feat-y">✓</span> | Sky-matched height fog and world-edge fade | part of the atmosphere, replaces `LightManager` fog where it draws |
 | <span class="feat-y">✓</span> | Distance fog | `LightManager::SetFogDistances`, `ApplyFog` in `lighting_pass.frag` |
 | <span class="feat-y">✓</span> | Exponential height fog | `LightManager::SetHeightFogDensity` / `SetHeightFogFalloff`, stacks with distance fog |
 | <span class="feat-n">✓</span> | Physical sky / atmospheric scattering | gradient sky only, no Rayleigh or Mie model |
