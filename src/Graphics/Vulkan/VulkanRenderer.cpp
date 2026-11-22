@@ -211,8 +211,7 @@ void VulkanRenderer::BeginRender() {
     if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
-    if (m_msaaChangeRequested)
-        ApplyMSAAChange();
+    if (m_msaaChangeRequested) ApplyMSAAChange();
     if (m_shadowResChangeRequested)
         ApplyShadowResolutionChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();

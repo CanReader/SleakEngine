@@ -294,8 +294,7 @@ void OpenGLRenderer::BeginRender() {
     if (m_gbufferFormatChangeRequested) ApplyGBufferFormatChange();
     if (m_vsyncChangeRequested)
         ApplyVSyncChange();
-    if (m_msaaChangeRequested)
-        ApplyMSAAChange();
+    if (m_msaaChangeRequested) ApplyMSAAChange();
     if (m_lightingShaderDirty) ApplyLightingShaderChange();
 
     // Commit staged lightVP before shadow pass so shadow + main agree.
