@@ -306,6 +306,10 @@ void SleakLightingDefaultMain() {
 
 #else  // OpenGL
 
+// Only this half draws the atmosphere: on Vulkan a composite pass does
+#include "sleak/frame_output.glsl"
+#include "sleak/atmosphere_pass.glsl"
+
 // Poisson disk for PCF
 const int SLEAK_PCF_SAMPLES = 16;
 const vec2 SLEAK_POISSON16[SLEAK_PCF_SAMPLES] = vec2[](
@@ -524,13 +528,36 @@ vec3 SleakShadeDefault(ivec2 px, vec2 uv, float depth) {
     return SleakApplyFog(color, worldPos);
 }
 
-/// The whole engine lighting pass: sky is discarded so the clear color and
-/// depth 1 stay for the skybox; lit pixels copy the GBuffer depth.
+/// Display color of a sky pixel when the atmosphere draws the sky.
+vec3 SleakAtmosphereSkyDisplay(vec2 uv) {
+    vec4 sky = SleakAtmosphereGuard(SleakAtmosphereComposite(uv, 1.0));
+    return SleakOutputTransform(sky.rgb, SleakFrameOutput());
+}
+
+/// The whole engine lighting pass. Without the atmosphere, sky pixels are
+/// discarded so the clear color and depth 1 stay for the skybox; with it,
+/// they take the procedural sky. Lit pixels copy the GBuffer depth.
 void SleakLightingDefaultMain() {
     float depth = texture(gDepth, fragUV).r;
-    if (depth >= 1.0) discard;
+    bool atmosphere = SleakAtmosphereEnabled();
+    if (depth >= 1.0 && !atmosphere) discard;
     gl_FragDepth = depth;
-    vec3 color = SleakShadeDefault(ivec2(gl_FragCoord.xy), fragUV, depth);
+    vec3 color;
+    if (depth >= 1.0) {
+        color = SleakAtmosphereSkyDisplay(fragUV);
+    } else {
+        color = SleakShadeDefault(ivec2(gl_FragCoord.xy), fragUV, depth);
+        if (atmosphere) {
+            // Fog applies in scene units, under this frame's output
+            SleakOutputParams o = SleakFrameOutput();
+            vec3 scene = SleakOutputTransformInverse(
+                SleakLegacyDisplayToOutput(color, o), o);
+            vec4 scatter =
+                SleakAtmosphereGuard(SleakAtmosphereComposite(fragUV, depth));
+            color = SleakOutputTransform(SleakAtmosphereApply(scene, scatter),
+                                         o);
+        }
+    }
     outColor = SleakFrameGuard(vec4(color, 1.0));
 }
 

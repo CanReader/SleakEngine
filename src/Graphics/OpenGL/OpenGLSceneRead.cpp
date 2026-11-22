@@ -15,7 +15,6 @@ namespace RenderEngine {
 
 namespace {
 
-constexpr GLenum CUBE_FACE_COUNT = 6;
 constexpr GLsizei STAND_IN_SIZE = 1;
 
 }  // namespace
@@ -45,7 +44,7 @@ void OpenGLRenderer::PrepareSceneRead() {
         glActiveTexture(GL_TEXTURE0 + SCENE_SKY_UNIT);
         glBindTexture(GL_TEXTURE_CUBE_MAP, m_sceneFallbackCube);
         const uint32_t black = 0;
-        for (GLenum face = 0; face < CUBE_FACE_COUNT; ++face)
+        for (GLenum face = 0; face < CUBE_FACES; ++face)
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA8,
                          STAND_IN_SIZE, STAND_IN_SIZE, 0, GL_RGBA,
                          GL_UNSIGNED_BYTE, &black);
@@ -72,7 +71,8 @@ void OpenGLRenderer::PrepareSceneRead() {
 
     if (!m_sceneReadPrepared) {
         m_sceneReadPrepared = true;
-        m_sceneSkyCube = FindSkyboxCubemap();
+        m_sceneSkyCube =
+            DrawsAtmosphere() ? m_skyProbeTex : FindSkyboxCubemap();
         const int w = m_gbufferWidth;
         const int h = m_gbufferHeight;
         const bool valid = m_gbufferCreated && IsDeferredEnabled() &&

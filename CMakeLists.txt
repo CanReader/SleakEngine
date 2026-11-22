@@ -152,6 +152,7 @@ set(GRAPHICS_COMMON_SOURCES
 
 set(GRAPHICS_OPENGL_SOURCES
     src/Graphics/OpenGL/glad.c
+    src/Graphics/OpenGL/OpenGLAtmosphere.cpp
     src/Graphics/OpenGL/OpenGLBuffer.cpp
     src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
     src/Graphics/OpenGL/OpenGLIBL.cpp

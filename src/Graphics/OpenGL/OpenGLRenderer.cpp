@@ -1021,6 +1021,7 @@ void OpenGLRenderer::UploadFrameData() {
     glNamedBufferSubData(m_frameUserUBO, 0,
                          RenderEngine::FRAME_USER_DATA_MAX_BYTES,
                          m_frameData.GetUserData());
+    if (DrawsAtmosphere()) EnsureSkyProbe();
     RenderEngine::AtmosphereData atmosphere{};
     BuildFrameAtmosphere(atmosphere);
     glNamedBufferSubData(m_frameAtmosphereUBO, 0, sizeof(atmosphere),
@@ -1258,6 +1259,7 @@ bool OpenGLRenderer::CreateGBufferResources() {
 void OpenGLRenderer::CleanupGBufferResources() {
     CleanupSSAOResources();
     CleanupIBL();
+    CleanupSkyProbe();
     if (m_gbufferAlbedoAO)    { glDeleteTextures(1, &m_gbufferAlbedoAO);    m_gbufferAlbedoAO    = 0; }
     if (m_gbufferNormalRough) { glDeleteTextures(1, &m_gbufferNormalRough); m_gbufferNormalRough = 0; }
     if (m_gbufferMetalEmit)   { glDeleteTextures(1, &m_gbufferMetalEmit);   m_gbufferMetalEmit   = 0; }
@@ -1436,6 +1438,8 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     // IBL precompute (cheap when already baked) — must happen before the
     // lighting shader binds units 14/15/16 and UBO 10.
     EnsureIBL();
+    // Sky probe for this frame's reflections
+    RenderSkyProbe();
 
     // Deferred rendering always outputs to the default FBO (framebuffer 0).
     // MSAA is incompatible with deferred (multisampled GBuffer is too expensive),
