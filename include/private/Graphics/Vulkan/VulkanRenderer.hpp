@@ -262,10 +262,14 @@ private:
  /// Compiles the skinned shaders on first use and creates the forward
  /// skinned pipeline.
  bool CreateSkinnedPipeline();
+ /// Rebuilds the main, skybox, debug line, skinned and custom-format
+ /// pipelines for the pass forward draws use; the GPU must be idle.
+ void RebuildMainPassPipelines();
 
  // Deferred rendering
  /// Creates the GBuffer color images, render passes, descriptors, and
- /// pipelines of the deferred lighting path; a failed build frees them.
+ /// pipelines of the deferred lighting path; a failed build frees them and
+ /// leaves the main-pass pipelines on the main pass.
  bool CreateGBufferResources();
  /// Runs the GBuffer build steps in order; false at the first that fails.
  bool BuildGBufferResources();
