@@ -435,6 +435,50 @@ namespace Sleak {
         static_assert(offsetof(FrameData, WhitePath) == 496);
         static_assert(offsetof(FrameData, WhitePathInverse) == 512);
         static_assert(sizeof(FrameData) == 528);
+
+        /// Bumped with every AtmosphereData append; Debug shaders compare it.
+        inline constexpr uint32_t ATMOSPHERE_DATA_VERSION = 1;
+
+        /// Procedural sky and fog (sleak/atmosphere.glsl): Vulkan set 2
+        /// binding 4, GL uniform buffer 15. std140, append only.
+        struct alignas(16) AtmosphereData {
+            uint32_t Header[4];    // version, 1 while the atmosphere draws
+            float SunDir[4];       // xyz, disc intensity
+            float SunColor[4];     // rgb, redden gain
+            float MoonDir[4];      // xyz, phase angle
+            float MoonTangent[4];
+            float MoonColor[4];
+            float SkyColor[4];     // rgb, day scale
+            float TintColor[4];    // rgb, strength
+            float NightColor[4];   // rgb, day weight
+            float SkyShape[4];     // tint exponent, ground density
+            float GlareDir[4];     // xyz, width
+            float GlareColor[4];
+            float StarColor[4];    // rgb, cosine of the sky turn
+            float StarAxis[4];     // xyz, sine of the sky turn
+            float FogDensity[4];   // per metre, exponent, base y, falloff
+            float FogIndoor[4];    // rgb, outdoor factor
+            float FogBorder[4];    // fog day weight, edge fade start, end
+        };
+        static_assert(offsetof(AtmosphereData, Header) == 0);
+        static_assert(offsetof(AtmosphereData, SunDir) == 16);
+        static_assert(offsetof(AtmosphereData, SunColor) == 32);
+        static_assert(offsetof(AtmosphereData, MoonDir) == 48);
+        static_assert(offsetof(AtmosphereData, MoonTangent) == 64);
+        static_assert(offsetof(AtmosphereData, MoonColor) == 80);
+        static_assert(offsetof(AtmosphereData, SkyColor) == 96);
+        static_assert(offsetof(AtmosphereData, TintColor) == 112);
+        static_assert(offsetof(AtmosphereData, NightColor) == 128);
+        static_assert(offsetof(AtmosphereData, SkyShape) == 144);
+        static_assert(offsetof(AtmosphereData, GlareDir) == 160);
+        static_assert(offsetof(AtmosphereData, GlareColor) == 176);
+        static_assert(offsetof(AtmosphereData, StarColor) == 192);
+        static_assert(offsetof(AtmosphereData, StarAxis) == 208);
+        static_assert(offsetof(AtmosphereData, FogDensity) == 224);
+        static_assert(offsetof(AtmosphereData, FogIndoor) == 240);
+        static_assert(offsetof(AtmosphereData, FogBorder) == 256);
+        static_assert(sizeof(AtmosphereData) == 272);
+        static_assert(sizeof(AtmosphereData) <= FRAME_ATMOSPHERE_BLOCK_BYTES);
     }
 }
 
