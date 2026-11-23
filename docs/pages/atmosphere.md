@@ -50,16 +50,18 @@ preset, a game fills every field it wants to see.
 
 ## 2. Where It Draws
 
-`Application::IsAtmosphereActive()` tells whether the active backend draws
-the atmosphere this frame. While it does, the scene's `Sleak::Skybox` is
-not submitted; everywhere else the skybox draws as usual, so a game can
-keep one as the sky of the other paths.
+`Application::IsAtmosphereActive()` tells whether the active backend
+composites sky and fog this frame. On Vulkan and OpenGL the atmosphere also
+draws the sky of the forward path, so the scene's `Sleak::Skybox` is not
+submitted on either path; on DirectX it draws as usual, so a game can keep
+one as the sky there.
 
 | Path | Sky and fog |
 | :--- | :--- |
 | Vulkan, deferred | A fullscreen composite over the HDR scene after the forward pass, at final depth, before TAA |
 | OpenGL, deferred | The lighting stem: `SleakLightingDefaultMain` draws sky pixels and fogs lit ones, and a game stem does the same with `SleakAtmosphereSkyDisplay`, `SleakAtmosphereComposite` and `SleakAtmosphereApply` |
-| Forward (deferred off), DirectX | Not drawn; the skybox and `LightManager` fog stay |
+| Vulkan and OpenGL, forward (deferred off) | The same sky, clouds included, as the first draw of the frame; `LightManager` fog stays, and there is no probe |
+| DirectX | Not drawn; the skybox and `LightManager` fog stay |
 
 Turn `LightManager` fog off while the atmosphere is active, or the scene is
 fogged twice; the engine warns once when it sees both.
@@ -87,11 +89,11 @@ and the sky probe carries them. Their cost shows in the `atmosphere` row of
 
 ## 4. Reflections
 
-While the atmosphere draws, the scene-read sky slot (see
-@ref vertex_format "transparent formats that read the scene") holds a sky
-probe in place of the skybox cubemap: a 64 x 64 cube with 6 mips of the sky
-gradient and the clouds, without discs, stars or glare. It is stored like
-the scene snapshot of the same backend, scene-linear on Vulkan and
+While the deferred path draws the atmosphere, the scene-read sky slot
+(see @ref vertex_format "transparent formats that read the scene") holds a
+sky probe in place of the skybox cubemap: a 64 x 64 cube with 6 mips of the
+sky gradient and the clouds, without discs, stars or glare. It is stored
+like the scene snapshot of the same backend, scene-linear on Vulkan and
 display-referred on OpenGL, and redrawn every frame. `SkyValid` is 0 on the
 frames where the slot still holds the other sky.
 
@@ -103,9 +105,12 @@ frames where the slot still holds the other sky.
 4, OpenGL buffer 15) and the model: `SleakAtmosphereEnabled`,
 `SleakAtmosphereSkyGradient`, `SleakAtmosphereSky`,
 `SleakAtmosphereFogColor`, `SleakAtmosphereFogTransmittance` and
-`SleakAtmosphereScatter`. `sleak/atmosphere_pass.glsl` adds the screen-space
-entry points on top of `FrameData`. See @ref shader_authoring.
+`SleakAtmosphereScatter`. `sleak/clouds.glsl` adds the cloud layer and
+`SleakAtmosphereSkyPixel`, the sky every sky draw shows, and
+`sleak/atmosphere_pass.glsl` the screen-space entry points on top of
+`FrameData`. See @ref shader_authoring.
 
 Cost on Vulkan: one blended fullscreen pass on the HDR target, which skips
 fog-free pixels, plus the probe's six small passes and five blits; both are
-timed in the `atmosphere` row of `--gpuprofile`.
+timed in the `atmosphere` row of `--gpuprofile`. On the forward path the sky
+is one fullscreen draw before the scene, so every pixel evaluates it.
