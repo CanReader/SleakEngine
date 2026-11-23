@@ -65,6 +65,10 @@ void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
     out.FogBorder[0] = s.fog.dayWeight;
     out.FogBorder[1] = s.border.start;
     out.FogBorder[2] = s.border.end;
+    // Camera medium; zero density leaves fog and sky as they are
+    SetRow(out.Medium, s.medium.color,
+           std::max(s.medium.densityPerMeter, 0.0f));
+    out.MediumShape[0] = std::clamp(s.medium.veil, 0.0f, 1.0f);
     // Clouds once their noise exists (EnsureCloudNoise ran first)
     const AtmosphereSettings::CloudParams& c = s.clouds;
     if (m_cloudNoise && c.coverage > 0.0f) {

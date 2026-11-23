@@ -5,7 +5,7 @@
 #include "sleak/frame.glsl"
 
 // ATMOSPHERE_DATA_VERSION in ConstantBuffer.hpp; bump both on every append
-#define SLEAK_ATMOSPHERE_VERSION 2u
+#define SLEAK_ATMOSPHERE_VERSION 3u
 
 // Sky and fog, std140, append only (AtmosphereData in ConstantBuffer.hpp)
 layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_ATMOSPHERE_VK,
@@ -30,6 +30,8 @@ layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_ATMOSPHERE_VK,
     vec4  CloudLayer;   // base y, noise threshold, wind x and z (m/s)
     vec4  CloudLight;   // rgb direct light on the clouds, w light fade
     vec4  CloudAmbient; // rgb sky light on the clouds, w coverage (0 off)
+    vec4  Medium;       // rgb color deep in the camera's medium, w density
+    vec4  MediumShape;  // x opacity at zero distance, yzw reserved
 } uAtmosphere;
 
 // Day gradient exp(-(1 - (1 - up)^shape) / density); the shape runs from
@@ -109,6 +111,17 @@ layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_ATMOSPHERE_VK,
 
 /// True when the renderer draws the atmosphere this frame.
 bool SleakAtmosphereEnabled() { return uAtmosphere.Header.y != 0u; }
+
+/// True while the camera is inside a medium (water, lava), which replaces
+/// fog, sky and clouds on every pixel.
+bool SleakMediumActive() { return uAtmosphere.Medium.w > 0.0; }
+
+/// rgb inscatter, a transmittance over dist metres of the camera's medium.
+vec4 SleakAtmosphereMedium(float dist) {
+    float t = (1.0 - uAtmosphere.MediumShape.x) *
+              exp(-uAtmosphere.Medium.w * max(dist, 0.0));
+    return vec4(uAtmosphere.Medium.rgb * (1.0 - t), t);
+}
 
 /// True in Debug engine builds when this shader expects another block.
 bool SleakAtmosphereStale() {

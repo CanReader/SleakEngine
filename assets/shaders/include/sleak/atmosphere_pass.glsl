@@ -41,12 +41,19 @@ vec3 SleakAtmosphereViewDir(vec2 uv) {
 
 /// Inscatter and transmittance between the camera and a world position.
 vec4 SleakAtmosphereScatterWorld(vec3 worldPos) {
+    if (SleakMediumActive())
+        return SleakAtmosphereMedium(distance(worldPos, uFrame.CameraPos.xyz));
     return SleakAtmosphereScatter(worldPos - uFrame.CameraPos.xyz,
                                   worldPos.y);
 }
 
 /// rgb inscatter, a transmittance for one pixel at its final depth.
 vec4 SleakAtmosphereComposite(vec2 uv, float depth) {
+    if (SleakMediumActive())
+        return depth >= 1.0 ? vec4(uAtmosphere.Medium.rgb,
+                                   SLEAK_ATMO_SKY_TRANSMITTANCE)
+                            : SleakAtmosphereMedium(
+                                  length(SleakAtmosphereViewRel(uv, depth)));
     if (depth >= 1.0)
         return vec4(SleakAtmosphereSkyPixel(SleakAtmosphereViewDir(uv)),
                     SLEAK_ATMO_SKY_TRANSMITTANCE);
