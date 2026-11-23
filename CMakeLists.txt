@@ -135,6 +135,7 @@ set(DEBUG_SOURCES
 
 set(GRAPHICS_COMMON_SOURCES
     src/Graphics/Common/AtmosphereBlock.cpp
+    src/Graphics/Common/CloudNoise.cpp
     src/Graphics/Common/FrameCapture.cpp
     src/Graphics/Common/FrameData.cpp
     src/Graphics/Common/GraphicsConfig.cpp
