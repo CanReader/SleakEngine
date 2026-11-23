@@ -6,12 +6,14 @@
 // Cloud layer of the atmosphere: a flat-based slab of 2D noise shaped by a
 // height profile and lit by a single-scatter approximation (no light march).
 // Only lighting-layout shaders include it: the composite, the probes and the
-// OpenGL lighting stems.
+// OpenGL lighting stems; the forward sky takes the noise as its texture.
 
 // Noise tile (CloudNoise.cpp): Vulkan set 0 binding 5 of the lighting
 // layout (VulkanRenderer LIGHTING_CLOUD_NOISE_BINDING), OpenGL unit 17
 #define SLEAK_CLOUD_NOISE_SET 0
+#ifndef SLEAK_CLOUD_NOISE_VK
 #define SLEAK_CLOUD_NOISE_VK 5
+#endif
 #define SLEAK_CLOUD_NOISE_GL 17
 layout(SLEAK_BINDING(SLEAK_CLOUD_NOISE_SET, SLEAK_CLOUD_NOISE_VK,
                      SLEAK_CLOUD_NOISE_GL)) uniform sampler2D uCloudNoise;
@@ -140,8 +142,10 @@ vec4 SleakAtmosphereClouds(vec3 dir, float maxDist) {
     return vec4(color * cover, 1.0 - cover);
 }
 
-/// A sky pixel with clouds: the glare stays in front of them.
-vec3 SleakAtmosphereSkyClouded(vec3 dir) {
+/// Everything a sky pixel shows toward a direction, clouds included; the
+/// glare stays in front of them. Every sky draw uses it.
+vec3 SleakAtmosphereSkyPixel(vec3 dir) {
+    if (!SleakCloudsEnabled()) return SleakAtmosphereSky(dir);
     vec4 c = SleakAtmosphereClouds(dir, SLEAK_CLOUD_OPEN_SKY);
     return SleakAtmosphereSkyBehind(dir) * c.a + c.rgb +
            SleakAtmosphereGlare(dir);

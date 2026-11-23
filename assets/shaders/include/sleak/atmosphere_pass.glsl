@@ -3,8 +3,9 @@
 
 #include "sleak/clouds.glsl"
 
-// Screen-space entry points of the atmosphere: the Vulkan composite pass
-// and the OpenGL lighting stems. uv is the fullscreen triangle's fragUV.
+// Screen-space entry points of the atmosphere: the Vulkan composite pass,
+// the OpenGL lighting stems and the forward sky. uv is the fullscreen
+// triangle's fragUV.
 
 // Engine NDC depth of the far plane, where sky rays are built
 #define SLEAK_ATMO_FAR_NDC_Z 1.0
@@ -46,13 +47,9 @@ vec4 SleakAtmosphereScatterWorld(vec3 worldPos) {
 
 /// rgb inscatter, a transmittance for one pixel at its final depth.
 vec4 SleakAtmosphereComposite(vec2 uv, float depth) {
-    if (depth >= 1.0) {
-        vec3 dir = SleakAtmosphereViewDir(uv);
-        if (SleakCloudsEnabled())
-            return vec4(SleakAtmosphereSkyClouded(dir),
-                        SLEAK_ATMO_SKY_TRANSMITTANCE);
-        return vec4(SleakAtmosphereSky(dir), SLEAK_ATMO_SKY_TRANSMITTANCE);
-    }
+    if (depth >= 1.0)
+        return vec4(SleakAtmosphereSkyPixel(SleakAtmosphereViewDir(uv)),
+                    SLEAK_ATMO_SKY_TRANSMITTANCE);
     vec3 rel = SleakAtmosphereViewRel(uv, depth);
     vec4 scatter = SleakAtmosphereScatter(rel, rel.y + uFrame.CameraPos.y);
     if (SleakCloudsEnabled()) return SleakAtmosphereCloudsOver(scatter, rel);
