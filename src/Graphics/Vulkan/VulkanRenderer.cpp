@@ -196,6 +196,7 @@ void VulkanRenderer::BeginRender() {
     m_forwardPassOpen = false;
     m_activeCustomFormat = 0;
     m_sceneReadPrepared = false;
+    m_depthReadOnlyForPost = false;
     if (!bRender)
         return;
 
@@ -565,6 +566,8 @@ void VulkanRenderer::EndRender() {
     }
 
     if (deferredPath) {
+        // Sky and fog at final depth, before TAA resolves them
+        if (DrawsAtmosphere()) RenderAtmospherePass();
         // TAA: accumulate current HDR frame with history into a ping-pong
         // target that SSR, bloom and the composite read. Also handles the depth
         // barrier (ATTACHMENT → READ_ONLY) so SSR can skip its own barrier.
@@ -954,15 +957,13 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
-        m_skyboxCubemapView = texture->GetImageView();
-        m_skyboxCubemapSampler = texture->GetSampler();
         ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -1003,15 +1004,13 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
-        m_skyboxCubemapView = texture->GetImageView();
-        m_skyboxCubemapSampler = texture->GetSampler();
         ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -1953,13 +1952,12 @@ void VulkanRenderer::RebuildMainPassPipelines() {
     CreateSkinnedPipeline();
 
     // Re-bind skybox cubemap to the newly allocated descriptor sets
-    if (m_skyboxCubemapView != VK_NULL_HANDLE &&
-        m_skyboxCubemapSampler != VK_NULL_HANDLE) {
+    if (const VulkanCubemapTexture* skybox = SceneSkyboxCubemap()) {
         for (VkDescriptorSet set : skyboxDescriptorSets) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = skybox->GetImageView();
+            imageInfo.sampler = skybox->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

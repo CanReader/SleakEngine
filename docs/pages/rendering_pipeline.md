@@ -234,7 +234,8 @@ execute immediately into the open GBuffer pass. Draws whose material reports
 debug lines) are held back in a forward list instead.
 
 `ExecuteDeferredLightingPass` closes the GBuffer pass, runs SSAO and its
-bilateral blur, refreshes the GBuffer descriptors, then opens the lighting
+bilateral blur, refreshes the GBuffer descriptors, redraws the sky probe
+while the @ref atmosphere "atmosphere" is active, then opens the lighting
 pass and shades the whole screen with a single fullscreen triangle, using
 the game's `Application::SetLightingShader` stem when one is set. The
 GBuffer has four color targets; the fourth (RT3) holds object motion, a game
@@ -246,12 +247,14 @@ The forward transparent pass follows, replaying the held-back list against
 the lit result so transparent surfaces, skinned meshes, and debug geometry
 composite over it.
 
-`EndRender` runs the post chain in a fixed order: TAA, then SSR, then
-bloom, then the bloom composite, which also applies the output transform
-(the `GraphicsConfig` tone map operator, exposure, gamma, saturation and
-dither) and draws the ImGui layer straight into the swapchain image. TAA
-running ahead of SSR is deliberate; TAA also issues the depth barrier SSR
-would otherwise need. The command buffer closes, submits, and presents.
+`EndRender` runs the post chain in a fixed order: the atmosphere composite
+while it is active, TAA, then SSR, then bloom, then the bloom composite,
+which also applies the output transform (the `GraphicsConfig` tone map
+operator, exposure, gamma, saturation and dither) and draws the ImGui layer
+straight into the swapchain image. The first of these passes that samples
+depth moves it to read-only, once per frame
+(`TransitionDepthForPostPasses`). The command buffer closes, submits, and
+presents.
 
 Backends without `CapDeferred` skip the split entirely and execute the queue
 in submission order.

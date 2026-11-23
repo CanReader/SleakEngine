@@ -134,6 +134,7 @@ set(DEBUG_SOURCES
 )
 
 set(GRAPHICS_COMMON_SOURCES
+    src/Graphics/Common/AtmosphereBlock.cpp
     src/Graphics/Common/FrameCapture.cpp
     src/Graphics/Common/FrameData.cpp
     src/Graphics/Common/GraphicsConfig.cpp
@@ -151,6 +152,7 @@ set(GRAPHICS_COMMON_SOURCES
 
 set(GRAPHICS_OPENGL_SOURCES
     src/Graphics/OpenGL/glad.c
+    src/Graphics/OpenGL/OpenGLAtmosphere.cpp
     src/Graphics/OpenGL/OpenGLBuffer.cpp
     src/Graphics/OpenGL/OpenGLCubemapTexture.cpp
     src/Graphics/OpenGL/OpenGLIBL.cpp
@@ -161,6 +163,7 @@ set(GRAPHICS_OPENGL_SOURCES
 )
 
 set(GRAPHICS_VULKAN_SOURCES
+    src/Graphics/Vulkan/VulkanAtmosphere.cpp
     src/Graphics/Vulkan/VulkanBloom.cpp
     src/Graphics/Vulkan/VulkanBuffer.cpp
     src/Graphics/Vulkan/VulkanCapture.cpp

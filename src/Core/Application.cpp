@@ -542,4 +542,12 @@ namespace Sleak {
     const std::string& Application::GetLightingShader() const {
         return renderer->GetLightingShader();
     }
+
+    void Application::SetAtmosphere(const AtmosphereSettings& settings) {
+        renderer->SetAtmosphere(settings);
+    }
+
+    bool Application::IsAtmosphereActive() const {
+        return renderer && renderer->DrawsAtmosphere();
+    }
 }

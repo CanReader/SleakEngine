@@ -66,6 +66,7 @@ void FrameDataBuilder::SetLight(const ShadowLightUBO& light) {
     m_lightDir[W_COMPONENT] = light.LightColor[W_COMPONENT];
     m_lightColor[W_COMPONENT] = light.ShadowStrength;
     std::copy_n(light.Ambient, VEC4_SIZE, m_ambient);
+    m_legacyFog = light.FogEnd > 0.0f;
 }
 
 bool FrameDataBuilder::SetUserData(const void* data, uint32_t size) {

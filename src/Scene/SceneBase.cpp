@@ -213,8 +213,9 @@ void SceneBase::Update(float deltaTime) {
     if (m_lightManager)
         m_lightManager->UpdateAndBind();
 
-    if (m_skybox)
-        m_skybox->Render();
+    // The procedural atmosphere draws the sky where it is active
+    const Application* app = Application::GetInstance();
+    if (m_skybox && !(app && app->IsAtmosphereActive())) m_skybox->Render();
 
     if (m_physicsWorld)
         m_physicsWorld->Step(deltaTime);

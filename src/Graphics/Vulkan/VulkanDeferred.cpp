@@ -436,11 +436,17 @@ bool VulkanRenderer::CreateLightingFramebuffers() {
     return true;
 }
 
-/// Creates a fullscreen lighting pipeline from a compiled shader pair on
-/// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
-VkPipeline VulkanRenderer::BuildLightingPipeline(VulkanShader& shader) {
+/// Creates a fullscreen pipeline for a render pass from a compiled shader
+/// pair on m_lightingPipelineLayout, opaque unless a blend state is given,
+/// with optional fragment constants; VK_NULL_HANDLE on failure.
+VkPipeline VulkanRenderer::BuildLightingPipeline(
+    VulkanShader& shader, VkRenderPass renderPass,
+    const VkPipelineColorBlendAttachmentState* blend,
+    const VkSpecializationInfo* constants) {
+    VkPipelineShaderStageCreateInfo fragment = shader.GetFragInfo();
+    fragment.pSpecializationInfo = constants;
     VkPipelineShaderStageCreateInfo shaderStages[] = {shader.GetVertexInfo(),
-                                                      shader.GetFragInfo()};
+                                                      fragment};
 
     // No vertex input — fullscreen triangle from gl_VertexIndex
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
@@ -489,6 +495,7 @@ VkPipeline VulkanRenderer::BuildLightingPipeline(VulkanShader& shader) {
     colorBlendAtt.blendEnable    = VK_FALSE;
     colorBlendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (blend) colorBlendAtt = *blend;
 
     VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
     colorBlendInfo.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -509,7 +516,7 @@ VkPipeline VulkanRenderer::BuildLightingPipeline(VulkanShader& shader) {
     pipelineInfo.pColorBlendState = &colorBlendInfo;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = m_lightingPipelineLayout;
-    pipelineInfo.renderPass = m_lightingRenderPass;
+    pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
@@ -554,7 +561,8 @@ bool VulkanRenderer::CreateLightingPipeline() {
         return false;
     }
 
-    m_lightingPipeline = BuildLightingPipeline(*m_lightingShader);
+    m_lightingPipeline =
+        BuildLightingPipeline(*m_lightingShader, m_lightingRenderPass);
     if (m_lightingPipeline == VK_NULL_HANDLE) {
         SLEAK_ERROR("GBuffer: Failed to create lighting pipeline!");
         return false;
@@ -577,7 +585,8 @@ bool VulkanRenderer::CreateLightingOverridePipeline() {
         delete shader;
         return false;
     }
-    const VkPipeline created = BuildLightingPipeline(*shader);
+    const VkPipeline created =
+        BuildLightingPipeline(*shader, m_lightingRenderPass);
     if (created == VK_NULL_HANDLE) {
         delete shader;
         return false;
@@ -1033,6 +1042,9 @@ void VulkanRenderer::CleanupGBufferResources() {
         bFrameStarted = false;
     }
 
+    // Built on the lighting layout and passes destroyed below
+    CleanupAtmosphereResources();
+
     // GBuffer pipeline
     if (m_gbufferPipeline) {
         vkDestroyPipeline(device, m_gbufferPipeline, nullptr);
@@ -1215,6 +1227,8 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
 
     // 3. Update GBuffer sampler descriptor sets for current frame
     UpdateGBufferDescriptors();
+    // Sky probe for this frame's reflections
+    RenderSkyProbe();
 
     // 4. Begin lighting render pass
     VkClearValue clearVal{};

@@ -37,6 +37,8 @@ class FrameDataBuilder {
     void ResetHistory() { m_hasPrevious = false; }
     /// The game block, always FRAME_USER_DATA_MAX_BYTES long.
     const uint8_t* GetUserData() const { return m_userData.data(); }
+    /// True when the last light carried LightManager fog.
+    bool LegacyFogEnabled() const { return m_legacyFog; }
 
    private:
     std::array<uint8_t, FRAME_USER_DATA_MAX_BYTES> m_userData{};
@@ -47,6 +49,7 @@ class FrameDataBuilder {
     double m_prevCameraPos[3] = {};
     float m_prevJitter[2] = {};
     bool m_hasPrevious = false;
+    bool m_legacyFog = false;
 };
 
 }  // namespace RenderEngine

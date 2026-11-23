@@ -1,4 +1,8 @@
+#include <Core/Application.hpp>
+#include <Core/GameBase.hpp>
+#include <Core/SceneBase.hpp>
 #include <Math/Matrix.hpp>
+#include <Runtime/Skybox.hpp>
 #include <Runtime/VertexLayout.hpp>
 #include <algorithm>
 #include <array>
@@ -18,7 +22,6 @@ namespace RenderEngine {
 namespace {
 
 constexpr uint32_t SINGLE_LAYER = 1;
-constexpr uint32_t CUBE_FACE_COUNT = 6;
 constexpr VkExtent2D STAND_IN_EXTENT = {1, 1};
 constexpr float FAR_DEPTH = 1.0f;
 // UV offsets span half the NDC range
@@ -59,7 +62,7 @@ bool CreateSampledImage(VkDevice device, VkPhysicalDevice gpu, VkFormat format,
                         VkImageUsageFlags usage, VkImageAspectFlags aspect,
                         VkImage& image, VkDeviceMemory& memory,
                         VkImageView& view) {
-    const bool cube = layers == CUBE_FACE_COUNT;
+    const bool cube = layers == Renderer::CUBE_FACES;
 
     VkImageCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -229,7 +232,7 @@ bool VulkanRenderer::CreateSceneReadResources() {
                             VK_IMAGE_ASPECT_COLOR_BIT, m_sceneFallbackImage,
                             m_sceneFallbackMemory, m_sceneFallbackView) ||
         !CreateSampledImage(device, physicalDevice, VK_FORMAT_R8G8B8A8_UNORM,
-                            STAND_IN_EXTENT, CUBE_FACE_COUNT, standInUsage,
+                            STAND_IN_EXTENT, CUBE_FACES, standInUsage,
                             VK_IMAGE_ASPECT_COLOR_BIT, m_sceneFallbackCubeImage,
                             m_sceneFallbackCubeMemory,
                             m_sceneFallbackCubeView)) {
@@ -238,7 +241,7 @@ bool VulkanRenderer::CreateSceneReadResources() {
     }
     const ClearTarget standIns[] = {
         {m_sceneFallbackImage, VK_IMAGE_ASPECT_COLOR_BIT, SINGLE_LAYER},
-        {m_sceneFallbackCubeImage, VK_IMAGE_ASPECT_COLOR_BIT, CUBE_FACE_COUNT}};
+        {m_sceneFallbackCubeImage, VK_IMAGE_ASPECT_COLOR_BIT, CUBE_FACES}};
     ClearToShaderRead(device, commands, graphicsQueue, standIns,
                       static_cast<uint32_t>(std::size(standIns)));
 
@@ -354,18 +357,29 @@ void VulkanRenderer::CleanupSceneCopyImages() {
     m_sceneReadWritten = {};
 }
 
+/// The active scene's skybox cubemap, or null while it has none. Looked up
+/// each time: a cached view would outlive the skybox it came from.
+VulkanCubemapTexture* VulkanRenderer::SceneSkyboxCubemap() const {
+    auto* app = Application::GetInstance();
+    auto* game = app ? app->GetGame() : nullptr;
+    auto* scene = game ? game->GetActiveScene() : nullptr;
+    auto* skybox = scene ? scene->GetSkybox() : nullptr;
+    if (!skybox || !skybox->IsInitialized()) return nullptr;
+    return dynamic_cast<VulkanCubemapTexture*>(skybox->GetCubemapTexture());
+}
+
 /// Points a frame's set 3 bindings 2-4 at the current snapshot and sky.
 /// Call only while that frame's command buffer is not pending.
 void VulkanRenderer::UpdateSceneReadDescriptors(uint32_t frame) {
     if (!m_sceneReadCreated) return;
 
+    const VkDescriptorImageInfo sky = SceneSky();
     SceneReadViews want;
     want.color =
         m_sceneColorCopyView ? m_sceneColorCopyView : m_sceneFallbackView;
     want.depth =
         m_sceneDepthCopyView ? m_sceneDepthCopyView : m_sceneFallbackView;
-    want.sky =
-        m_skyboxCubemapView ? m_skyboxCubemapView : m_sceneFallbackCubeView;
+    want.sky = sky.imageView;
     want.skySerial = m_skyboxViewSerial;
 
     SceneReadViews& have = m_sceneReadWritten[frame];
@@ -390,9 +404,7 @@ void VulkanRenderer::UpdateSceneReadDescriptors(uint32_t frame) {
     if (have.depth != want.depth)
         add(SCENE_DEPTH_BINDING, want.depth, m_scenePointSampler);
     if (have.sky != want.sky || have.skySerial != want.skySerial)
-        add(SCENE_SKY_BINDING, want.sky,
-            m_skyboxCubemapView ? m_skyboxCubemapSampler
-                                : m_sceneLinearSampler);
+        add(SCENE_SKY_BINDING, want.sky, sky.sampler);
     if (count > 0)
         vkUpdateDescriptorSets(device, count, writes.data(), 0, nullptr);
     have = want;
@@ -431,7 +443,9 @@ void VulkanRenderer::PrepareSceneRead() {
     ubo.NearPlane = m_cachedNearPlane;
     ubo.FarPlane = m_cachedFarPlane;
     ubo.SceneValid = static_cast<float>(sceneValid);
-    ubo.SkyValid = static_cast<float>(bound.sky != m_sceneFallbackCubeView);
+    // Set 3 was written before this frame chose between skybox and probe
+    ubo.SkyValid = static_cast<float>(bound.sky == SceneSky().imageView &&
+                                      bound.sky != m_sceneFallbackCubeView);
     std::memcpy(m_sceneReadUBOMapped[currentFrame], &ubo, sizeof(ubo));
 }
 

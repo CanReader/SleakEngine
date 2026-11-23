@@ -483,25 +483,8 @@ void VulkanRenderer::UpdateSSRUBO() {
 void VulkanRenderer::RenderSSRPass() {
     if (!m_ssrResourcesCreated) return;
 
-    // Depth must be in DEPTH_STENCIL_READ_ONLY_OPTIMAL before SSR samples it.
-    // When TAA is enabled (and ran before SSR), it already issued this barrier.
-    // When TAA is disabled, do it here instead.
-    if (!m_taaResourcesCreated || !m_taaEnabled) {
-        VkImageMemoryBarrier depthBarrier{};
-        depthBarrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        depthBarrier.oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthBarrier.newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depthBarrier.srcAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        depthBarrier.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-        depthBarrier.image               = depthImage;
-        depthBarrier.subresourceRange    = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-        vkCmdPipelineBarrier(command,
-            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
-    }
+    // SSR samples depth read-only; TAA already moved it when it ran
+    TransitionDepthForPostPasses();
 
     // When SSR is disabled we still need the reflection buffer in a defined
     // state for the composite pass. The cheapest way is a single render-pass

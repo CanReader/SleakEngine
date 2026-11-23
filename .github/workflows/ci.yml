@@ -207,7 +207,9 @@ jobs:
             --include-dir assets/shaders/include \
             --check FrameData:sleak/frame.glsl:FrameDataUBO \
             --check ShadowLightUBO:sleak/shadow_light.glsl:ShadowLightUBO \
+            --check AtmosphereData:sleak/atmosphere.glsl:AtmosphereUBO \
             --constant FRAME_DATA_VERSION:sleak/frame.glsl:SLEAK_FRAME_DATA_VERSION \
+            --constant ATMOSPHERE_DATA_VERSION:sleak/atmosphere.glsl:SLEAK_ATMOSPHERE_VERSION \
             --flags FrameFlag:sleak/frame.glsl:SLEAK_FRAME_FLAG_
 
       # The committed .spv are what a machine without glslc ships. glslc

@@ -19,6 +19,7 @@
 #include "../Common/Renderer.hpp"
 #include "Core/Logger.hpp"
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
+#include "Graphics/Vulkan/VulkanCubemapTexture.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 
@@ -206,7 +207,8 @@ public:
     // Light UBO update (called by LightManager)
     /// Copies light and shadow data into the current frame's mapped UBO.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
-    /// Writes this frame's FrameData and game block into set 2 bindings 1-2.
+    /// Writes this frame's FrameData, game block and atmosphere block into
+    /// set 2 bindings 1, 2 and 4.
     void UploadFrameData() override;
     /// Stages the light view-projection matrix for commit at the next BeginRender.
     void SetLightVP(const float* lightVP) override;
@@ -293,9 +295,13 @@ private:
  bool CreateLightingFramebuffers();
  /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
  bool CreateLightingPipeline();
- /// Creates a fullscreen lighting pipeline from a compiled shader pair on
- /// m_lightingPipelineLayout; VK_NULL_HANDLE on failure.
- VkPipeline BuildLightingPipeline(VulkanShader& shader);
+ /// Creates a fullscreen pipeline for a render pass from a compiled shader
+ /// pair on m_lightingPipelineLayout, opaque unless a blend state is given,
+ /// with optional fragment constants; VK_NULL_HANDLE on failure.
+ VkPipeline BuildLightingPipeline(
+     VulkanShader& shader, VkRenderPass renderPass,
+     const VkPipelineColorBlendAttachmentState* blend = nullptr,
+     const VkSpecializationInfo* constants = nullptr);
  /// Builds the lighting pipeline for m_lightingShaderStem; false on failure.
  bool CreateLightingOverridePipeline();
  /// Destroys the lighting override pipeline and shader; the GPU must be idle.
@@ -545,9 +551,9 @@ private:
  VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
  std::vector<VkDescriptorSet> skyboxDescriptorSets;
  bool m_skyboxDescriptorsWritten = false;
- VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
- VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
- uint32_t m_skyboxViewSerial = 0;  // bumped whenever the cached view changes
+ uint32_t m_skyboxViewSerial = 0;  // bumped with every new skybox cubemap
+ /// The active scene's skybox cubemap, or null while it has none.
+ VulkanCubemapTexture* SceneSkyboxCubemap() const;
 
  // Skinned pipeline (uses skinned shaders with bone UBO)
  VkPipeline skinnedPipeline = VK_NULL_HANDLE;
@@ -1087,6 +1093,10 @@ private:
     void UpdateTAAUBO();
     /// Resolves the frame against TAA history into the ping-pong target.
     void RenderTAAPass();
+    /// Moves depth to read-only once per frame for the passes that sample
+    /// it after the forward pass.
+    void TransitionDepthForPostPasses();
+    bool m_depthReadOnlyForPost = false;  // done this frame
     /// HDR scene color for the post passes: the TAA resolve when TAA ran.
     VkImageView PostSceneView() const;
 
@@ -1239,6 +1249,7 @@ private:
         SSAO,
         Lighting,
         Forward,
+        Atmosphere,
         TAA,
         SSR,
         Bloom,
@@ -1376,6 +1387,41 @@ private:
     void PrepareSceneRead();
     /// Records the scene color and depth copies between two forward passes.
     void RecordSceneCopy();
+
+    // ---- Atmosphere: composite pass and sky probe (VulkanAtmosphere.cpp)
+    /// Deferred path compositing and the atmosphere objects not failed.
+    bool AtmosphereSupported() const override;
+    /// Builds the atmosphere objects on first use; a failure leaves the
+    /// skybox drawing.
+    void EnsureAtmosphereResources();
+    /// Destroys every atmosphere object; the next use rebuilds them.
+    void CleanupAtmosphereResources();
+    /// Framebuffers the atmosphere draws into, and the probe cube.
+    bool CreateAtmosphereTargets();
+    /// Compiles the atmosphere shaders and builds their pipelines.
+    bool CreateAtmospherePipelines();
+    /// Sky and fog over the HDR scene at final depth.
+    void RenderAtmospherePass();
+    /// Draws the probe faces and blits their mips for this frame's water.
+    void RenderSkyProbe();
+    /// Cube and sampler for the scene-read sky slot: probe, skybox or
+    /// stand-in.
+    VkDescriptorImageInfo SceneSky() const;
+
+    VkPipeline m_atmospherePipeline = VK_NULL_HANDLE;
+    VkFramebuffer m_atmosphereFramebuffer = VK_NULL_HANDLE;  // HDR scene
+    VulkanShader* m_atmosphereShader = nullptr;
+    bool m_atmosphereFailed = false;  // creation failed, the skybox stays
+    // The probe is sampled through m_iblPrefilterSampler
+    static_assert(SKY_PROBE_MIPS - 1 <= IBL_PREFILTER_MIP_LEVELS);
+    VkImage m_skyProbeImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_skyProbeMemory = VK_NULL_HANDLE;
+    VkImageView m_skyProbeView = VK_NULL_HANDLE;  // cube, every mip
+    std::array<VkImageView, CUBE_FACES> m_skyProbeFaceViews{};
+    std::array<VkFramebuffer, CUBE_FACES> m_skyProbeFramebuffers{};
+    std::array<VkPipeline, CUBE_FACES> m_skyProbePipelines{};
+    VulkanShader* m_skyProbeShader = nullptr;
+    bool m_skyProbeDrawn = false;  // holds a sky since it was created
 };
 
 }  // namespace RenderEngine

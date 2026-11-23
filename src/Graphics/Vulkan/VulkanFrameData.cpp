@@ -114,8 +114,9 @@ void VulkanRenderer::CleanupFrameDataResources() {
     }
 }
 
-/// Writes this frame's FrameData and game block. The GPU reads them at
-/// submit, so the shadow pass recorded in BeginRender sees them too.
+/// Writes this frame's FrameData, game block and atmosphere block. The GPU
+/// reads them at submit, so the shadow pass recorded in BeginRender sees
+/// them too.
 void VulkanRenderer::UploadFrameData() {
     if (!bFrameStarted || !m_frameUBOMapped[currentFrame]) return;
 
@@ -142,6 +143,11 @@ void VulkanRenderer::UploadFrameData() {
                 sizeof(data));
     std::memcpy(base + m_frameUBOOffsets[SET2_USER_BINDING],
                 m_frameData.GetUserData(), FRAME_USER_DATA_MAX_BYTES);
+    if (DrawsAtmosphere()) EnsureAtmosphereResources();
+    AtmosphereData atmosphere{};
+    BuildFrameAtmosphere(atmosphere);
+    std::memcpy(base + m_frameUBOOffsets[SET2_ATMOSPHERE_BINDING], &atmosphere,
+                sizeof(atmosphere));
 }
 
 }  // namespace RenderEngine

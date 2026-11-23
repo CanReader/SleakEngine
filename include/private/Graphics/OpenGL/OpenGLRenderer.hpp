@@ -183,7 +183,8 @@ private:
     /// Uploads light and shadow data, sampling with the matrix the shadow
     /// map was rendered with.
     void UpdateShadowLightUBO(const void* data, uint32_t size) override;
-    /// Uploads this frame's FrameData and game block (buffers 11 and 12).
+    /// Uploads this frame's FrameData, game block and atmosphere block
+    /// (buffers 11, 12 and 15).
     void UploadFrameData() override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
@@ -376,6 +377,22 @@ private:
     void PrepareSceneRead();
     /// Deletes the snapshot texture, stand-in cubemap, and UBO.
     void CleanupSceneRead();
+
+    // ---- Atmosphere: sky probe (OpenGLAtmosphere.cpp) ----
+    /// Deferred path lighting the scene and the probe not failed.
+    bool AtmosphereSupported() const override;
+    /// Creates the probe cubemap, framebuffer and program on first use; a
+    /// failure leaves the skybox drawing.
+    void EnsureSkyProbe();
+    /// Draws the probe faces and their mips for this frame's water.
+    void RenderSkyProbe();
+    /// Deletes the probe objects; the next use rebuilds them.
+    void CleanupSkyProbe();
+
+    GLuint m_skyProbeTex = 0;
+    GLuint m_skyProbeFBO = 0;
+    class OpenGLShader* m_skyProbeShader = nullptr;
+    bool m_atmosphereFailed = false;  // creation failed, the skybox stays
 };
 
 }  // namespace RenderEngine
