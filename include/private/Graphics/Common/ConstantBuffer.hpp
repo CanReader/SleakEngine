@@ -442,23 +442,23 @@ namespace Sleak {
         /// Procedural sky and fog (sleak/atmosphere.glsl): Vulkan set 2
         /// binding 4, GL uniform buffer 15. std140, append only.
         struct alignas(16) AtmosphereData {
-            uint32_t Header[4];    // version, 1 while the atmosphere draws
-            float SunDir[4];       // xyz, disc intensity
-            float SunColor[4];     // rgb, redden gain
-            float MoonDir[4];      // xyz, phase angle
+            uint32_t Header[4];  // version, 1 while the atmosphere draws
+            float SunDir[4];     // xyz, disc intensity
+            float SunColor[4];   // rgb, redden gain
+            float MoonDir[4];    // xyz, phase angle
             float MoonTangent[4];
             float MoonColor[4];
-            float SkyColor[4];     // rgb, day scale
-            float TintColor[4];    // rgb, strength
-            float NightColor[4];   // rgb, day weight
-            float SkyShape[4];     // tint exponent, ground density
-            float GlareDir[4];     // xyz, width
+            float SkyColor[4];    // rgb, day scale
+            float TintColor[4];   // rgb, strength
+            float NightColor[4];  // rgb, day weight
+            float SkyShape[4];    // tint exponent, ground density
+            float GlareDir[4];    // xyz, width
             float GlareColor[4];
-            float StarColor[4];    // rgb, cosine of the sky turn
-            float StarAxis[4];     // xyz, sine of the sky turn
-            float FogDensity[4];   // per metre, exponent, base y, falloff
-            float FogIndoor[4];    // rgb, outdoor factor
-            float FogBorder[4];    // fog day weight, edge fade start, end
+            float StarColor[4];   // rgb, cosine of the sky turn
+            float StarAxis[4];    // xyz, sine of the sky turn
+            float FogDensity[4];  // per metre, exponent, base y, falloff
+            float FogIndoor[4];   // rgb, outdoor factor
+            float FogBorder[4];   // fog day weight, edge fade start, end
         };
         static_assert(offsetof(AtmosphereData, Header) == 0);
         static_assert(offsetof(AtmosphereData, SunDir) == 16);
