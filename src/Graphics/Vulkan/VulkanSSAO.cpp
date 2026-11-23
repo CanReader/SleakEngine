@@ -124,7 +124,7 @@ bool VulkanRenderer::CreateSSAORenderPass() {
     deps[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     deps[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
     deps[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    deps[0].dependencyFlags = 0;
 
     deps[1].srcSubpass      = 0;
     deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
@@ -132,7 +132,7 @@ bool VulkanRenderer::CreateSSAORenderPass() {
     deps[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     deps[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     deps[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
-    deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    deps[1].dependencyFlags = 0;
 
     VkRenderPassCreateInfo rp{};
     rp.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
