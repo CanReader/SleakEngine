@@ -296,12 +296,15 @@ private:
  /// Compiles the lighting shaders and creates the fullscreen lighting pipeline.
  bool CreateLightingPipeline();
  /// Creates a fullscreen pipeline for a render pass from a compiled shader
- /// pair on m_lightingPipelineLayout, opaque unless a blend state is given,
- /// with optional fragment constants; VK_NULL_HANDLE on failure.
+ /// pair on m_lightingPipelineLayout or the given layout, opaque unless a
+ /// blend state is given, with optional fragment constants and samples;
+ /// VK_NULL_HANDLE on failure.
  VkPipeline BuildLightingPipeline(
      VulkanShader& shader, VkRenderPass renderPass,
      const VkPipelineColorBlendAttachmentState* blend = nullptr,
-     const VkSpecializationInfo* constants = nullptr);
+     const VkSpecializationInfo* constants = nullptr,
+     VkPipelineLayout layout = VK_NULL_HANDLE,
+     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
  /// Builds the lighting pipeline for m_lightingShaderStem; false on failure.
  bool CreateLightingOverridePipeline();
  /// Destroys the lighting override pipeline and shader; the GPU must be idle.
@@ -743,7 +746,7 @@ private:
  // Lighting set 0 bindings after RT0-RT2 (sleak/lighting_inputs.glsl)
  static constexpr uint32_t LIGHTING_DEPTH_BINDING = 3;
  static constexpr uint32_t LIGHTING_SHADOW_BINDING = 4;
- static constexpr uint32_t LIGHTING_SHADOW_RAW_BINDING = 5;
+ static constexpr uint32_t LIGHTING_CLOUD_NOISE_BINDING = 5;
  static constexpr uint32_t LIGHTING_SSAO_BINDING = 6;
  static constexpr uint32_t LIGHTING_MOTION_MODEL_BINDING = 7;
  static constexpr uint32_t LIGHTING_SET0_BINDING_COUNT =
@@ -1388,7 +1391,8 @@ private:
     /// Records the scene color and depth copies between two forward passes.
     void RecordSceneCopy();
 
-    // ---- Atmosphere: composite pass and sky probe (VulkanAtmosphere.cpp)
+    // ---- Atmosphere: composite, sky probe and forward sky
+    // (VulkanAtmosphere.cpp)
     /// Deferred path compositing and the atmosphere objects not failed.
     bool AtmosphereSupported() const override;
     /// Builds the atmosphere objects on first use; a failure leaves the
@@ -1402,11 +1406,21 @@ private:
     bool CreateAtmospherePipelines();
     /// Sky and fog over the HDR scene at final depth.
     void RenderAtmospherePass();
+    /// Binds the lighting pass's four sets on its layout: GBuffer, depth and
+    /// cloud noise in set 0, the frame blocks in set 2.
+    void BindLightingSets();
     /// Draws the probe faces and blits their mips for this frame's water.
     void RenderSkyProbe();
     /// Cube and sampler for the scene-read sky slot: probe, skybox or
     /// stand-in.
     VkDescriptorImageInfo SceneSky() const;
+    /// Forward path and the forward sky not failed.
+    bool ForwardSkySupported() const override;
+    /// The atmosphere's sky as the forward pass's first draw.
+    void RenderForwardSky() override;
+    /// Builds the forward sky pipeline for the main pass; a failure is
+    /// logged once and leaves the skybox drawing.
+    bool CreateForwardSkyPipeline();
 
     VkPipeline m_atmospherePipeline = VK_NULL_HANDLE;
     VkFramebuffer m_atmosphereFramebuffer = VK_NULL_HANDLE;  // HDR scene
@@ -1422,6 +1436,10 @@ private:
     std::array<VkPipeline, CUBE_FACES> m_skyProbePipelines{};
     VulkanShader* m_skyProbeShader = nullptr;
     bool m_skyProbeDrawn = false;  // holds a sky since it was created
+    // Built on first use, rebuilt with the main pass pipelines
+    VkPipeline m_forwardSkyPipeline = VK_NULL_HANDLE;
+    VulkanShader* m_forwardSkyShader = nullptr;
+    bool m_forwardSkyFailed = false;  // creation failed, the skybox stays
 };
 
 }  // namespace RenderEngine

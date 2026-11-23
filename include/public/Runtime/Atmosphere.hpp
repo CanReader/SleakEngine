@@ -63,6 +63,16 @@ struct AtmosphereSettings {
         float start = 0.0f;  // horizontal distance where the fade begins
         float end = 0.0f;    // full sky; end <= start turns it off
     };
+    /// Soft cloud layer in a 60 m slab above baseHeight, drifting with the
+    /// wind and lit from glare.direction. Off at zero coverage.
+    struct CloudParams {
+        float coverage = 0.0f;        // sky share at the layer's core, 0 off
+        float baseHeight = 0.0f;      // world y of the flat base
+        Math::Vector2D wind;          // drift in m/s along world x and z
+        Math::Vector3D lightColor;    // direct light on the clouds
+        Math::Vector3D ambientColor;  // sky light on the clouds
+        float lightFade = 1.0f;       // 0 while the light flips sun to moon
+    };
 
     SkyParams sky;
     SunParams sun;
@@ -71,6 +81,7 @@ struct AtmosphereSettings {
     GlareParams glare;
     FogParams fog;
     BorderParams border;
+    CloudParams clouds;
 };
 
 }  // namespace Sleak

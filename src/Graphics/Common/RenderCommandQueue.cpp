@@ -204,7 +204,9 @@ namespace Sleak {
                     return;
             }
 
-            // ---- Forward rendering path (unchanged behavior) ----
+            // ---- Forward rendering path: the atmosphere's sky, then the
+            // commands in submission order ----
+            context->RenderForwardSky();
             for (RenderCommandBase* cmd : commands) cmd->Execute(context);
             AdvanceArena();
         }

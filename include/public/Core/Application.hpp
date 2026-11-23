@@ -227,11 +227,11 @@ class ENGINE_API Application {
     const std::string& GetLightingShader() const;
 
     // Procedural atmosphere
-    /// Draws the procedural sky and fog (Vulkan and OpenGL, deferred) in
-    /// place of the skybox until the next scene activates. Call it before
+    /// Draws the procedural sky (Vulkan and OpenGL) and, deferred, its fog
+    /// in place of the skybox until the next scene activates. Call it before
     /// Scene::Update to affect this frame.
     void SetAtmosphere(const AtmosphereSettings& settings);
-    /// True when the active backend draws the atmosphere this frame.
+    /// True when the active backend composites sky and fog this frame.
     bool IsAtmosphereActive() const;
 
     Benchmark* GetBenchmark() { return m_benchmark; }

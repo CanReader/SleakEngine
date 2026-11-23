@@ -142,6 +142,9 @@ enum class DepthCompare {
             /// Fills and uploads this frame's FrameData and game block; the
             /// first call RenderCommandQueue::ExecuteCommands makes.
             virtual void UploadFrameData() {}
+            /// Draws the atmosphere's sky as the forward path's first draw
+            /// while Renderer::DrawsForwardSky holds.
+            virtual void RenderForwardSky() {}
 
             // Buffer binding
             virtual void BindVertexBuffer(RefPtr<BufferBase> buffer, uint32_t slot = 0) = 0;

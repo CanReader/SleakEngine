@@ -15,7 +15,8 @@
 #define SLEAK_LIGHTING_CB_SET 1
 #define SLEAK_LIGHTING_IBL_SET 3
 
-// Vulkan set 0 bindings (VulkanRenderer LIGHTING_*_BINDING); 5 is retired
+// Vulkan set 0 bindings (VulkanRenderer LIGHTING_*_BINDING); 5 is the cloud
+// noise (sleak/clouds.glsl)
 #define SLEAK_ALBEDO_AO_VK 0
 #define SLEAK_NORMAL_ROUGH_VK 1
 #define SLEAK_METAL_EMIT_VK 2

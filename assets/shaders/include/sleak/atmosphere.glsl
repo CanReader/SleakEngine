@@ -5,7 +5,7 @@
 #include "sleak/frame.glsl"
 
 // ATMOSPHERE_DATA_VERSION in ConstantBuffer.hpp; bump both on every append
-#define SLEAK_ATMOSPHERE_VERSION 1u
+#define SLEAK_ATMOSPHERE_VERSION 2u
 
 // Sky and fog, std140, append only (AtmosphereData in ConstantBuffer.hpp)
 layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_ATMOSPHERE_VK,
@@ -27,6 +27,9 @@ layout(std140, SLEAK_BINDING(SLEAK_FRAME_SET, SLEAK_ATMOSPHERE_VK,
     vec4  FogDensity;   // per metre, exponent, base y, halvings per metre
     vec4  FogIndoor;    // rgb enclosed fog color, w outdoor factor
     vec4  FogBorder;    // fog day weight, edge fade start and end
+    vec4  CloudLayer;   // base y, noise threshold, wind x and z (m/s)
+    vec4  CloudLight;   // rgb direct light on the clouds, w light fade
+    vec4  CloudAmbient; // rgb sky light on the clouds, w coverage (0 off)
 } uAtmosphere;
 
 // Day gradient exp(-(1 - (1 - up)^shape) / density); the shape runs from
@@ -270,12 +273,16 @@ vec3 SleakAtmosphereGlare(vec3 dir) {
     return uAtmosphere.GlareColor.rgb * clamp(lobe, 0.0, 1.0);
 }
 
-/// Everything a sky pixel shows toward a direction.
-vec3 SleakAtmosphereSky(vec3 dir) {
+/// Sky behind the cloud layer: gradient, discs and stars.
+vec3 SleakAtmosphereSkyBehind(vec3 dir) {
     float up = clamp(dir.y, -1.0, 1.0);
     return SleakAtmosphereSkyGradient(dir) + SleakAtmosphereSun(dir, up) +
-           SleakAtmosphereMoon(dir, up) + SleakAtmosphereStars(dir, up) +
-           SleakAtmosphereGlare(dir);
+           SleakAtmosphereMoon(dir, up) + SleakAtmosphereStars(dir, up);
+}
+
+/// Everything a cloudless sky pixel shows toward a direction.
+vec3 SleakAtmosphereSky(vec3 dir) {
+    return SleakAtmosphereSkyBehind(dir) + SleakAtmosphereGlare(dir);
 }
 
 /// Color distant fog tends to toward a direction, before transmittance.

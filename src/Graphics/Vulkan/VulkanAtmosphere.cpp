@@ -6,7 +6,7 @@
 namespace Sleak {
 namespace RenderEngine {
 
-// Procedural atmosphere: composite pass and sky probe
+// Procedural atmosphere: composite pass, sky probe and forward sky
 
 namespace {
 
@@ -14,6 +14,8 @@ constexpr const char* COMPOSITE_FRAGMENT_SPIRV =
     "assets/shaders/atmosphere_composite.frag.spv";
 constexpr const char* PROBE_FRAGMENT_SPIRV =
     "assets/shaders/atmosphere_probe.frag.spv";
+constexpr const char* FORWARD_SKY_FRAGMENT_SPIRV =
+    "assets/shaders/atmosphere_sky.frag.spv";
 // SLEAK_PROBE_FACE in atmosphere_probe.frag
 constexpr uint32_t PROBE_FACE_CONSTANT_ID = 0;
 constexpr uint32_t FULLSCREEN_VERTICES = 3;
@@ -70,6 +72,7 @@ void VulkanRenderer::CleanupAtmosphereResources() {
     m_skyProbeImage = VK_NULL_HANDLE;
     m_skyProbeMemory = VK_NULL_HANDLE;
     m_skyProbeDrawn = false;
+    ReleaseCloudNoise();
 }
 
 /// Creates what the atmosphere draws into: a framebuffer on the HDR scene
@@ -202,20 +205,25 @@ void VulkanRenderer::RenderAtmospherePass() {
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       m_atmospherePipeline);
-    // The lighting pass sets: depth in set 0, the frame blocks in set 2
+    BindLightingSets();
+    vkCmdDraw(command, FULLSCREEN_VERTICES, 1, 0, 0);
+    vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::Atmosphere);
+}
+
+/// Binds the lighting pass's four sets on its layout: GBuffer, depth and
+/// cloud noise in set 0, the frame blocks in set 2.
+void VulkanRenderer::BindLightingSets() {
     const VkDescriptorSet sets[] = {
         m_gbufferSamplerSets[currentFrame], m_deferredCBSets[currentFrame],
         m_lightUBODescriptorSets[currentFrame], m_iblSets[currentFrame]};
     vkCmdBindDescriptorSets(
         command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipelineLayout, 0,
         static_cast<uint32_t>(std::size(sets)), sets, 0, nullptr);
-    vkCmdDraw(command, FULLSCREEN_VERTICES, 1, 0, 0);
-    vkCmdEndRenderPass(command);
-    EndGpuPass(GpuPass::Atmosphere);
 }
 
-/// Draws the sky gradient into the probe faces and blits their mips, so
-/// this frame's reflections see this frame's sky.
+/// Draws the sky gradient and clouds into the probe faces and blits their
+/// mips, so this frame's reflections see this frame's sky.
 void VulkanRenderer::RenderSkyProbe() {
     if (!DrawsAtmosphere() || m_atmospherePipeline == VK_NULL_HANDLE) return;
     // shortcut: redrawn every frame, add a change test if --gpuprofile
@@ -227,9 +235,7 @@ void VulkanRenderer::RenderSkyProbe() {
     rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rp.renderPass = m_bloomRenderPass;
     rp.renderArea.extent = extent;
-    vkCmdBindDescriptorSets(
-        command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipelineLayout,
-        FRAME_SET, 1, &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
+    BindLightingSets();
     for (uint32_t face = 0; face < CUBE_FACES; ++face) {
         rp.framebuffer = m_skyProbeFramebuffers[face];
         vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);
@@ -313,6 +319,57 @@ VkDescriptorImageInfo VulkanRenderer::SceneSky() const {
         return {skybox->GetSampler(), skybox->GetImageView(), LAYOUT};
     }
     return {m_sceneLinearSampler, m_sceneFallbackCubeView, LAYOUT};
+}
+
+/// True on the forward path until the forward sky fails to build.
+bool VulkanRenderer::ForwardSkySupported() const {
+    return !IsDeferredEnabled() && !m_forwardSkyFailed;
+}
+
+/// Draws the atmosphere's sky as the forward pass's first draw: the scene
+/// covers it, so it needs no depth test. The scene's commands then start
+/// from BeginRender's pipeline and texture set.
+void VulkanRenderer::RenderForwardSky() {
+    if (!bFrameStarted || !m_lightUBOCreated || !DrawsForwardSky()) return;
+    if (m_forwardSkyPipeline == VK_NULL_HANDLE && !CreateForwardSkyPipeline())
+        return;
+    // Timed in the atmosphere row, out of the forward pass
+    EndGpuPass(GpuPass::Forward);
+    BeginGpuPass(GpuPass::Atmosphere);
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      m_forwardSkyPipeline);
+    // The cloud noise is the sky's set 0 texture (atmosphere_sky.frag)
+    if (m_cloudNoise) BindTextureRaw(m_cloudNoise.get(), 0);
+    vkCmdDraw(command, FULLSCREEN_VERTICES, 1, 0, 0);
+    EndGpuPass(GpuPass::Atmosphere);
+    BeginGpuPass(GpuPass::Forward);
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    if (m_cloudNoise && m_textureDescriptorsWritten &&
+        CurrentFrameIndex < descriptorSets.size())
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipelineLay, 0, 1,
+                                &descriptorSets[CurrentFrameIndex], 0, nullptr);
+}
+
+/// Compiles the forward sky shaders and builds its pipeline for the main
+/// pass on the forward layout, at the pass's sample count.
+bool VulkanRenderer::CreateForwardSkyPipeline() {
+    if (!m_forwardSkyShader) {
+        m_forwardSkyShader = new VulkanShader(device);
+        if (!m_forwardSkyShader->compile(LIGHTING_VERTEX_SPIRV,
+                                         FORWARD_SKY_FRAGMENT_SPIRV)) {
+            delete m_forwardSkyShader;
+            m_forwardSkyShader = nullptr;
+        }
+    }
+    if (m_forwardSkyShader)
+        m_forwardSkyPipeline =
+            BuildLightingPipeline(*m_forwardSkyShader, renderPass, nullptr,
+                                  nullptr, pipelineLay, m_msaaSamples);
+    if (m_forwardSkyPipeline != VK_NULL_HANDLE) return true;
+    SLEAK_ERROR("Atmosphere: Vulkan forward sky failed, the skybox stays");
+    m_forwardSkyFailed = true;
+    return false;
 }
 
 }  // namespace RenderEngine
