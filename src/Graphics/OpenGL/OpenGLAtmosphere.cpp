@@ -50,7 +50,7 @@ void OpenGLRenderer::EnsureSkyProbe() {
     m_atmosphereFailed = true;
 }
 
-/// Deletes the probe objects and forgets a failed creation.
+/// Deletes the probe and the cloud noise and forgets a failed creation.
 void OpenGLRenderer::CleanupSkyProbe() {
     if (m_skyProbeTex) glDeleteTextures(1, &m_skyProbeTex);
     if (m_skyProbeFBO) glDeleteFramebuffers(1, &m_skyProbeFBO);
@@ -59,11 +59,20 @@ void OpenGLRenderer::CleanupSkyProbe() {
     m_skyProbeFBO = 0;
     m_skyProbeShader = nullptr;
     m_atmosphereFailed = false;
+    ReleaseCloudNoise();
 }
 
-/// Draws the sky gradient into the probe faces and rebuilds their mips, so
-/// this frame's reflections see this frame's sky. The lighting pass that
-/// follows sets its own target, depth, blend and vertex array state.
+/// Binds the cloud noise, or nothing, at its unit.
+void OpenGLRenderer::BindCloudNoise() const {
+    if (m_cloudNoise)
+        m_cloudNoise->Bind(CLOUD_NOISE_UNIT);
+    else
+        glBindTextureUnit(CLOUD_NOISE_UNIT, 0);
+}
+
+/// Draws the sky gradient and clouds into the probe faces and rebuilds their
+/// mips, so this frame's reflections see this frame's sky. The lighting pass
+/// that follows sets its own target, depth, blend and vertex array state.
 void OpenGLRenderer::RenderSkyProbe() {
     if (!DrawsAtmosphere() || !m_skyProbeShader) return;
     // shortcut: redrawn every frame, add a change test if a frame profile
@@ -77,6 +86,7 @@ void OpenGLRenderer::RenderSkyProbe() {
     const GLint faceUniform = glGetUniformLocation(
         m_skyProbeShader->GetProgram(), PROBE_FACE_UNIFORM);
     glBindVertexArray(m_lightingVAO);
+    BindCloudNoise();
     for (GLuint face = 0; face < CUBE_FACES; ++face) {
         glNamedFramebufferTextureLayer(m_skyProbeFBO, GL_COLOR_ATTACHMENT0,
                                        m_skyProbeTex, 0,

@@ -386,9 +386,12 @@ private:
     void EnsureSkyProbe();
     /// Draws the probe faces and their mips for this frame's water.
     void RenderSkyProbe();
-    /// Deletes the probe objects; the next use rebuilds them.
+    /// Deletes the probe and the cloud noise; the next use rebuilds them.
     void CleanupSkyProbe();
+    /// Binds the cloud noise, or nothing, at its unit.
+    void BindCloudNoise() const;
 
+    static constexpr GLuint CLOUD_NOISE_UNIT = 17;  // sleak/clouds.glsl
     GLuint m_skyProbeTex = 0;
     GLuint m_skyProbeFBO = 0;
     class OpenGLShader* m_skyProbeShader = nullptr;

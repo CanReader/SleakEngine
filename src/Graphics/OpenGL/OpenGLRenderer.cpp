@@ -1022,6 +1022,7 @@ void OpenGLRenderer::UploadFrameData() {
                          RenderEngine::FRAME_USER_DATA_MAX_BYTES,
                          m_frameData.GetUserData());
     if (DrawsAtmosphere()) EnsureSkyProbe();
+    EnsureCloudNoise();
     RenderEngine::AtmosphereData atmosphere{};
     BuildFrameAtmosphere(atmosphere);
     glNamedBufferSubData(m_frameAtmosphereUBO, 0, sizeof(atmosphere),
@@ -1478,6 +1479,7 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     if (ssaoLoc >= 0) {
         glUniform1i(ssaoLoc, (m_ssaoEnabled && m_ssaoCreated) ? 1 : 0);
     }
+    BindCloudNoise();
     glActiveTexture(GL_TEXTURE0);
 
     // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid
