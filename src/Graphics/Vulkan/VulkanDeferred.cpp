@@ -437,12 +437,14 @@ bool VulkanRenderer::CreateLightingFramebuffers() {
 }
 
 /// Creates a fullscreen pipeline for a render pass from a compiled shader
-/// pair on m_lightingPipelineLayout, opaque unless a blend state is given,
-/// with optional fragment constants; VK_NULL_HANDLE on failure.
+/// pair on m_lightingPipelineLayout or the given layout, opaque unless a
+/// blend state is given, with optional fragment constants and samples;
+/// VK_NULL_HANDLE on failure.
 VkPipeline VulkanRenderer::BuildLightingPipeline(
     VulkanShader& shader, VkRenderPass renderPass,
     const VkPipelineColorBlendAttachmentState* blend,
-    const VkSpecializationInfo* constants) {
+    const VkSpecializationInfo* constants, VkPipelineLayout layout,
+    VkSampleCountFlagBits samples) {
     VkPipelineShaderStageCreateInfo fragment = shader.GetFragInfo();
     fragment.pSpecializationInfo = constants;
     VkPipelineShaderStageCreateInfo shaderStages[] = {shader.GetVertexInfo(),
@@ -482,7 +484,7 @@ VkPipeline VulkanRenderer::BuildLightingPipeline(
     VkPipelineMultisampleStateCreateInfo msaa{};
     msaa.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     msaa.sampleShadingEnable  = VK_FALSE;
-    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msaa.rasterizationSamples = samples;
 
     // Depth test OFF, depth write OFF
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
@@ -515,7 +517,7 @@ VkPipeline VulkanRenderer::BuildLightingPipeline(
     pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlendInfo;
     pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = m_lightingPipelineLayout;
+    pipelineInfo.layout = layout ? layout : m_lightingPipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;

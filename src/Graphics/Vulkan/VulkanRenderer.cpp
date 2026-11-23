@@ -471,6 +471,7 @@ void VulkanRenderer::BeginRender() {
     vkCmdBeginRenderPass(command, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    m_activeCustomFormat = 0;  // stale across render passes
 
     // Bind texture descriptor set if available
     if (m_textureDescriptorsWritten &&
@@ -1193,6 +1194,12 @@ void VulkanRenderer::Cleanup() {
     skyboxDescriptorSets.clear();
     delete skyboxShader;
     skyboxShader = nullptr;
+    if (m_forwardSkyPipeline) {
+        vkDestroyPipeline(device, m_forwardSkyPipeline, nullptr);
+        m_forwardSkyPipeline = VK_NULL_HANDLE;
+    }
+    delete m_forwardSkyShader;
+    m_forwardSkyShader = nullptr;
 
     // Destroy skinned pipeline resources
     if (skinnedPipeline) {
@@ -1937,10 +1944,11 @@ bool VulkanRenderer::CreateGBufferResources() {
 
 /// Rebuilds the main, skybox, debug line, skinned and custom-format
 /// pipelines for the pass forward draws use: the HDR forward pass while
-/// deferred is active, else the main pass. The GPU must be idle.
+/// deferred is active, else the main pass. The forward sky rebuilds on its
+/// next draw. The GPU must be idle.
 void VulkanRenderer::RebuildMainPassPipelines() {
-    for (VkPipeline* target :
-         {&pipeline, &skyboxPipeline, &debugLinePipeline, &skinnedPipeline}) {
+    for (VkPipeline* target : {&pipeline, &skyboxPipeline, &debugLinePipeline,
+                               &skinnedPipeline, &m_forwardSkyPipeline}) {
         if (*target == VK_NULL_HANDLE) continue;
         vkDestroyPipeline(device, *target, nullptr);
         *target = VK_NULL_HANDLE;
