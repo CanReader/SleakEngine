@@ -169,6 +169,32 @@ building meshes from the engine's own CPU mesh data types
 (`include/public/Runtime/MeshData.hpp`), used for the engine-default vertex
 format and primitives loaded through `ModelLoader`.
 
+### Shared index buffers
+
+Meshes whose index lists repeat one pattern can share a single index buffer
+and upload only their vertices. Quads are the common case: quad `q` of every
+mesh uses the same six indices, `4q + {0, 3, 1, 1, 3, 2}`.
+
+```cpp
+// Once: the pattern for the most quads any mesh holds
+const uint32_t quad[6] = {0, 3, 1, 1, 3, 2};
+std::vector<uint32_t> quads(maxQuads * 6);
+for (uint32_t q = 0; q < maxQuads; ++q)
+    for (uint32_t i = 0; i < 6; ++i) quads[q * 6 + i] = 4 * q + quad[i];
+MeshHandle shared = MeshBatch::CreateSharedIndices(quads.data(), quads.size());
+
+// Per mesh: vertices only; draws read the first quadCount * 6 indices
+MeshHandle mesh = MeshBatch::CreateMesh(
+    format, vertices.data(), vertices.size() * sizeof(MyVertex), shared,
+    quadCount * 6);
+```
+
+`shared` has no vertex buffer and is never drawn itself. Every mesh made
+from it holds a reference to its buffer, so the buffer lives until the last
+of them is released; like any `MeshHandle`, release them all before the
+renderer shuts down. A mesh asking for more indices than `shared` holds
+comes back invalid, with an error in the log.
+
 ---
 
 ## 3. Pipeline Binding per Backend

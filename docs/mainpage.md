@@ -204,6 +204,6 @@ free to change between versions.
 <h2>Shipped consumers</h2>
 
 Two projects build on SleakEngine and are useful as worked examples:
-SleakCraft, a voxel sandbox that registers its own 48-byte vertex format,
+SleakCraft, a voxel sandbox that registers its own 16-byte vertex format,
 and SleakSims, a character and animation showcase. SleakEngine-Empty is the
 starter template the Getting Started guide is built from.
