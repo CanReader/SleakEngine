@@ -173,6 +173,7 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
         d[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         d[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         d[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        d[0].dependencyFlags = 0;
 
         d[1].srcSubpass      = 0;
         d[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
@@ -180,6 +181,7 @@ bool VulkanRenderer::CreateBloomRenderPasses() {
         d[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         d[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         d[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+        d[1].dependencyFlags = 0;
 
         VkRenderPassCreateInfo rp{};
         rp.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;

@@ -67,6 +67,7 @@ bool VulkanRenderer::CreateGBufferRenderPass() {
     deps[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
     deps[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = 0;
 
     deps[1].srcSubpass      = 0;
     deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
@@ -76,6 +77,7 @@ bool VulkanRenderer::CreateGBufferRenderPass() {
     deps[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     deps[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+    deps[1].dependencyFlags = 0;
 
     std::array<VkAttachmentDescription, GBUFFER_COUNT + 1> attachments;
     for (uint32_t i = 0; i < GBUFFER_COUNT; ++i) attachments[i] = colorAtts[i];
@@ -386,6 +388,7 @@ bool VulkanRenderer::CreateLightingRenderPass() {
     deps[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     deps[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
     deps[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = 0;
 
     deps[1].srcSubpass      = 0;
     deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
@@ -393,6 +396,7 @@ bool VulkanRenderer::CreateLightingRenderPass() {
     deps[1].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     deps[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     deps[1].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+    deps[1].dependencyFlags = 0;
 
     VkRenderPassCreateInfo rpInfo{};
     rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
