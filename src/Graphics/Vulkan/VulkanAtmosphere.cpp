@@ -70,6 +70,7 @@ void VulkanRenderer::CleanupAtmosphereResources() {
     m_skyProbeImage = VK_NULL_HANDLE;
     m_skyProbeMemory = VK_NULL_HANDLE;
     m_skyProbeDrawn = false;
+    ReleaseCloudNoise();
 }
 
 /// Creates what the atmosphere draws into: a framebuffer on the HDR scene
@@ -202,20 +203,25 @@ void VulkanRenderer::RenderAtmospherePass() {
     FillFullscreenViewportScissor(command, scExtent);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       m_atmospherePipeline);
-    // The lighting pass sets: depth in set 0, the frame blocks in set 2
+    BindLightingSets();
+    vkCmdDraw(command, FULLSCREEN_VERTICES, 1, 0, 0);
+    vkCmdEndRenderPass(command);
+    EndGpuPass(GpuPass::Atmosphere);
+}
+
+/// Binds the lighting pass's four sets on its layout: GBuffer, depth and
+/// cloud noise in set 0, the frame blocks in set 2.
+void VulkanRenderer::BindLightingSets() {
     const VkDescriptorSet sets[] = {
         m_gbufferSamplerSets[currentFrame], m_deferredCBSets[currentFrame],
         m_lightUBODescriptorSets[currentFrame], m_iblSets[currentFrame]};
     vkCmdBindDescriptorSets(
         command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipelineLayout, 0,
         static_cast<uint32_t>(std::size(sets)), sets, 0, nullptr);
-    vkCmdDraw(command, FULLSCREEN_VERTICES, 1, 0, 0);
-    vkCmdEndRenderPass(command);
-    EndGpuPass(GpuPass::Atmosphere);
 }
 
-/// Draws the sky gradient into the probe faces and blits their mips, so
-/// this frame's reflections see this frame's sky.
+/// Draws the sky gradient and clouds into the probe faces and blits their
+/// mips, so this frame's reflections see this frame's sky.
 void VulkanRenderer::RenderSkyProbe() {
     if (!DrawsAtmosphere() || m_atmospherePipeline == VK_NULL_HANDLE) return;
     // shortcut: redrawn every frame, add a change test if --gpuprofile
@@ -227,9 +233,7 @@ void VulkanRenderer::RenderSkyProbe() {
     rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rp.renderPass = m_bloomRenderPass;
     rp.renderArea.extent = extent;
-    vkCmdBindDescriptorSets(
-        command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipelineLayout,
-        FRAME_SET, 1, &m_lightUBODescriptorSets[currentFrame], 0, nullptr);
+    BindLightingSets();
     for (uint32_t face = 0; face < CUBE_FACES; ++face) {
         rp.framebuffer = m_skyProbeFramebuffers[face];
         vkCmdBeginRenderPass(command, &rp, VK_SUBPASS_CONTENTS_INLINE);

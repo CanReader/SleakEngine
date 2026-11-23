@@ -1170,6 +1170,7 @@ void VulkanRenderer::Cleanup() {
     if (device) {
         delete m_defaultTexture;
         m_defaultTexture = nullptr;
+        ReleaseCloudNoise();
         VulkanTexture::DestroyAllReleased();
     }
 

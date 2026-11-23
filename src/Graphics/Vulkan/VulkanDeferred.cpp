@@ -540,7 +540,8 @@ bool VulkanRenderer::CreateLightingPipeline() {
     }
 
     // Build lighting pipeline layout:
-    // Set 0: m_gbufferSamplerDSL, GBuffer RT0-RT3, depth, shadow maps, SSAO
+    // Set 0: m_gbufferSamplerDSL, GBuffer RT0-RT3, depth, shadow map, cloud
+    // noise, SSAO
     // Set 1: m_deferredCBDSL, InvViewProj and screen size (1 UBO)
     // Set 2: m_lightUBODescriptorSetLayout, light UBO and FrameData blocks
     // Set 3: m_iblDSL, IBL (3 samplerCubes, 1 sampler2D, 1 UBO)
@@ -770,7 +771,7 @@ bool VulkanRenderer::CreateGBufferDescriptorSets() {
     // DSL for set 0 of lighting pass (sleak/lighting_inputs.glsl):
     // binding 0: RT0, 1: RT1, 2: RT2, 3: depth,
     // binding 4: shadow compare sampler (hardware PCF),
-    // binding 5: shadow raw sampler    (PCSS blocker search)
+    // binding 5: cloud noise           (sleak/clouds.glsl)
     // binding 6: screen-space AO       (R8, bilateral blurred)
     // binding 7: RT3 motion, game channel, shading model
     // (world position is reconstructed from depth binding 3 + InvViewProj)
@@ -878,20 +879,15 @@ void VulkanRenderer::UpdateGBufferDescriptors() {
         shadowInfo.sampler = m_defaultTexture->GetSampler();
     }
 
-    // Shadow map raw (binding 5) — non-compare sampler for PCSS blocker search
-    VkDescriptorImageInfo& rawInfo = imageInfos[LIGHTING_SHADOW_RAW_BINDING];
-    if (m_shadowImageView) {
-        rawInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        rawInfo.imageView = m_shadowImageView;
-        rawInfo.sampler =
-            m_shadowRawSampler
-                ? m_shadowRawSampler
-                : (m_defaultTexture ? m_defaultTexture->GetSampler()
-                                    : VK_NULL_HANDLE);
-    } else if (m_defaultTexture) {
-        rawInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        rawInfo.imageView = m_defaultTexture->GetImageView();
-        rawInfo.sampler = m_defaultTexture->GetSampler();
+    // Cloud noise (binding 5, sleak/clouds.glsl) once built, else 1x1 white
+    VkDescriptorImageInfo& noiseInfo = imageInfos[LIGHTING_CLOUD_NOISE_BINDING];
+    const VulkanTexture* noise =
+        m_cloudNoise ? static_cast<const VulkanTexture*>(m_cloudNoise.get())
+                     : m_defaultTexture;
+    if (noise) {
+        noiseInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        noiseInfo.imageView = noise->GetImageView();
+        noiseInfo.sampler = noise->GetSampler();
     }
 
     // SSAO (binding 6) — fallback to default white texture when SSAO isn't ready,
@@ -1276,7 +1272,7 @@ void VulkanRenderer::ExecuteDeferredLightingPass() {
     }
 
     // 6. Bind descriptor sets:
-    //    set 0: GBuffer samplers (RTs + shadow maps)
+    //    set 0: GBuffer samplers (RTs, shadow map, cloud noise)
     //    set 1: DeferredCB (InvViewProj + screen size)
     //    set 2: LightUBO (directional light + shadow params + fog)
     //    set 3: IBL (irradiance + prefilter + BRDF LUT + settings)

@@ -743,7 +743,7 @@ private:
  // Lighting set 0 bindings after RT0-RT2 (sleak/lighting_inputs.glsl)
  static constexpr uint32_t LIGHTING_DEPTH_BINDING = 3;
  static constexpr uint32_t LIGHTING_SHADOW_BINDING = 4;
- static constexpr uint32_t LIGHTING_SHADOW_RAW_BINDING = 5;
+ static constexpr uint32_t LIGHTING_CLOUD_NOISE_BINDING = 5;
  static constexpr uint32_t LIGHTING_SSAO_BINDING = 6;
  static constexpr uint32_t LIGHTING_MOTION_MODEL_BINDING = 7;
  static constexpr uint32_t LIGHTING_SET0_BINDING_COUNT =
@@ -1402,6 +1402,9 @@ private:
     bool CreateAtmospherePipelines();
     /// Sky and fog over the HDR scene at final depth.
     void RenderAtmospherePass();
+    /// Binds the lighting pass's four sets on its layout: GBuffer, depth and
+    /// cloud noise in set 0, the frame blocks in set 2.
+    void BindLightingSets();
     /// Draws the probe faces and blits their mips for this frame's water.
     void RenderSkyProbe();
     /// Cube and sampler for the scene-read sky slot: probe, skybox or
