@@ -301,12 +301,18 @@ void VulkanRenderer::RenderSkyProbe() {
     EndGpuPass(GpuPass::Atmosphere);
 }
 
-/// Cube view for the scene-read sky slot: the probe once the atmosphere has
-/// drawn it, else the skybox, else the black stand-in.
-VkImageView VulkanRenderer::SceneSkyView() const {
-    if (DrawsAtmosphere())
-        return m_skyProbeDrawn ? m_skyProbeView : m_sceneFallbackCubeView;
-    return m_skyboxCubemapView ? m_skyboxCubemapView : m_sceneFallbackCubeView;
+/// Cube and sampler for the scene-read sky slot: the probe once the
+/// atmosphere has drawn it, else the active scene's skybox, else the black
+/// stand-in.
+VkDescriptorImageInfo VulkanRenderer::SceneSky() const {
+    constexpr VkImageLayout LAYOUT = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    if (DrawsAtmosphere()) {
+        if (m_skyProbeDrawn)
+            return {m_iblPrefilterSampler, m_skyProbeView, LAYOUT};
+    } else if (const VulkanCubemapTexture* skybox = SceneSkyboxCubemap()) {
+        return {skybox->GetSampler(), skybox->GetImageView(), LAYOUT};
+    }
+    return {m_sceneLinearSampler, m_sceneFallbackCubeView, LAYOUT};
 }
 
 }  // namespace RenderEngine

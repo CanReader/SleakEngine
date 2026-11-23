@@ -19,6 +19,7 @@
 #include "../Common/Renderer.hpp"
 #include "Core/Logger.hpp"
 #include "Graphics/Vulkan/VulkanBuffer.hpp"
+#include "Graphics/Vulkan/VulkanCubemapTexture.hpp"
 #include "Graphics/Vulkan/VulkanShader.hpp"
 #include "Graphics/Vulkan/VulkanTexture.hpp"
 
@@ -550,9 +551,9 @@ private:
  VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
  std::vector<VkDescriptorSet> skyboxDescriptorSets;
  bool m_skyboxDescriptorsWritten = false;
- VkImageView m_skyboxCubemapView = VK_NULL_HANDLE;   // cached for MSAA re-bind
- VkSampler m_skyboxCubemapSampler = VK_NULL_HANDLE;  // cached for MSAA re-bind
- uint32_t m_skyboxViewSerial = 0;  // bumped whenever the cached view changes
+ uint32_t m_skyboxViewSerial = 0;  // bumped with every new skybox cubemap
+ /// The active scene's skybox cubemap, or null while it has none.
+ VulkanCubemapTexture* SceneSkyboxCubemap() const;
 
  // Skinned pipeline (uses skinned shaders with bone UBO)
  VkPipeline skinnedPipeline = VK_NULL_HANDLE;
@@ -1403,8 +1404,9 @@ private:
     void RenderAtmospherePass();
     /// Draws the probe faces and blits their mips for this frame's water.
     void RenderSkyProbe();
-    /// Cube view for the scene-read sky slot: probe, skybox or stand-in.
-    VkImageView SceneSkyView() const;
+    /// Cube and sampler for the scene-read sky slot: probe, skybox or
+    /// stand-in.
+    VkDescriptorImageInfo SceneSky() const;
 
     VkPipeline m_atmospherePipeline = VK_NULL_HANDLE;
     VkFramebuffer m_atmosphereFramebuffer = VK_NULL_HANDLE;  // HDR scene

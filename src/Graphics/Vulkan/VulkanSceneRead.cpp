@@ -1,4 +1,8 @@
+#include <Core/Application.hpp>
+#include <Core/GameBase.hpp>
+#include <Core/SceneBase.hpp>
 #include <Math/Matrix.hpp>
+#include <Runtime/Skybox.hpp>
 #include <Runtime/VertexLayout.hpp>
 #include <algorithm>
 #include <array>
@@ -353,17 +357,29 @@ void VulkanRenderer::CleanupSceneCopyImages() {
     m_sceneReadWritten = {};
 }
 
+/// The active scene's skybox cubemap, or null while it has none. Looked up
+/// each time: a cached view would outlive the skybox it came from.
+VulkanCubemapTexture* VulkanRenderer::SceneSkyboxCubemap() const {
+    auto* app = Application::GetInstance();
+    auto* game = app ? app->GetGame() : nullptr;
+    auto* scene = game ? game->GetActiveScene() : nullptr;
+    auto* skybox = scene ? scene->GetSkybox() : nullptr;
+    if (!skybox || !skybox->IsInitialized()) return nullptr;
+    return dynamic_cast<VulkanCubemapTexture*>(skybox->GetCubemapTexture());
+}
+
 /// Points a frame's set 3 bindings 2-4 at the current snapshot and sky.
 /// Call only while that frame's command buffer is not pending.
 void VulkanRenderer::UpdateSceneReadDescriptors(uint32_t frame) {
     if (!m_sceneReadCreated) return;
 
+    const VkDescriptorImageInfo sky = SceneSky();
     SceneReadViews want;
     want.color =
         m_sceneColorCopyView ? m_sceneColorCopyView : m_sceneFallbackView;
     want.depth =
         m_sceneDepthCopyView ? m_sceneDepthCopyView : m_sceneFallbackView;
-    want.sky = SceneSkyView();
+    want.sky = sky.imageView;
     want.skySerial = m_skyboxViewSerial;
 
     SceneReadViews& have = m_sceneReadWritten[frame];
@@ -388,10 +404,7 @@ void VulkanRenderer::UpdateSceneReadDescriptors(uint32_t frame) {
     if (have.depth != want.depth)
         add(SCENE_DEPTH_BINDING, want.depth, m_scenePointSampler);
     if (have.sky != want.sky || have.skySerial != want.skySerial)
-        add(SCENE_SKY_BINDING, want.sky,
-            want.sky == m_skyProbeView        ? m_iblPrefilterSampler
-            : want.sky == m_skyboxCubemapView ? m_skyboxCubemapSampler
-                                              : m_sceneLinearSampler);
+        add(SCENE_SKY_BINDING, want.sky, sky.sampler);
     if (count > 0)
         vkUpdateDescriptorSets(device, count, writes.data(), 0, nullptr);
     have = want;
@@ -431,7 +444,7 @@ void VulkanRenderer::PrepareSceneRead() {
     ubo.FarPlane = m_cachedFarPlane;
     ubo.SceneValid = static_cast<float>(sceneValid);
     // Set 3 was written before this frame chose between skybox and probe
-    ubo.SkyValid = static_cast<float>(bound.sky == SceneSkyView() &&
+    ubo.SkyValid = static_cast<float>(bound.sky == SceneSky().imageView &&
                                       bound.sky != m_sceneFallbackCubeView);
     std::memcpy(m_sceneReadUBOMapped[currentFrame], &ubo, sizeof(ubo));
 }

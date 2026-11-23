@@ -957,15 +957,13 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
-        m_skyboxCubemapView = texture->GetImageView();
-        m_skyboxCubemapSampler = texture->GetSampler();
         ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -1006,15 +1004,13 @@ Shader* VulkanRenderer::CreateShader(const std::string& shaderSource) {
         }
 
         // Write cubemap to skybox descriptor sets
-        m_skyboxCubemapView = texture->GetImageView();
-        m_skyboxCubemapSampler = texture->GetSampler();
         ++m_skyboxViewSerial;
         for (size_t i = 0; i < skyboxDescriptorSets.size(); i++) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout =
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = texture->GetImageView();
+            imageInfo.sampler = texture->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType =
@@ -1956,13 +1952,12 @@ void VulkanRenderer::RebuildMainPassPipelines() {
     CreateSkinnedPipeline();
 
     // Re-bind skybox cubemap to the newly allocated descriptor sets
-    if (m_skyboxCubemapView != VK_NULL_HANDLE &&
-        m_skyboxCubemapSampler != VK_NULL_HANDLE) {
+    if (const VulkanCubemapTexture* skybox = SceneSkyboxCubemap()) {
         for (VkDescriptorSet set : skyboxDescriptorSets) {
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = m_skyboxCubemapView;
-            imageInfo.sampler = m_skyboxCubemapSampler;
+            imageInfo.imageView = skybox->GetImageView();
+            imageInfo.sampler = skybox->GetSampler();
 
             VkWriteDescriptorSet descriptorWrite{};
             descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
