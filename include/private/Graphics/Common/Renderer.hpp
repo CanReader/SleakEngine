@@ -4,6 +4,7 @@
 #include <Core/OSDef.hpp>
 #include <Core/Timer.hpp>
 #include <Runtime/Atmosphere.hpp>
+#include <Runtime/Texture.hpp>
 #include <string>
 #include <vector>
 
@@ -377,6 +378,14 @@ public:
 
     /// Fills this frame's atmosphere block, disabled unless it draws.
     void BuildFrameAtmosphere(AtmosphereData& out) const;
+    /// Creates the cloud noise texture the first frame clouds draw; a failure
+    /// logs once and keeps clouds off until the atmosphere objects rebuild.
+    void EnsureCloudNoise();
+    /// Drops the cloud noise texture and forgets a failed creation.
+    void ReleaseCloudNoise() {
+        m_cloudNoise.reset();
+        m_cloudNoiseFailed = false;
+    }
 
     // Performance counter
     bool bEnabledPerformanceCounter = false;
@@ -409,6 +418,9 @@ public:
     // Atmosphere of the active scene (SetAtmosphere)
     AtmosphereSettings m_atmosphere;
     bool m_atmosphereSet = false;
+    // Cloud noise tile (sleak/clouds.glsl), built on the first cloudy frame
+    RefPtr<Texture> m_cloudNoise;
+    bool m_cloudNoiseFailed = false;
     // Sky probe: a mipped cube of the sky gradient for reflections
     static constexpr uint32_t SKY_PROBE_SIZE = 64;
     static constexpr uint32_t SKY_PROBE_MIPS = 6;

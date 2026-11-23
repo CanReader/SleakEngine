@@ -3,6 +3,7 @@
 #include <cmath>
 #include <numbers>
 
+#include "../../include/private/Graphics/Common/CloudNoise.hpp"
 #include "../../include/private/Graphics/Common/Renderer.hpp"
 
 namespace Sleak {
@@ -62,6 +63,18 @@ void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
     out.FogBorder[0] = s.fog.dayWeight;
     out.FogBorder[1] = s.border.start;
     out.FogBorder[2] = s.border.end;
+    // Clouds once their noise exists (EnsureCloudNoise ran first)
+    const AtmosphereSettings::CloudParams& c = s.clouds;
+    if (m_cloudNoise && c.coverage > 0.0f) {
+        const float coverage = std::min(c.coverage, 1.0f);
+        out.CloudLayer[0] = c.baseHeight;
+        out.CloudLayer[1] = CloudNoiseThreshold(coverage);
+        out.CloudLayer[2] = c.wind.GetX();
+        out.CloudLayer[3] = c.wind.GetY();
+        SetRow(out.CloudLight, c.lightColor,
+               std::clamp(c.lightFade, 0.0f, 1.0f));
+        SetRow(out.CloudAmbient, c.ambientColor, coverage);
+    }
 
     static bool warned = false;
     if (!warned && s.fog.densityPerMeter > 0.0f &&
@@ -71,6 +84,23 @@ void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
             "fogged twice");
         warned = true;
     }
+}
+
+void Renderer::EnsureCloudNoise() {
+    if (m_cloudNoise || m_cloudNoiseFailed || !DrawsAtmosphere() ||
+        m_atmosphere.clouds.coverage <= 0.0f)
+        return;
+    // Sampled with the defaults: linear, repeat, one level
+    TextureDesc desc;
+    desc.width = CLOUD_NOISE_SIZE;
+    desc.height = CLOUD_NOISE_SIZE;
+    desc.mipLevels = 1;
+    const std::vector<uint8_t>& texels = CloudNoiseTexels();
+    const TextureMipLevel level{texels.data(), texels.size()};
+    m_cloudNoise = CreateTexture(desc, &level, 1);
+    if (m_cloudNoise) return;
+    SLEAK_ERROR("Atmosphere: cloud noise texture failed, no clouds");
+    m_cloudNoiseFailed = true;
 }
 
 }  // namespace RenderEngine
