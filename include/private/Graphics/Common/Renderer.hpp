@@ -184,9 +184,16 @@ public:
     }
     /// True when this backend can draw the atmosphere right now.
     virtual bool AtmosphereSupported() const { return false; }
-    /// True when the atmosphere replaces the skybox this frame.
+    /// True when the deferred path composites sky and fog this frame.
     bool DrawsAtmosphere() const {
         return m_atmosphereSet && AtmosphereSupported();
+    }
+    /// True when the forward path can draw the atmosphere's sky right now.
+    virtual bool ForwardSkySupported() const { return false; }
+    /// True when the forward path draws the atmosphere's sky this frame;
+    /// fog stays LightManager's there.
+    bool DrawsForwardSky() const {
+        return m_atmosphereSet && ForwardSkySupported();
     }
     /// Faces of a cube map.
     static constexpr uint32_t CUBE_FACES = 6;
@@ -376,7 +383,8 @@ public:
         }
     }
 
-    /// Fills this frame's atmosphere block, disabled unless it draws.
+    /// Fills this frame's atmosphere block: empty unless a sky draws, enabled
+    /// only while the deferred path composites.
     void BuildFrameAtmosphere(AtmosphereData& out) const;
     /// Creates the cloud noise texture the first frame clouds draw; a failure
     /// logs once and keeps clouds off until the atmosphere objects rebuild.

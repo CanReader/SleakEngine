@@ -32,8 +32,10 @@ void SetRow(float row[4], const Math::Vector3D& xyz, float w = 0.0f) {
 void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
     out = {};
     out.Header[0] = ATMOSPHERE_DATA_VERSION;
-    if (!DrawsAtmosphere()) return;
-    out.Header[1] = 1;
+    const bool composited = DrawsAtmosphere();
+    if (!composited && !DrawsForwardSky()) return;
+    // The forward sky reads the rows alone; fog and the stems need this
+    out.Header[1] = composited ? 1u : 0u;
 
     const AtmosphereSettings& s = m_atmosphere;
     SetRow(out.SunDir, s.sun.direction.Normalized(), s.sun.intensity);
@@ -77,7 +79,7 @@ void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
     }
 
     static bool warned = false;
-    if (!warned && s.fog.densityPerMeter > 0.0f &&
+    if (!warned && composited && s.fog.densityPerMeter > 0.0f &&
         m_frameData.LegacyFogEnabled()) {
         SLEAK_WARN(
             "Atmosphere: LightManager fog is on too; the scene is "
@@ -87,7 +89,8 @@ void Renderer::BuildFrameAtmosphere(AtmosphereData& out) const {
 }
 
 void Renderer::EnsureCloudNoise() {
-    if (m_cloudNoise || m_cloudNoiseFailed || !DrawsAtmosphere() ||
+    if (m_cloudNoise || m_cloudNoiseFailed ||
+        !(DrawsAtmosphere() || DrawsForwardSky()) ||
         m_atmosphere.clouds.coverage <= 0.0f)
         return;
     // Sampled with the defaults: linear, repeat, one level
