@@ -378,7 +378,7 @@ private:
     /// Deletes the snapshot texture, stand-in cubemap, and UBO.
     void CleanupSceneRead();
 
-    // ---- Atmosphere: sky probe (OpenGLAtmosphere.cpp) ----
+    // ---- Atmosphere: sky probe and forward sky (OpenGLAtmosphere.cpp) ----
     /// Deferred path lighting the scene and the probe not failed.
     bool AtmosphereSupported() const override;
     /// Creates the probe cubemap, framebuffer and program on first use; a
@@ -386,16 +386,27 @@ private:
     void EnsureSkyProbe();
     /// Draws the probe faces and their mips for this frame's water.
     void RenderSkyProbe();
-    /// Deletes the probe and the cloud noise; the next use rebuilds them.
+    /// Deletes the probe, the forward sky and the cloud noise; the next use
+    /// rebuilds them.
     void CleanupSkyProbe();
     /// Binds the cloud noise, or nothing, at its unit.
     void BindCloudNoise() const;
+    /// Forward path and the forward sky not failed.
+    bool ForwardSkySupported() const override;
+    /// The atmosphere's sky as the forward path's first draw.
+    void RenderForwardSky() override;
+    /// Compiles the forward sky program on first use; a failure is logged
+    /// once and leaves the skybox drawing.
+    bool EnsureForwardSky();
 
     static constexpr GLuint CLOUD_NOISE_UNIT = 17;  // sleak/clouds.glsl
     GLuint m_skyProbeTex = 0;
     GLuint m_skyProbeFBO = 0;
     class OpenGLShader* m_skyProbeShader = nullptr;
     bool m_atmosphereFailed = false;  // creation failed, the skybox stays
+    GLuint m_forwardSkyVAO = 0;  // empty, the triangle comes from gl_VertexID
+    class OpenGLShader* m_forwardSkyShader = nullptr;
+    bool m_forwardSkyFailed = false;  // creation failed, the skybox stays
 };
 
 }  // namespace RenderEngine

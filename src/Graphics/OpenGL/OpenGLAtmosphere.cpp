@@ -5,13 +5,16 @@
 namespace Sleak {
 namespace RenderEngine {
 
-// Procedural atmosphere: sky probe
+// Procedural atmosphere: sky probe and forward sky
 
 namespace {
 
-constexpr const char* PROBE_VERTEX = "assets/shaders/lighting_pass_gl.vert";
+constexpr const char* FULLSCREEN_VERTEX =
+    "assets/shaders/lighting_pass_gl.vert";
 constexpr const char* PROBE_FRAGMENT =
     "assets/shaders/atmosphere_probe_gl.frag";
+constexpr const char* FORWARD_SKY_FRAGMENT =
+    "assets/shaders/atmosphere_sky_gl.frag";
 constexpr const char* PROBE_FACE_UNIFORM = "uProbeFace";
 constexpr GLsizei FULLSCREEN_VERTICES = 3;
 
@@ -43,14 +46,15 @@ void OpenGLRenderer::EnsureSkyProbe() {
     m_skyProbeShader = new OpenGLShader();
     if (glCheckNamedFramebufferStatus(m_skyProbeFBO, GL_FRAMEBUFFER) ==
             GL_FRAMEBUFFER_COMPLETE &&
-        m_skyProbeShader->compile(PROBE_VERTEX, PROBE_FRAGMENT))
+        m_skyProbeShader->compile(FULLSCREEN_VERTEX, PROBE_FRAGMENT))
         return;
     SLEAK_ERROR("Atmosphere: OpenGL sky probe failed, the skybox stays");
     CleanupSkyProbe();
     m_atmosphereFailed = true;
 }
 
-/// Deletes the probe and the cloud noise and forgets a failed creation.
+/// Deletes the probe, the forward sky and the cloud noise and forgets a
+/// failed probe.
 void OpenGLRenderer::CleanupSkyProbe() {
     if (m_skyProbeTex) glDeleteTextures(1, &m_skyProbeTex);
     if (m_skyProbeFBO) glDeleteFramebuffers(1, &m_skyProbeFBO);
@@ -59,6 +63,10 @@ void OpenGLRenderer::CleanupSkyProbe() {
     m_skyProbeFBO = 0;
     m_skyProbeShader = nullptr;
     m_atmosphereFailed = false;
+    if (m_forwardSkyVAO) glDeleteVertexArrays(1, &m_forwardSkyVAO);
+    delete m_forwardSkyShader;
+    m_forwardSkyVAO = 0;
+    m_forwardSkyShader = nullptr;
     ReleaseCloudNoise();
 }
 
@@ -96,6 +104,40 @@ void OpenGLRenderer::RenderSkyProbe() {
     }
     glGenerateTextureMipmap(m_skyProbeTex);
     glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
+}
+
+/// True on the forward path until the forward sky fails to build.
+bool OpenGLRenderer::ForwardSkySupported() const {
+    return !IsDeferredEnabled() && !m_forwardSkyFailed;
+}
+
+/// Compiles the forward sky program and its empty vertex array on first use.
+bool OpenGLRenderer::EnsureForwardSky() {
+    if (m_forwardSkyShader) return true;
+    auto* shader = new OpenGLShader();
+    if (!shader->compile(FULLSCREEN_VERTEX, FORWARD_SKY_FRAGMENT)) {
+        delete shader;
+        SLEAK_ERROR("Atmosphere: OpenGL forward sky failed, the skybox stays");
+        m_forwardSkyFailed = true;
+        return false;
+    }
+    m_forwardSkyShader = shader;
+    glCreateVertexArrays(1, &m_forwardSkyVAO);
+    return true;
+}
+
+/// Draws the atmosphere's sky as the forward path's first draw: the scene
+/// covers it, so it needs no depth test.
+void OpenGLRenderer::RenderForwardSky() {
+    if (!DrawsForwardSky() || !EnsureForwardSky()) return;
+    m_forwardSkyShader->bind();
+    BindCloudNoise();
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(m_forwardSkyVAO);
+    glDrawArrays(GL_TRIANGLES, 0, FULLSCREEN_VERTICES);
+    glBindVertexArray(m_VAO);
+    glEnable(GL_DEPTH_TEST);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 }  // namespace RenderEngine
