@@ -44,8 +44,40 @@ MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
                                  size_t vertexBytes,
                                  const uint32_t* indices,
                                  size_t indexCount) {
+    if (!vertexData || vertexBytes == 0) return {};
+    return CreateMesh(format, vertexData, vertexBytes,
+                      CreateSharedIndices(indices, indexCount), indexCount);
+}
+
+/// Uploads an index buffer without vertices for meshes to share.
+MeshHandle MeshBatch::CreateSharedIndices(const uint32_t* indices,
+                                          size_t indexCount) {
     MeshHandle h;
-    if (!vertexData || vertexBytes == 0 || !indices || indexCount == 0) return h;
+    if (!indices || indexCount == 0) return h;
+
+    h.indexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
+        RenderEngine::BufferType::Index,
+        static_cast<uint32_t>(indexCount * sizeof(uint32_t)),
+        const_cast<uint32_t*>(indices)));
+    if (h.indexBuffer.IsValid())
+        h.indexCount = static_cast<uint32_t>(indexCount);
+    return h;
+}
+
+/// Uploads raw custom-format vertices that draw through a shared index buffer.
+MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
+                                 const void* vertexData, size_t vertexBytes,
+                                 const MeshHandle& shared, size_t indexCount) {
+    MeshHandle h;
+    if (!vertexData || vertexBytes == 0 || indexCount == 0 ||
+        !shared.indexBuffer.IsValid())
+        return h;
+    if (indexCount > shared.indexCount) {
+        SLEAK_ERROR(
+            "MeshBatch: {} indices requested from a shared buffer of {}",
+            indexCount, shared.indexCount);
+        return h;
+    }
 
     auto* vb = RenderEngine::ResourceManager::CreateBuffer(
         RenderEngine::BufferType::Vertex,
@@ -53,12 +85,7 @@ MeshHandle MeshBatch::CreateMesh(VertexFormatHandle format,
         const_cast<void*>(vertexData));
     if (vb) vb->SetVertexFormat(format);
     h.vertexBuffer = RefPtr(vb);
-
-    h.indexBuffer = RefPtr(RenderEngine::ResourceManager::CreateBuffer(
-        RenderEngine::BufferType::Index,
-        static_cast<uint32_t>(indexCount * sizeof(uint32_t)),
-        const_cast<uint32_t*>(indices)));
-
+    h.indexBuffer = shared.indexBuffer;
     h.indexCount = static_cast<uint32_t>(indexCount);
     h.vertexFormat = format;
     return h;
