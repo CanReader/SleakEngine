@@ -40,6 +40,7 @@ that follows its clock, its palette or its world, and passes it in
 | `glare` | `direction`, `color` (black is off), `width` |
 | `fog` | `densityPerMeter` (0 is off), `exponent`, `heightEnabled`, `baseHeight`, `dayWeight`, `indoorColor`, `outdoor` |
 | `border` | `start` and `end` of the edge fade, as horizontal distance; `end <= start` is off |
+| `clouds` | `coverage` (0 is off), `baseHeight`, `wind`, `lightColor`, `ambientColor`, `lightFade`; lit from `glare.direction` |
 
 Directions are unit world vectors pointing toward the body. A default
 constructed `AtmosphereSettings` is a black sky without fog: there is no
@@ -65,19 +66,38 @@ fogged twice; the engine warns once when it sees both.
 
 ---
 
-## 3. Reflections
+## 3. Clouds
+
+A `clouds.coverage` above 0 adds a soft cloud layer: a 60 m slab above
+`clouds.baseHeight` with flat bases and rounded tops, lit from
+`glare.direction` and gone 1800 m away horizontally. `coverage` is the share
+of the sky the layer covers at its core. Each pixel takes 16 samples at the
+same world heights, so the layer holds still as the camera moves, with no
+dither and no history. The clouds drift by `clouds.wind` times the engine
+clock, so they keep moving while a game pauses its own clock, and captures
+stay deterministic.
+
+The shape comes from a 512 x 512 noise tile, 12 km across, built on the CPU
+the first frame clouds draw; at zero coverage nothing is built. Clouds cover
+sky pixels and any geometry behind the layer wherever the atmosphere draws,
+and the sky probe carries them. Their cost shows in the `atmosphere` row of
+`--gpuprofile`.
+
+---
+
+## 4. Reflections
 
 While the atmosphere draws, the scene-read sky slot (see
 @ref vertex_format "transparent formats that read the scene") holds a sky
 probe in place of the skybox cubemap: a 64 x 64 cube with 6 mips of the sky
-gradient, without discs, stars or glare. It is stored like the scene
-snapshot of the same backend, scene-linear on Vulkan and display-referred
-on OpenGL, and redrawn every frame. `SkyValid` is 0 on the frames where the
-slot still holds the other sky.
+gradient and the clouds, without discs, stars or glare. It is stored like
+the scene snapshot of the same backend, scene-linear on Vulkan and
+display-referred on OpenGL, and redrawn every frame. `SkyValid` is 0 on the
+frames where the slot still holds the other sky.
 
 ---
 
-## 4. Shaders
+## 5. Shaders
 
 `sleak/atmosphere.glsl` holds the block (`uAtmosphere`, Vulkan set 2 binding
 4, OpenGL buffer 15) and the model: `SleakAtmosphereEnabled`,

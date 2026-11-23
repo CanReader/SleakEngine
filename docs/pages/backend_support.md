@@ -57,7 +57,7 @@ you draw the checkbox.
 | IBL | Yes, stub cubemaps by default | Yes | No | No |
 | Separate tonemap pass | No, folded into bloom | No | Yes | No |
 | HDR render target | Yes | No | No | No |
-| Procedural atmosphere | Deferred only | Deferred only, in the lighting stem | No, skybox stays | No, skybox stays |
+| Procedural sky, clouds and fog | Deferred only | Deferred only, in the lighting stem | No, skybox stays | No, skybox stays |
 | MSAA implemented | Yes | Yes | Yes | No |
 | MSAA reachable above 1x | With deferred off | With deferred off | With deferred off | No |
 | Custom vertex attributes | Yes | Yes | No | No |

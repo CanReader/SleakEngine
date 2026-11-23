@@ -287,6 +287,7 @@ same file serves both. The engine library holds:
 | `sleak/lighting_inputs.glsl` | Every binding of the deferred lighting pass, for `Application::SetLightingShader` stems |
 | `sleak/lighting_default.glsl` | The engine lighting per backend: `SleakShadeDefault`, `SleakLightingDefaultMain` and their helpers; Vulkan also `SleakFogAmount` / `SleakFogColor`; the OpenGL half includes the atmosphere and adds `SleakAtmosphereSkyDisplay` |
 | `sleak/atmosphere.glsl` | The `AtmosphereUBO` block (`uAtmosphere`), the shape constants and the sky and fog model of the @ref atmosphere "procedural atmosphere" |
+| `sleak/clouds.glsl` | Its cloud layer and `uCloudNoise`, at lighting set 0 binding 5 (OpenGL unit 17): include it only from shaders on the lighting layout |
 | `sleak/atmosphere_pass.glsl` | Its screen-space entry points: `SleakAtmosphereComposite`, `SleakAtmosphereScatterWorld`, `SleakAtmosphereApply`, `SleakAtmosphereGuard` |
 | `sleak/color.glsl` | sRGB transfer functions, Rec. 601 luma, saturation and its inverse, `SleakApplyDither` |
 | `sleak/tonemap.glsl` | `SleakOutputParams`, ACES and the soft curve with their inverses, `SleakOutputTransform` and its inverse, and the legacy helpers `SleakLegacyToScene`, `SleakSceneToLegacy`, `SleakLegacyDisplayToOutput` for colors authored for the default ACES output |
@@ -315,7 +316,7 @@ Per-frame data sits in descriptor set 2 on Vulkan and in uniform buffers
 | `FrameData` | set 2, binding 1 | 11 | Clock, frame index, screen, jitter, camera and matrices, light, flags, output transform (`Flags.z` operator, `Output`, `OutputCurve`, `WhitePath`, `WhitePathInverse`) |
 | Game block | set 2, binding 2 | 12 | Up to 1 KiB set with `Application::SetFrameUserData` |
 | Cascades | set 2, binding 3 | 13 | Reserved, zero |
-| `AtmosphereData` | set 2, binding 4 | 15 | Sky, discs, stars and fog from `Application::SetAtmosphere`; only the version while it does not draw |
+| `AtmosphereData` | set 2, binding 4 | 15 | Sky, discs, stars, clouds and fog from `Application::SetAtmosphere`; only the version while it does not draw |
 
 `FrameData` is std140 and append-only. To add a field, append it to the C++
 struct in `ConstantBuffer.hpp` with its `static_assert`, append the member
