@@ -73,6 +73,14 @@ struct AtmosphereSettings {
         Math::Vector3D ambientColor;  // sky light on the clouds
         float lightFade = 1.0f;       // 0 while the light flips sun to moon
     };
+    /// Homogeneous medium around the camera (water, lava). While density is
+    /// above zero every pixel gets T = (1 - veil) exp(-density distance)
+    /// toward color, sky pixels the color, and fog, sky and clouds stay off.
+    struct MediumParams {
+        Math::Vector3D color;          // radiance deep in the medium
+        float densityPerMeter = 0.0f;  // 0 off
+        float veil = 0.0f;             // opacity at zero distance, [0, 1]
+    };
 
     SkyParams sky;
     SunParams sun;
@@ -82,6 +90,7 @@ struct AtmosphereSettings {
     FogParams fog;
     BorderParams border;
     CloudParams clouds;
+    MediumParams medium;
 };
 
 }  // namespace Sleak

@@ -437,7 +437,7 @@ namespace Sleak {
         static_assert(sizeof(FrameData) == 528);
 
         /// Bumped with every AtmosphereData append; Debug shaders compare it.
-        inline constexpr uint32_t ATMOSPHERE_DATA_VERSION = 2;
+        inline constexpr uint32_t ATMOSPHERE_DATA_VERSION = 3;
 
         /// Procedural sky and fog (sleak/atmosphere.glsl): Vulkan set 2
         /// binding 4, GL uniform buffer 15. std140, append only.
@@ -462,6 +462,8 @@ namespace Sleak {
             float CloudLayer[4];    // base y, noise threshold, wind x, z
             float CloudLight[4];    // rgb, light fade
             float CloudAmbient[4];  // rgb, coverage (0: no clouds)
+            float Medium[4];        // rgb deep color, density (0: none)
+            float MediumShape[4];   // opacity at zero distance, reserved
         };
         static_assert(offsetof(AtmosphereData, Header) == 0);
         static_assert(offsetof(AtmosphereData, SunDir) == 16);
@@ -483,7 +485,9 @@ namespace Sleak {
         static_assert(offsetof(AtmosphereData, CloudLayer) == 272);
         static_assert(offsetof(AtmosphereData, CloudLight) == 288);
         static_assert(offsetof(AtmosphereData, CloudAmbient) == 304);
-        static_assert(sizeof(AtmosphereData) == 320);
+        static_assert(offsetof(AtmosphereData, Medium) == 320);
+        static_assert(offsetof(AtmosphereData, MediumShape) == 336);
+        static_assert(sizeof(AtmosphereData) == 352);
         static_assert(sizeof(AtmosphereData) <= FRAME_ATMOSPHERE_BLOCK_BYTES);
     }
 }

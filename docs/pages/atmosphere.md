@@ -41,6 +41,7 @@ that follows its clock, its palette or its world, and passes it in
 | `fog` | `densityPerMeter` (0 is off), `exponent`, `heightEnabled`, `baseHeight`, `dayWeight`, `indoorColor`, `outdoor` |
 | `border` | `start` and `end` of the edge fade, as horizontal distance; `end <= start` is off |
 | `clouds` | `coverage` (0 is off), `baseHeight`, `wind`, `lightColor`, `ambientColor`, `lightFade`; lit from `glare.direction` |
+| `medium` | `color`, `densityPerMeter` (0 is off), `veil` |
 
 Directions are unit world vectors pointing toward the body. A default
 constructed `AtmosphereSettings` is a black sky without fog: there is no
@@ -87,7 +88,28 @@ and the sky probe carries them. Their cost shows in the `atmosphere` row of
 
 ---
 
-## 4. Reflections
+## 4. Camera Medium
+
+A `medium.densityPerMeter` above 0 puts the camera inside a homogeneous
+medium, such as water or lava. Every pixel then shows the scene through
+`T = (1 - veil) exp(-densityPerMeter d)` toward `medium.color`, with `d` its
+distance from the camera, and sky pixels show `medium.color` itself; fog, the
+edge fade, the sky and the clouds stay off. `veil` is the opacity at zero
+distance. A game sets the medium while the eye is inside it and leaves the
+density at 0 otherwise.
+
+The medium applies wherever the atmosphere fogs the scene: the Vulkan
+composite and the OpenGL stems, through `SleakAtmosphereComposite` and
+`SleakAtmosphereScatterWorld`. The sky probe and the forward path's sky do
+not take it, so the probe keeps the sky above the medium. A transparent
+shader that shades the medium's boundary itself, such as a water surface
+seen from below, reads it with `SleakMediumActive` and
+`SleakAtmosphereMedium`. Inside a medium no pixel is fog-free, so the Vulkan
+composite blends every pixel.
+
+---
+
+## 5. Reflections
 
 While the deferred path draws the atmosphere, the scene-read sky slot
 (see @ref vertex_format "transparent formats that read the scene") holds a
@@ -99,13 +121,14 @@ frames where the slot still holds the other sky.
 
 ---
 
-## 5. Shaders
+## 6. Shaders
 
 `sleak/atmosphere.glsl` holds the block (`uAtmosphere`, Vulkan set 2 binding
 4, OpenGL buffer 15) and the model: `SleakAtmosphereEnabled`,
 `SleakAtmosphereSkyGradient`, `SleakAtmosphereSky`,
-`SleakAtmosphereFogColor`, `SleakAtmosphereFogTransmittance` and
-`SleakAtmosphereScatter`. `sleak/clouds.glsl` adds the cloud layer and
+`SleakAtmosphereFogColor`, `SleakAtmosphereFogTransmittance`,
+`SleakAtmosphereScatter`, and the camera medium's `SleakMediumActive` and
+`SleakAtmosphereMedium`. `sleak/clouds.glsl` adds the cloud layer and
 `SleakAtmosphereSkyPixel`, the sky every sky draw shows, and
 `sleak/atmosphere_pass.glsl` the screen-space entry points on top of
 `FrameData`. See @ref shader_authoring.
