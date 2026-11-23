@@ -188,6 +188,9 @@ private:
     void UploadFrameData() override;
     /// Allocates the shadow-pass depth FBO and texture at the configured resolution.
     bool CreateShadowMapResources();
+    /// The 1x1 lit stand-in for the shadow map, created on first use.
+    GLuint ShadowStandIn();
+    GLuint m_shadowStandIn = 0;
     /// Allocates the UBO backing ShadowLightUBO.
     bool CreateShadowUBO();
     /// Replays cached shadow-caster draws into the depth-only shadow FBO.

@@ -423,6 +423,10 @@ void OpenGLRenderer::Cleanup() {
         if (m_shadowTransformUBO) { glDeleteBuffers(1, &m_shadowTransformUBO); m_shadowTransformUBO = 0; }
         if (m_shadowUBO) { glDeleteBuffers(1, &m_shadowUBO); m_shadowUBO = 0; }
         if (m_shadowDepthTex) { glDeleteTextures(1, &m_shadowDepthTex); m_shadowDepthTex = 0; }
+        if (m_shadowStandIn) {
+            glDeleteTextures(1, &m_shadowStandIn);
+            m_shadowStandIn = 0;
+        }
         if (m_shadowFBO) { glDeleteFramebuffers(1, &m_shadowFBO); m_shadowFBO = 0; }
         m_shadowMapCreated = false;
         m_shadowMapRendered = false;
@@ -1033,6 +1037,23 @@ void OpenGLRenderer::UploadFrameData() {
                      m_frameAtmosphereUBO);
 }
 
+/// 1x1 depth map at the far plane with depth compare on, sampled before
+/// the first shadow pass: every shadow lookup reads lit.
+GLuint OpenGLRenderer::ShadowStandIn() {
+    if (m_shadowStandIn) return m_shadowStandIn;
+    const float farDepth = 1.0f;
+    glCreateTextures(GL_TEXTURE_2D, 1, &m_shadowStandIn);
+    glTextureStorage2D(m_shadowStandIn, 1, GL_DEPTH_COMPONENT32F, 1, 1);
+    glTextureSubImage2D(m_shadowStandIn, 0, 0, 0, 1, 1, GL_DEPTH_COMPONENT,
+                        GL_FLOAT, &farDepth);
+    glTextureParameteri(m_shadowStandIn, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(m_shadowStandIn, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(m_shadowStandIn, GL_TEXTURE_COMPARE_MODE,
+                        GL_COMPARE_REF_TO_TEXTURE);
+    glTextureParameteri(m_shadowStandIn, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    return m_shadowStandIn;
+}
+
 bool OpenGLRenderer::CreateShadowMapResources() {
     if (m_shadowMapCreated) return true;
 
@@ -1483,12 +1504,12 @@ void OpenGLRenderer::ExecuteDeferredLightingPass() {
     glActiveTexture(GL_TEXTURE0);
 
     // Rebind shadow map at unit 3 — BindGBufferShader cleared it to avoid
-    // sampler2DShadow/sampler2D conflict during the geometry pass.
-    if (m_shadowMapCreated) {
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, m_shadowDepthTex);
-        glActiveTexture(GL_TEXTURE0);
-    }
+    // sampler2DShadow/sampler2D conflict during the geometry pass. Before
+    // the first shadow pass a stand-in keeps the shadow sampler defined.
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D,
+                  m_shadowMapCreated ? m_shadowDepthTex : ShadowStandIn());
+    glActiveTexture(GL_TEXTURE0);
 
     // IBL — bind irradiance/prefilter/BRDF at units 14/15/16 and upload the
     // settings UBO at slot 10. Disabled if precompute hasn't completed.
