@@ -42,7 +42,8 @@ namespace Sleak {
         }
     };
 
-    /// GPU mesh handle pool for bulk static geometry. Draw through BeginBatch/Draw/EndBatch.
+    /// GPU mesh handle pool for bulk static geometry. Draw through
+    /// BeginBatch/Draw/EndBatch.
     ///
     /// Use this when you have far more geometry than you want GameObjects
     /// for: terrain chunks, voxel columns, instanced scatter, anything
@@ -50,11 +51,13 @@ namespace Sleak {
     /// uploads vertex and index data and hands back a MeshHandle you store
     /// yourself; MeshBatch does not track it for you.
     ///
-    /// The two CreateMesh() overloads cover the two vertex paths. The
+    /// The CreateMesh() overloads cover the two vertex paths. The
     /// VertexGroup overload uses the engine's built-in vertex layout. The
-    /// raw-bytes overload takes a VertexFormatHandle from
+    /// raw-bytes overloads take a VertexFormatHandle from
     /// VertexFormatRegistry::Register, and the backend binds the pipeline
-    /// that matches that handle.
+    /// that matches that handle. Meshes whose indices repeat one pattern,
+    /// such as quads, can share one index buffer made by
+    /// CreateSharedIndices() and upload only their vertices.
     ///
     /// Drawing is a three-step batch: BeginBatch() binds the material and
     /// an identity transform once, each Draw() issues one indexed draw
@@ -104,6 +107,19 @@ namespace Sleak {
                                      const void* vertexData,
                                      size_t vertexBytes,
                                      const uint32_t* indices,
+                                     size_t indexCount);
+
+        /// Uploads an index buffer for many meshes to share. The handle has
+        /// no vertex buffer and is never drawn; the buffer lives while it or
+        /// any mesh created from it does.
+        static MeshHandle CreateSharedIndices(const uint32_t* indices,
+                                              size_t indexCount);
+
+        /// Uploads raw vertices of a registered format that draw the first
+        /// indexCount indices of shared; invalid if shared holds fewer.
+        static MeshHandle CreateMesh(VertexFormatHandle format,
+                                     const void* vertexData, size_t vertexBytes,
+                                     const MeshHandle& shared,
                                      size_t indexCount);
 
         /// Begin a batch: binds the material and an identity-transform
