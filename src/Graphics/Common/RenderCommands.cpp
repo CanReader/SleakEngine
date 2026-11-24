@@ -109,6 +109,25 @@ bool DrawIndexedCommand::IsSkinned() const {
     return false;
 }
 
+DrawIndexedRangesCommand::DrawIndexedRangesCommand(
+    RefPtr<BufferBase> vertexBuffer, RefPtr<BufferBase> indexBuffer,
+    const MeshRange* ranges, uint32_t count)
+    : m_vertexBuffer(std::move(vertexBuffer)),
+      m_indexBuffer(std::move(indexBuffer)),
+      m_ranges(ranges),
+      m_count(count) {}
+
+/// Binds the buffers once and draws every range.
+void DrawIndexedRangesCommand::Execute(RenderContext* context) {
+    context->BindVertexBuffer(m_vertexBuffer, 0);
+    context->BindIndexBuffer(m_indexBuffer, 0);
+    context->DrawIndexedRanges(m_ranges, m_count);
+}
+
+void DrawIndexedRangesCommand::ExecuteShadow(RenderContext* context) {
+    Execute(context);
+}
+
 /// Copies the payload into inline storage, falling back to a heap allocation past INLINE_CAPACITY.
 UpdateConstantBufferCommand::UpdateConstantBufferCommand(
     RefPtr<BufferBase> buffer, void* Data, uint16_t Size)

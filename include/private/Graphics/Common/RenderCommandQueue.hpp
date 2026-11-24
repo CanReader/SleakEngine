@@ -3,6 +3,7 @@
 
 #include <Graphics/Common/Renderer.hpp>
 #include <Memory/ObjectPtr.hpp>
+#include <Runtime/MeshBatch.hpp>
 #include <cstddef>
 #include <memory>
 #include <new>
@@ -26,6 +27,13 @@ namespace Sleak {
             int32_t baseVertexLocation = 0,
             bool castsShadow = true
         );
+
+        /// Queues one draw of several index ranges in the given passes,
+        /// copying the ranges into the frame's arena.
+        void SubmitDrawIndexedRanges(RefPtr<BufferBase> vertexBuffer,
+                                     RefPtr<BufferBase> indexBuffer,
+                                     const MeshRange* ranges, uint32_t count,
+                                     MeshPasses passes);
 
         /// Queues a non-indexed draw with its vertex buffer and constant buffers.
         void SubmitDraw(
@@ -123,15 +131,15 @@ namespace Sleak {
                  return m_commands;
              }
 
+             /// Returns aligned storage from the current block, adding blocks
+             /// as needed.
+             void* Allocate(size_t size, size_t alignment);
+
             private:
              struct Block {
                  std::unique_ptr<std::byte[]> data;
                  size_t size = 0;
              };
-
-             /// Returns aligned storage from the current block, adding blocks
-             /// as needed.
-             void* Allocate(size_t size, size_t alignment);
 
              static constexpr size_t BLOCK_SIZE = 64 * 1024;
              std::vector<Block> m_blocks;

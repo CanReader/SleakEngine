@@ -69,6 +69,9 @@ public:
     virtual void DrawIndexed(uint32_t indexCount) override;
     virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
                              int32_t baseVertex) override;
+    /// Draws every range with one glMultiDrawElementsBaseVertex.
+    virtual void DrawIndexedRanges(const MeshRange* ranges,
+                                   uint32_t count) override;
     virtual void DrawInstance(uint32_t instanceCount,
                               uint32_t vertexPerInstance) override;
     virtual void DrawIndexedInstance(uint32_t instanceCount,
@@ -132,6 +135,11 @@ private:
 
     GLuint m_VAO = 0;
     bool m_debugLineMode = false;
+
+    // DrawIndexedRanges arguments, reused across draws
+    std::vector<GLsizei> m_rangeCounts;
+    std::vector<const void*> m_rangeOffsets;
+    std::vector<GLint> m_rangeBaseVertices;
 
     // Vertex layout currently applied to m_VAO
     static constexpr uint32_t NO_CONFIGURED_LAYOUT = UINT32_MAX;

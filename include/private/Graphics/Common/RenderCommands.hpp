@@ -59,6 +59,11 @@ namespace Sleak {
             void SetOwnerObjectID(uint32_t id) { m_ownerObjectID = id; }
             uint32_t GetOwnerObjectID() const { return m_ownerObjectID; }
 
+            /// Shadow-only draws skip the camera passes. Default true.
+            void SetDrawsCamera(bool v) { m_drawsCamera = v; }
+            /// True when the camera passes draw this command.
+            bool DrawsCamera() const { return m_drawsCamera; }
+
             // Shadow-caster cull: distant draws render to the camera but skip the
             // shadow pass (their shadows are imperceptible). Default true.
             void SetCastsShadow(bool v) { m_castsShadow = v; }
@@ -67,6 +72,7 @@ namespace Sleak {
         private:
             uint32_t m_ownerObjectID = 0;
             bool m_castsShadow = true;
+            bool m_drawsCamera = true;
         };
 
         /// Non-indexed draw command with its vertex and constant buffers.
@@ -112,6 +118,26 @@ namespace Sleak {
             uint32_t m_indexCount;
             uint32_t m_startIndexLocation;
             int32_t m_baseVertexLocation;
+        };
+
+        /// Indexed draw of several ranges of one vertex and index buffer,
+        /// routed as DrawIndexed; the ranges live in the frame arena.
+        class DrawIndexedRangesCommand : public RenderCommandBase {
+           public:
+            /// Keeps the buffers and the arena copy of the ranges.
+            DrawIndexedRangesCommand(RefPtr<BufferBase> vertexBuffer,
+                                     RefPtr<BufferBase> indexBuffer,
+                                     const MeshRange* ranges, uint32_t count);
+
+            RENDER_COMMAND(DrawIndexed)
+            /// Same draws; the shadow entry binds the transform first.
+            void ExecuteShadow(RenderContext* context) override;
+
+           private:
+            RefPtr<BufferBase> m_vertexBuffer;
+            RefPtr<BufferBase> m_indexBuffer;
+            const MeshRange* m_ranges;
+            uint32_t m_count;
         };
 
         /// Constant buffer write, captured by value into inline storage or a heap fallback for larger payloads.
