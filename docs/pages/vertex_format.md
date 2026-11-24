@@ -195,6 +195,46 @@ of them is released; like any `MeshHandle`, release them all before the
 renderer shuts down. A mesh asking for more indices than `shared` holds
 comes back invalid, with an error in the log.
 
+### Batched ranges
+
+`MeshBatch::DrawRanges` draws several index ranges of one mesh as a single
+command, so the mesh's buffers bind once. A `MeshRange` reads `indexCount`
+indices from `firstIndex` and adds `baseVertex` to each of them. With the
+shared quad buffer above, `{0, 6 * n, 4 * q}` draws the `n` quads that start
+at quad `q`:
+
+```cpp
+// Quads 0-39 and 100-124 of one mesh, in one command
+const MeshRange ranges[2] = {
+    {0, 6 * 40, 4 * 0},
+    {0, 6 * 25, 4 * 100},
+};
+MeshBatch::DrawRanges(mesh, ranges, 2);
+```
+
+The call copies the ranges, so the array can be reused right away. Every
+range must stay inside the mesh: its indices within `indexCount`, and the
+vertices they reach within the vertex buffer. Nothing checks this.
+
+`MeshPasses` picks the passes a command takes part in: `Camera` for the
+GBuffer, forward and transparent passes, `Shadow` for the shadow pass, and
+`All`, the default, for both. A mesh whose camera and shadow ranges differ
+draws as two commands:
+
+```cpp
+MeshBatch::DrawRanges(mesh, visible.data(), visible.size(), MeshPasses::Camera);
+MeshBatch::DrawRanges(mesh, casters.data(), casters.size(), MeshPasses::Shadow);
+```
+
+`Draw(mesh, false)` matches `DrawRanges` with one whole-mesh range and
+`MeshPasses::Camera`. A `Shadow` command draws nothing in the camera passes,
+and the material and transform bound before it still reach the next draw of
+the batch. Like every caster, it is replayed in the next frame's shadow pass.
+
+Vulkan, DirectX 11 and DirectX 12 issue one indexed draw per range, and
+OpenGL one `glMultiDrawElementsBaseVertex` per command. The vertex and
+triangle counters count each range as one indexed draw.
+
 ---
 
 ## 3. Pipeline Binding per Backend

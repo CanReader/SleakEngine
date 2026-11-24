@@ -288,7 +288,10 @@ uses the engine's built-in 96-byte `Sleak::Vertex` layout, leaving
 `Draw` takes a `castsShadow` flag defaulting to true; pass false for distant
 geometry to keep it out of the shadow pass. `BeginBatch` binds the material
 and a shared identity-transform buffer once, so every `Draw` in the batch
-shares them.
+shares them. `DrawRanges` draws several index ranges of one mesh as one
+command, and its `MeshPasses` can keep that command to the camera passes or
+to the shadow pass; @ref vertex_format "vertex format registration" has an
+example.
 
 For geometry that moves, build a `MeshComponent` from the handle instead,
 `MeshComponent(object, mesh)`: the component draws the handle's buffers,
