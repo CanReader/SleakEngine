@@ -36,8 +36,10 @@ namespace Sleak {
 ///
 /// The occlusion pass adapts. When a rasterized frame culls nothing, it
 /// stops rasterizing and probes again every `probeInterval` frames, with
-/// queries falling back to frustum-only in between. GetStats() reports
-/// what the last pass actually did.
+/// queries falling back to frustum-only in between. OccludersWanted()
+/// says whether this frame's pass will rasterize, so you can skip building
+/// occluders while it idles. GetStats() reports what the last pass
+/// actually did.
 ///
 /// @code{.cpp}
 /// // Optional tuning, once at startup
@@ -109,6 +111,9 @@ public:
                                         uint32_t indexCount);
     /// Sorts submitted occluders by distance and rasterizes them into the depth buffer up to the max-occluder budget.
     static void FinalizeOccluders();
+    /// True when this frame's FinalizeOccluders will rasterize (occlusion
+    /// on and not idling); valid after BeginFrame.
+    static bool OccludersWanted();
 
     /// Frustum test, then conservative depth test against the occlusion
     /// buffer. Never falsely culls a visible box (given valid occluders).
