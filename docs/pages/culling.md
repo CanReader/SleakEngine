@@ -51,7 +51,7 @@ static void SubmitOccluderBox(const Math::AABB& box);                 // world-s
 static void SubmitOccluderTriangles(const Math::Vector3D* vertices, uint32_t vertexCount,
                                      const uint32_t* indices, uint32_t indexCount);
 static void FinalizeOccluders();                                       // sorts by distance, rasterizes up to the budget
-static bool OccludersWanted();                                         // after BeginFrame: false while occlusion is off or idling
+static bool OccludersWanted();                                         // from BeginFrame until FinalizeOccluders: false while occlusion is off or idling
 
 static bool IsVisible(const Math::AABB& box);              // frustum test, then conservative occlusion depth test
 static bool IsVisibleFrustumOnly(const Math::AABB& box);    // frustum test only, skips the occlusion buffer

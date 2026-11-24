@@ -112,7 +112,7 @@ public:
     /// Sorts submitted occluders by distance and rasterizes them into the depth buffer up to the max-occluder budget.
     static void FinalizeOccluders();
     /// True when this frame's FinalizeOccluders will rasterize (occlusion
-    /// on and not idling); valid after BeginFrame.
+    /// on and not idling); valid from BeginFrame until FinalizeOccluders.
     static bool OccludersWanted();
 
     /// Frustum test, then conservative depth test against the occlusion

@@ -265,6 +265,7 @@ namespace Sleak {
             // Future optimization: batch by material while preserving per-object groups.
         }
 
+        // DrawIndexed may be a ranges command: never cast by type alone
         void RenderCommandQueue::OptimizeBatching() {
             // Batching is a technique to call render commands as single pass instead pf multiple draw calls. This significantly improves rendering efficiency
             // TODO: Implement this method

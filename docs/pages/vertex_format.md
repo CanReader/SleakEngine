@@ -222,8 +222,10 @@ GBuffer, forward and transparent passes, `Shadow` for the shadow pass, and
 draws as two commands:
 
 ```cpp
-MeshBatch::DrawRanges(mesh, visible.data(), visible.size(), MeshPasses::Camera);
-MeshBatch::DrawRanges(mesh, casters.data(), casters.size(), MeshPasses::Shadow);
+MeshBatch::DrawRanges(mesh, visible.data(),
+                      static_cast<uint32_t>(visible.size()), MeshPasses::Camera);
+MeshBatch::DrawRanges(mesh, casters.data(),
+                      static_cast<uint32_t>(casters.size()), MeshPasses::Shadow);
 ```
 
 `Draw(mesh, false)` matches `DrawRanges` with one whole-mesh range and
