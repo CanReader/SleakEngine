@@ -161,6 +161,8 @@ void SubmitDrawIndexed(RefPtr<BufferBase> vertexBuffer, RefPtr<BufferBase> index
                         List<RefPtr<BufferBase>> constantBuffers, uint32_t indexCount,
                         uint32_t startIndexLocation = 0, int32_t baseVertexLocation = 0,
                         bool castsShadow = true);
+void SubmitDrawIndexedRanges(RefPtr<BufferBase> vertexBuffer, RefPtr<BufferBase> indexBuffer,
+                              const MeshRange* ranges, uint32_t count, MeshPasses passes);
 void SubmitDraw(RefPtr<BufferBase> vertexBuffer, List<RefPtr<BufferBase>> constantBuffers,
                  uint32_t vertexCount, uint32_t startVertexLocation = 0);
 void SubmitBindConstantBuffer(RefPtr<BufferBase> buffer, uint8_t slot);
@@ -184,6 +186,10 @@ queue during `Scene::Update`; `Application::Run` flushes it once per frame
 after `FlushPendingTransfers()`. The queue also caches shadow-pass draws
 across frames (`ShadowDrawEntry`, a 3-frame retirement window) so static
 geometry does not need to resubmit into the shadow pass every frame.
+`SubmitDrawIndexedRanges` (behind `MeshBatch::DrawRanges`) copies its ranges
+into the frame's command arena. A command without `MeshPasses::Camera` is
+only replayed in the shadow pass, and the state queued before it waits for
+the next draw.
 
 ---
 

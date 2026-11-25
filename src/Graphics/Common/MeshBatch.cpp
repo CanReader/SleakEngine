@@ -125,6 +125,14 @@ void MeshBatch::Draw(const MeshHandle& mesh, bool castsShadow) {
         castsShadow);
 }
 
+/// Submits ranges of a mesh as one command for the given passes.
+void MeshBatch::DrawRanges(const MeshHandle& mesh, const MeshRange* ranges,
+                           uint32_t count, MeshPasses passes) {
+    if (!mesh.IsValid() || !ranges || count == 0) return;
+    RenderEngine::RenderCommandQueue::GetInstance()->SubmitDrawIndexedRanges(
+        mesh.vertexBuffer, mesh.indexBuffer, ranges, count, passes);
+}
+
 void MeshBatch::EndBatch() {
     // Reserved for future use (e.g. restoring render state)
 }

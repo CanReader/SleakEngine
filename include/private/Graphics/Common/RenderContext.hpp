@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <Memory/RefPtr.hpp>
 #include <Graphics/Common/BufferBase.hpp>
 #include <Graphics/Common/Shader.hpp>
+#include <Memory/RefPtr.hpp>
+#include <Runtime/MeshBatch.hpp>
 #include <Runtime/Texture.hpp>
 #include <Runtime/VertexLayout.hpp>
+#include <cstdint>
+#include <string>
 
 namespace Sleak {
     class Material;
@@ -64,6 +65,14 @@ enum class DepthCompare {
             /// Indexed draw from firstIndex, adding baseVertex to each index.
             virtual void DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                      int32_t baseVertex) = 0;
+            /// Indexed draw of each range from the bound buffers; one
+            /// DrawIndexed per range unless the backend batches them.
+            virtual void DrawIndexedRanges(const MeshRange* ranges,
+                                           uint32_t count) {
+                for (uint32_t i = 0; i < count; ++i)
+                    DrawIndexed(ranges[i].indexCount, ranges[i].firstIndex,
+                                ranges[i].baseVertex);
+            }
             /// Non-indexed instanced draw.
             virtual void DrawInstance(uint32_t instanceCount, uint32_t vertexPerInstance) = 0;
             /// Indexed instanced draw.

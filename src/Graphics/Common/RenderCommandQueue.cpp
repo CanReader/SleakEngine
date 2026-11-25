@@ -4,6 +4,7 @@
 #include <Memory/ObjectPtr.hpp>
 #include <Runtime/Material.hpp>
 #include <algorithm>
+#include <type_traits>
 
 #include "../../include/private/Graphics/Common/BufferBase.hpp"
 #include "../../include/private/Graphics/Common/RenderCommands.hpp"
@@ -33,6 +34,24 @@ namespace Sleak {
                 std::move(constantBuffers), indexCount, startIndexLocation,
                 baseVertexLocation);
             command->SetCastsShadow(castsShadow);
+        }
+
+        void RenderCommandQueue::SubmitDrawIndexedRanges(
+            RefPtr<BufferBase> vertexBuffer, RefPtr<BufferBase> indexBuffer,
+            const MeshRange* ranges, uint32_t count, MeshPasses passes) {
+            // The arena rewinds without destroying the ranges
+            static_assert(std::is_trivially_destructible_v<MeshRange>);
+            CommandArena& arena = CurrentArena();
+            auto* copy = static_cast<MeshRange*>(
+                arena.Allocate(sizeof(MeshRange) * count, alignof(MeshRange)));
+            std::uninitialized_copy_n(ranges, count, copy);
+            auto* command = arena.Create<DrawIndexedRangesCommand>(
+                std::move(vertexBuffer), std::move(indexBuffer), copy, count);
+            const auto bits = static_cast<uint8_t>(passes);
+            command->SetDrawsCamera(
+                (bits & static_cast<uint8_t>(MeshPasses::Camera)) != 0);
+            command->SetCastsShadow(
+                (bits & static_cast<uint8_t>(MeshPasses::Shadow)) != 0);
         }
 
         void RenderCommandQueue::SubmitBindConstantBuffer(RefPtr<BufferBase> buffer, uint8_t slot) {
@@ -169,6 +188,8 @@ namespace Sleak {
                     }
 
                     if (type == CommandType::Draw || type == CommandType::DrawIndexed) {
+                        // Shadow-only: pending state waits for the next draw
+                        if (!cmd->DrawsCamera()) continue;
                         // Skinned meshes have no GBuffer pipeline variant — the
                         // skinned pipeline is render-pass-compatible only with
                         // the forward pass, so route them there even when opaque.
@@ -207,7 +228,8 @@ namespace Sleak {
             // ---- Forward rendering path: the atmosphere's sky, then the
             // commands in submission order ----
             context->RenderForwardSky();
-            for (RenderCommandBase* cmd : commands) cmd->Execute(context);
+            for (RenderCommandBase* cmd : commands)
+                if (cmd->DrawsCamera()) cmd->Execute(context);
             AdvanceArena();
         }
 
@@ -243,6 +265,7 @@ namespace Sleak {
             // Future optimization: batch by material while preserving per-object groups.
         }
 
+        // DrawIndexed may be a ranges command: never cast by type alone
         void RenderCommandQueue::OptimizeBatching() {
             // Batching is a technique to call render commands as single pass instead pf multiple draw calls. This significantly improves rendering efficiency
             // TODO: Implement this method

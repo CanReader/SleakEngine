@@ -42,6 +42,22 @@ namespace Sleak {
         }
     };
 
+    /// One indexed sub-draw of a mesh.
+    /// @ingroup rendering
+    struct MeshRange {
+        uint32_t firstIndex = 0;  ///< first index read
+        uint32_t indexCount = 0;  ///< indices drawn
+        int32_t baseVertex = 0;   ///< added to every index
+    };
+
+    /// Passes a batched draw takes part in.
+    /// @ingroup rendering
+    enum class MeshPasses : uint8_t {
+        Camera = 1u << 0,  ///< GBuffer, forward or transparent pass
+        Shadow = 1u << 1,  ///< shadow pass (replayed next frame)
+        All = Camera | Shadow,
+    };
+
     /// GPU mesh handle pool for bulk static geometry. Draw through
     /// BeginBatch/Draw/EndBatch.
     ///
@@ -62,7 +78,9 @@ namespace Sleak {
     /// Drawing is a three-step batch: BeginBatch() binds the material and
     /// an identity transform once, each Draw() issues one indexed draw
     /// call, and EndBatch() closes the batch. Passing `castsShadow = false`
-    /// keeps distant geometry out of the shadow pass.
+    /// keeps distant geometry out of the shadow pass. DrawRanges() draws
+    /// several index ranges of one mesh as one command, and its MeshPasses
+    /// can keep that command to the camera passes or to the shadow pass.
     ///
     /// Every entry point touches renderer state, so call them from the
     /// thread that drives the frame, and call Shutdown() before the
@@ -129,6 +147,12 @@ namespace Sleak {
         /// Submit one indexed draw call (vertex + index buffer bind + DrawIndexed).
         /// castsShadow=false makes the draw skip the shadow pass (distant geometry).
         static void Draw(const MeshHandle& mesh, bool castsShadow = true);
+
+        /// Submits several ranges of one mesh as one command: buffers bind
+        /// once. The ranges are copied, so the array can be reused at once.
+        static void DrawRanges(const MeshHandle& mesh, const MeshRange* ranges,
+                               uint32_t count,
+                               MeshPasses passes = MeshPasses::All);
 
         /// End the batch (currently a no-op, reserved for future use).
         static void EndBatch();

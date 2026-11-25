@@ -531,6 +531,27 @@ void OpenGLRenderer::DrawIndexed(uint32_t indexCount, uint32_t firstIndex,
     DrawnTriangles += indexCount / 3;
 }
 
+void OpenGLRenderer::DrawIndexedRanges(const MeshRange* ranges,
+                                       uint32_t count) {
+    if (m_formatDrawsSuppressed) return;
+    m_rangeCounts.resize(count);
+    m_rangeOffsets.resize(count);
+    m_rangeBaseVertices.resize(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        const MeshRange& range = ranges[i];
+        m_rangeCounts[i] = static_cast<GLsizei>(range.indexCount);
+        m_rangeOffsets[i] = reinterpret_cast<const void*>(
+            static_cast<uintptr_t>(range.firstIndex) * sizeof(uint32_t));
+        m_rangeBaseVertices[i] = range.baseVertex;
+        DrawnVertices += range.indexCount;
+        DrawnTriangles += range.indexCount / 3;
+    }
+    GLenum mode = m_debugLineMode ? GL_LINES : GL_TRIANGLES;
+    glMultiDrawElementsBaseVertex(
+        mode, m_rangeCounts.data(), GL_UNSIGNED_INT, m_rangeOffsets.data(),
+        static_cast<GLsizei>(count), m_rangeBaseVertices.data());
+}
+
 void OpenGLRenderer::DrawInstance(uint32_t instanceCount,
                                    uint32_t vertexPerInstance) {
     if (m_formatDrawsSuppressed) return;

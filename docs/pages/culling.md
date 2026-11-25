@@ -51,6 +51,7 @@ static void SubmitOccluderBox(const Math::AABB& box);                 // world-s
 static void SubmitOccluderTriangles(const Math::Vector3D* vertices, uint32_t vertexCount,
                                      const uint32_t* indices, uint32_t indexCount);
 static void FinalizeOccluders();                                       // sorts by distance, rasterizes up to the budget
+static bool OccludersWanted();                                         // from BeginFrame until FinalizeOccluders: false while occlusion is off or idling
 
 static bool IsVisible(const Math::AABB& box);              // frustum test, then conservative occlusion depth test
 static bool IsVisibleFrustumOnly(const Math::AABB& box);    // frustum test only, skips the occlusion buffer
@@ -100,7 +101,9 @@ Adaptive occlusion skips rasterization for `probeInterval` frames once a
 rasterized frame culls nothing, then probes again; queries degrade to
 frustum-only while a skip is in effect. This keeps a mostly-static camera
 from paying the rasterization cost every frame while still catching new
-occlusion when the camera moves.
+occlusion when the camera moves. `OccludersWanted` returns false on those
+frames and while occlusion is off, so a game can skip building occluders
+that `FinalizeOccluders` would throw away.
 
 Occluder boxes and triangles submitted through
 `SubmitOccluderBox`/`SubmitOccluderTriangles` must represent fully solid

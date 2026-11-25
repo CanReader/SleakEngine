@@ -596,6 +596,12 @@ void CullingSystem::FinalizeOccluders() {
         std::chrono::duration<float, std::milli>(t1 - t0).count();
 }
 
+/// Mirrors FinalizeOccluders: a frame, occlusion on, no adaptive idling.
+bool CullingSystem::OccludersWanted() {
+    const CullState& s = State();
+    return s.hasFrame && s.occlusionEnabled && s.skipFrames == 0;
+}
+
 bool CullingSystem::IsVisible(const Math::AABB& box) {
     CullState& s = State();
     ++s.stats.tested;
