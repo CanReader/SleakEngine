@@ -737,8 +737,8 @@ private:
  // 4 color attachments: RT0=AlbedoAO, RT1=NormalRough, RT2=MetalEmit,
  // RT3=MotionModel (custom-format GBuffer stems; 0 for engine materials).
  // World position is reconstructed from the depth buffer + InvViewProj in
- // the lighting/SSAO/SSR passes (no RGBA32F worldpos RT) to cut GBuffer
- // bandwidth on a fill-bound renderer.
+ // the lighting/SSR passes, view position in SSAO (no RGBA32F worldpos RT)
+ // to cut GBuffer bandwidth on a fill-bound renderer.
  static constexpr uint32_t GBUFFER_RT3 = 3;
  static constexpr uint32_t GBUFFER_COUNT = GBUFFER_RT3 + 1;
  // Per-attachment blend state, which masking RT3 alone needs
@@ -936,7 +936,6 @@ private:
     struct alignas(16) SSAOParams {
         float View[16];
         float Projection[16];
-        float InvViewProj[16];              // inverse(View*Proj) for depth recon
         float Kernel[SSAO_KERNEL_SIZE][4];  // xyz=dir, w=pad
         float ScreenW, ScreenH;
         float NoiseScaleX, NoiseScaleY;
@@ -959,8 +958,8 @@ private:
     // from DeferredCB's InvViewProj). We populate View+Projection at SSAO time.
     float m_cachedView[16]       = {};
     float m_cachedProjection[16] = {};
-    // inverse(View*Proj) snapshot from the lighting DeferredCB — reused by the
-    // SSAO/SSR passes to reconstruct world position from the depth buffer.
+    // inverse(View*Proj) snapshot from the lighting DeferredCB, reused by the
+    // SSR and scene-read passes to reconstruct world position from depth.
     float m_cachedInvViewProj[16] = {};
 
     /// Creates all SSAO images, render pass, framebuffers, descriptors, and pipelines.

@@ -167,7 +167,7 @@ bool VulkanRenderer::CreateSSAOFramebuffers() {
 /// Creates the SSAO input/UBO/blur descriptor layouts, pool, sets, and UBO buffers.
 bool VulkanRenderer::CreateSSAODescriptorResources() {
     // Set 0 for SSAO: bindings 0..2 (gNormalRough, gDepth, noise).
-    // World position is reconstructed from gDepth + InvViewProj (set 1 UBO).
+    // View position is reconstructed from gDepth + Projection (set 1 UBO).
     {
         std::array<VkDescriptorSetLayoutBinding, 3> binds{};
         for (uint32_t i = 0; i < 3; ++i) {
@@ -680,7 +680,6 @@ void VulkanRenderer::UpdateSSAOUBO() {
     SSAOParams p{};
     memcpy(p.View,        m_cachedView,        sizeof(p.View));
     memcpy(p.Projection,  m_cachedProjection,  sizeof(p.Projection));
-    memcpy(p.InvViewProj, m_cachedInvViewProj, sizeof(p.InvViewProj));
 
     // Generate cosine-weighted hemisphere kernel — we do this once in a
     // session (use a fixed RNG seed). The kernel vectors are in the tangent
