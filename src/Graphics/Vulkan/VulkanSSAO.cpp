@@ -679,7 +679,7 @@ void VulkanRenderer::UpdateSSAOUBO() {
 
     SSAOParams p{};
     memcpy(p.View,        m_cachedView,        sizeof(p.View));
-    memcpy(p.Projection,  m_cachedProjection,  sizeof(p.Projection));
+    memcpy(p.Projection, m_cachedProjection, sizeof(p.Projection));
 
     // Generate cosine-weighted hemisphere kernel — we do this once in a
     // session (use a fixed RNG seed). The kernel vectors are in the tangent
