@@ -5,10 +5,10 @@
 //
 // Reads:
 //   set 0 binding 0: gNormalRough  (world-space normal encoded + roughness.a)
-//   set 0 binding 1: gDepth        (depth buffer — world pos reconstructed)
+//   set 0 binding 1: gDepth        (depth buffer, view pos reconstructed)
 //   set 0 binding 2: noiseTexture  (4x4 random unit vectors, tiled)
 //
-// UBO (set 1 binding 0): SSAOParams — kernel, view/proj/invViewProj matrices
+// UBO (set 1 binding 0): SSAOParams, kernel and view/proj matrices
 //
 // Output: single-channel R8 occlusion factor (1.0 = clear, 0.0 = occluded)
 // ============================================================
@@ -23,7 +23,6 @@ layout(set = 0, binding = 2) uniform sampler2D noiseTex;
 layout(set = 1, binding = 0) uniform SSAOParams {
     mat4 View;           // world -> view
     mat4 Projection;     // view  -> clip
-    mat4 InvViewProj;    // clip  -> world (depth reconstruction)
     vec4 Kernel[32];     // hemisphere samples in tangent space (xyz=dir, w=unused)
     vec2 ScreenSize;     // full-res width, height (for noise tiling)
     vec2 NoiseScale;     // ScreenSize / 4 for noise UV
@@ -35,18 +34,20 @@ layout(set = 1, binding = 0) uniform SSAOParams {
     float _pad0, _pad1, _pad2;
 };
 
-// Reconstruct world position from depth. Vulkan: geometry is Y-flipped in the
-// GBuffer vertex shader and depth is [0,1], so NDC.y is negated vs the UV.
-vec3 ReconstructWorldPos(vec2 uv, float depth) {
-    vec4 ndc   = vec4(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y, depth, 1.0);
-    vec4 world = InvViewProj * ndc;
-    return world.xyz / world.w;
-}
-
 // View-space Z for a depth value, solved from the projection's z and w rows.
 float ViewZFromDepth(float depth) {
     return (Projection[3][2] - depth * Projection[3][3]) /
            (depth * Projection[2][3] - Projection[2][2]);
+}
+
+/// View-space position of a depth texel from the projection alone, exact far
+/// from the origin; NDC.y is negated vs the UV (GBuffer shaders flip Y).
+vec3 ReconstructViewPos(vec2 uv, float depth) {
+    float viewZ = ViewZFromDepth(depth);
+    float clipW = Projection[2][3] * viewZ + Projection[3][3];
+    vec2 ndc = vec2(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
+    vec2 clipXY = ndc * clipW - Projection[2].xy * viewZ - Projection[3].xy;
+    return vec3(clipXY / vec2(Projection[0][0], Projection[1][1]), viewZ);
 }
 
 void main() {
@@ -57,13 +58,9 @@ void main() {
         return;
     }
 
-    // Reconstruct world-space position from depth; normal from GBuffer.
-    vec3 worldPos = ReconstructWorldPos(fragUV, depth);
-    vec3 worldN   = normalize(texture(gNormalRough, fragUV).rgb * 2.0 - 1.0);
-
-    // Move into view space — AO is cleanest in the space where the
-    // projection happens, and Z is monotonic along the view ray.
-    vec3 viewPos = (View * vec4(worldPos, 1.0)).xyz;
+    // View-space position from depth; normal from GBuffer, rotated to view.
+    vec3 viewPos = ReconstructViewPos(fragUV, depth);
+    vec3 worldN  = normalize(texture(gNormalRough, fragUV).rgb * 2.0 - 1.0);
     vec3 viewN   = normalize(mat3(View) * worldN);
 
     // Random rotation vector (in the tangent plane) — tiled from the 4x4 noise.
